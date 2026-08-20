@@ -1,6 +1,6 @@
 # Maia Human Move Explorer
 
-A password-protected web explorer for the moves a similarly rated human is likely to play. It uses the official [CSSLab Maia-3](https://github.com/CSSLab/maia3) implementation and its 5M checkpoint by default.
+A public, unlisted web explorer for the moves a similarly rated human is likely to play. It uses the official [CSSLab Maia-3](https://github.com/CSSLab/maia3) implementation and its 5M checkpoint by default.
 
 ## What it does
 
@@ -46,15 +46,15 @@ Record cold load, warm median/p95/max and peak RSS. Prefer 5M unless 23M remains
 
 ## Production deployment
 
-The files under `deploy/` and `scripts/` target Debian/Ubuntu, Python 3.11+, systemd and nginx. They deliberately do not automate DNS, TLS, password creation, or firewall changes.
+The files under `deploy/` and `scripts/` target Debian/Ubuntu, Python 3.11+, systemd and nginx. They deliberately do not automate DNS, TLS, or firewall changes.
 
 1. Create an unprivileged `maia` system user and `/opt/maia-human-move-explorer`.
 2. Clone the repository as a timestamped release and point `current` to it.
 3. Run `sudo scripts/install.sh` once and `sudo scripts/update.sh` for atomic updates.
-4. Create `/etc/nginx/maia.htpasswd` with `htpasswd`, install `deploy/nginx.bootstrap.conf`, obtain the certificate with Certbot's webroot flow, then install `deploy/nginx.conf` and validate with `nginx -t`.
+4. Install `deploy/nginx.bootstrap.conf`, obtain the certificate with Certbot's webroot flow, then install `deploy/nginx.conf` and validate with `nginx -t`.
 5. Start the service, verify `/healthz`, then make one authenticated prediction to load the checkpoint before accepting traffic.
 
-The nginx template provides Basic Auth, TLS-only redirect, request limiting, a strict same-origin CSP and `X-Robots-Tag`. Basic Auth is only safe over HTTPS. Keep port 8310 bound to loopback and block it externally. Do not put credentials in Git or environment files in the checkout. Rotate the password if shared more broadly than intended. Logs may contain request timing but the app never logs FENs or credentials itself.
+The nginx template provides a TLS-only redirect, request limiting, a strict same-origin CSP and `X-Robots-Tag: noindex, nofollow, noarchive`. Keep port 8310 bound to loopback and block it externally. Logs may contain request timing but the app never logs FENs itself.
 
 ## Licensing and source offer
 

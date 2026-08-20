@@ -9,4 +9,4 @@ python3 -m venv /opt/maia-human-move-explorer/venv
 install -m 0644 deploy/maia-explorer.service /etc/systemd/system/maia-explorer.service
 systemctl daemon-reload
 systemctl enable maia-explorer.service
-echo "Installed. Create /etc/nginx/maia.htpasswd, install the nginx template, request TLS, then start the service."
+echo "Installed. Install the nginx bootstrap template, request TLS, then install the production template and start the service."
