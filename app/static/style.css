@@ -2,8 +2,8 @@
 /* Opening Drill's accepted chess treatment: Cburnett pieces and Study board palette. */
 :root{--ink:#17231e;--muted:#667069;--paper:#f3efe6;--card:#fffcf6;--dark:#718268;--light:#e7d9ba;--line:#ded6c7;--shadow:0 14px 36px #382b1b18}
 main{max-width:1060px;grid-template-columns:minmax(320px,560px) minmax(300px,400px);gap:42px}
-.board{max-width:560px;border:1px solid #594d3b33;border-radius:7px;box-shadow:var(--shadow)}
-.square{font-size:0}
+.board{max-width:560px;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));border:1px solid #594d3b33;border-radius:7px;box-shadow:var(--shadow)}
+.square{min-width:0;min-height:0;font-size:0;overflow:hidden}
 .piece{display:block;width:82%;height:82%;object-fit:contain;position:relative;z-index:2;pointer-events:none;user-select:none}
 .square.selected{box-shadow:inset 0 0 0 4px #c4933e}
 .square.target:after{width:20%;background:#c4933ecc;z-index:3}
