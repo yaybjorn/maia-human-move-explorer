@@ -18,7 +18,7 @@ function render(){
     const sq=file+rank,b=document.createElement('button'),legal=state.legal_moves.filter(m=>m.from===selected&&m.to===sq),piece=map[sq];
     b.className=`square ${(files.indexOf(file)+ranks.indexOf(rank))%2?'dark':'light'}${selected===sq?' selected':''}${legal.length?piece?' capture':' target':''}`;
     b.dataset.square=sq;b.setAttribute('aria-label',`${sq}${piece?' '+pieceName[piece]:''}`);
-    b.innerHTML=`${piece?`<img class="piece" src="/static/pieces/${pieceAsset[piece]}.svg" alt="" draggable="false">`:''}${file===files[7]?`<span class="coord rank">${rank}</span>`:''}${rank===ranks[7]?`<span class="coord file">${file}</span>`:''}`;
+    b.innerHTML=`${piece?`<img class="piece" src="/static/pieces/${pieceAsset[piece]}.svg" alt="" draggable="false">`:''}${file===files[0]?`<span class="coord rank">${rank}</span>`:''}${rank===ranks[7]?`<span class="coord file">${file}</span>`:''}`;
     b.onclick=()=>clickSquare(sq,map);board.append(b);
   }
   $('start').disabled=current===root;$('back').disabled=current===root;$('forward').disabled=!nextNode();$('end').disabled=!nextNode();renderHistory();
