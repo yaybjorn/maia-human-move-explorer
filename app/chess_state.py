@@ -88,6 +88,8 @@ def parse_pgn_tree(pgn_text: str) -> tuple[list[dict], dict[str, str]]:
             visit(variation, node_id)
 
     visit(game, None)
+    if not nodes:
+        raise PositionError("Invalid PGN: the game contains no moves")
     headers = {key: value for key, value in game.headers.items() if value not in ("?", "*")}
     return nodes, headers
 

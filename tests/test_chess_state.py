@@ -33,3 +33,8 @@ def test_rejects_position_only_pgn():
     pgn = '[SetUp "1"]\n[FEN "8/8/8/8/8/4k3/8/4K3 w - - 0 1"]\n\n*'
     with pytest.raises(PositionError, match="standard starting position"):
         parse_pgn_tree(pgn)
+
+
+def test_rejects_text_that_is_not_a_game():
+    with pytest.raises(PositionError, match="contains no moves"):
+        parse_pgn_tree("not actually a PGN")
