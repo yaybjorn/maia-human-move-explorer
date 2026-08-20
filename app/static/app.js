@@ -1,6 +1,6 @@
 const pieceAsset={K:'white-king',Q:'white-queen',R:'white-rook',B:'white-bishop',N:'white-knight',P:'white-pawn',k:'black-king',q:'black-queen',r:'black-rook',b:'black-bishop',n:'black-knight',p:'black-pawn'};
 const pieceName={K:'white king',Q:'white queen',R:'white rook',B:'white bishop',N:'white knight',P:'white pawn',k:'black king',q:'black queen',r:'black rook',b:'black bishop',n:'black knight',p:'black pawn'};
-let root,newId,current,state=null,headers={},flipped=false,selected=null,busy=false;
+let root,newId,current,state=null,headers={},flipped=false,selected=null,busy=false,analysisQueued=false;
 const $=id=>document.getElementById(id);
 
 function freshTree(){root={id:0,parent:null,children:[]};current=root;newId=1;headers={}}
@@ -38,12 +38,11 @@ function appendBranch(node,container){container.append(moveButton(node));if(node
 function renderHistory(){
   const history=$('history');history.innerHTML='';
   const start=document.createElement('button');start.className=`move-chip start${current===root?' current':''}`;start.textContent='Start';start.onclick=()=>navigate(root);history.append(start);appendFrom(root,history);
-  const ply=pathTo(current).length;$('ply').textContent=ply?`${ply} ply selected`:'Start';
 }
 function rememberPath(node){while(node&&node.parent){node.parent.preferred=node;node=node.parent}}
 function nextNode(){return current.preferred||current.children[0]||null}
 function endNode(){let node=current,next;while((next=node.preferred||node.children[0]||null))node=next;return node}
-function navigate(node){rememberPath(node);current=node;selected=null;refresh();$('suggestions').innerHTML='<p class="empty">Analyze this point in the game to see likely moves.</p>';$('context').textContent='Awaiting analysis'}
+async function navigate(node){rememberPath(node);current=node;selected=null;await refresh();await analyze()}
 
 async function refresh(){try{state=await api('/api/state',request());$('error').textContent='';render()}catch(e){$('error').textContent=e.message}}
 function addMove(uci,san){let node=current.children.find(child=>child.uci===uci);if(!node){node={id:newId++,parent:current,children:[],uci,san,ply:pathTo(current).length+1};current.children.push(node)}current.preferred=node;current=node}
@@ -54,14 +53,17 @@ async function clickSquare(sq,map){
   if(map[sq]&&state.legal_moves.some(m=>m.from===sq)){selected=sq;render()}else{selected=null;render()}
 }
 async function analyze(){
-  if(busy||state?.game_over)return;busy=true;$('analyze').disabled=true;$('analyze').textContent='Thinking…';$('suggestions').innerHTML='<p class="empty">Maia is considering the position…</p>';
-  try{const data=await api('/api/predict',{...request(),rating:+$('rating').value,opponent_rating:+$('opponent').value});showSuggestions(data.suggestions);$('context').textContent=`${$('rating').value} vs ${$('opponent').value}`;$('error').textContent=''}catch(e){$('suggestions').innerHTML='<p class="empty">Prediction unavailable.</p>';$('error').textContent=e.message}finally{busy=false;$('analyze').disabled=false;$('analyze').textContent='Show likely human moves'}
+  if(state?.game_over)return;
+  if(busy){analysisQueued=true;return}
+  busy=true;$('suggestions').innerHTML='<p class="empty">Maia is considering the position…</p>';
+  try{const data=await api('/api/predict',{...request(),rating:+$('rating').value,opponent_rating:+$('opponent').value});showSuggestions(data.suggestions);$('context').textContent=`${$('rating').value} vs ${$('opponent').value}`;$('error').textContent=''}catch(e){$('suggestions').innerHTML='<p class="empty">Prediction unavailable.</p>';$('error').textContent=e.message}finally{busy=false;if(analysisQueued){analysisQueued=false;analyze()}}
 }
 function showSuggestions(items){$('suggestions').innerHTML='';items.forEach((m,i)=>{const b=document.createElement('button');b.className='suggestion';b.innerHTML=`<span>${i+1}</span><span><b>${m.san}</b><div class="bar"><div class="fill" style="width:${m.probability*100}%"></div></div></span><em>${(m.probability*100).toFixed(1)}%</em>`;b.onclick=()=>playMove(m.uci,m.san);$('suggestions').append(b)})}
 
 function hydrateTree(items){freshTree();const nodes=new Map();for(const item of items){nodes.set(item.id,{...item,parent:null,children:[]});newId=Math.max(newId,item.id+1)}for(const item of items){const node=nodes.get(item.id),parent=item.parent_id===null?root:nodes.get(item.parent_id);node.parent=parent;parent.children.push(node)}current=root;while(current.children.length){current.preferred=current.children[0];current=current.children[0]}}
-$('loadPgn').onclick=async()=>{try{const data=await api('/api/parse-pgn',{pgn:$('pgn').value.trim()});hydrateTree(data.nodes);headers=data.headers;selected=null;await refresh();$('suggestions').innerHTML='<p class="empty">PGN loaded. Select any move or analyze the current position.</p>';$('error').textContent=''}catch(e){$('error').textContent=e.message}};
-$('start').onclick=()=>navigate(root);$('back').onclick=()=>navigate(current.parent||root);$('forward').onclick=()=>{const node=nextNode();if(node)navigate(node)};$('end').onclick=()=>navigate(endNode());$('flip').onclick=()=>{flipped=!flipped;render()};$('analyze').onclick=analyze;
+$('loadPgn').onclick=async()=>{try{const data=await api('/api/parse-pgn',{pgn:$('pgn').value.trim()});hydrateTree(data.nodes);headers=data.headers;selected=null;await refresh();await analyze();$('error').textContent=''}catch(e){$('error').textContent=e.message}};
+$('start').onclick=()=>navigate(root);$('back').onclick=()=>navigate(current.parent||root);$('forward').onclick=()=>{const node=nextNode();if(node)navigate(node)};$('end').onclick=()=>navigate(endNode());$('flip').onclick=()=>{flipped=!flipped;render()};
 $('rating').oninput=e=>$('ratingOut').value=e.target.value;$('opponent').oninput=e=>$('opponentOut').value=e.target.value;
+$('rating').onchange=analyze;$('opponent').onchange=analyze;
 document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||e.target.matches('input,textarea,select')||e.target.isContentEditable)return;const action={ArrowLeft:()=>navigate(current.parent||root),ArrowRight:()=>{const node=nextNode();if(node)navigate(node)},ArrowUp:()=>navigate(root),ArrowDown:()=>navigate(endNode())}[e.key];if(action){e.preventDefault();action()}});
-refresh();
+refresh().then(analyze);
