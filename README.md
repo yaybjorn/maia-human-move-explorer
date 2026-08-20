@@ -51,7 +51,7 @@ The files under `deploy/` and `scripts/` target Debian/Ubuntu, Python 3.11+, sys
 1. Create an unprivileged `maia` system user and `/opt/maia-human-move-explorer`.
 2. Clone the repository as a timestamped release and point `current` to it.
 3. Run `sudo scripts/install.sh` once and `sudo scripts/update.sh` for atomic updates.
-4. Create `/etc/nginx/maia.htpasswd` with `htpasswd`, install `deploy/nginx.conf`, validate with `nginx -t`, and obtain TLS through the existing Certbot workflow.
+4. Create `/etc/nginx/maia.htpasswd` with `htpasswd`, install `deploy/nginx.bootstrap.conf`, obtain the certificate with Certbot's webroot flow, then install `deploy/nginx.conf` and validate with `nginx -t`.
 5. Start the service, verify `/healthz`, then make one authenticated prediction to load the checkpoint before accepting traffic.
 
 The nginx template provides Basic Auth, TLS-only redirect, request limiting, a strict same-origin CSP and `X-Robots-Tag`. Basic Auth is only safe over HTTPS. Keep port 8310 bound to loopback and block it externally. Do not put credentials in Git or environment files in the checkout. Rotate the password if shared more broadly than intended. Logs may contain request timing but the app never logs FENs or credentials itself.
