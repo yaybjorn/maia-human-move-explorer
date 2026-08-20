@@ -1,0 +1,29 @@
+[Unit]
+Description=Maia Human Move Explorer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maia
+Group=maia
+WorkingDirectory=/opt/maia-human-move-explorer/current
+Environment=MAIA_MODEL=maia3-5m
+Environment=HF_HOME=/opt/maia-human-move-explorer/cache/huggingface
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/maia-human-move-explorer/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8310 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/maia-human-move-explorer/cache
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target
+

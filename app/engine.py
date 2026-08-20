@@ -38,7 +38,7 @@ class MaiaEngine:
             engine.board = position.board.copy(stack=False)
             engine.history = deque(maxlen=engine.cfg.history)
             for board in position.boards[-engine.cfg.history:]:
-                engine.history.append(engine.__class__.__module__ and _tokenize(board))
+                engine.history.append(_tokenize(board))
             engine.self_elo = max(0, min(5000, self_elo))
             engine.oppo_elo = max(0, min(5000, opponent_elo))
             _, scored = engine.score_moves()
@@ -58,4 +58,3 @@ def _tokenize(board: chess.Board):
 
 
 engine = MaiaEngine()
-
