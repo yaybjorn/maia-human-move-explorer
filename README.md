@@ -10,6 +10,7 @@ A public, unlisted web explorer for the moves a similarly rated human is likely 
 - Independent self/opponent ratings (0–5000), with both defaulting to 1500
 - Top-five policy probabilities from Maia's official `score_moves()` path, displayed as SAN
 - Click-to-play suggestions, undo, reset, flip, copy FEN, and copy PGN
+- Cburnett's high-contrast tournament chess pieces, licensed CC BY-SA 3.0
 
 The probabilities represent human move likelihood, not objective move quality.
 
@@ -61,3 +62,5 @@ The nginx template provides a TLS-only redirect, request limiting, a strict same
 This service is AGPL-3.0-or-later, matching Maia-3. The deployed UI always links to this public repository. A network deployment must publish the **exact corresponding source** for its running version, including local modifications and deployment/build scripts. Preserve copyright and license notices for upstream Maia-3. Model files are downloaded from the official Hugging Face repositories; confirm their applicable terms with the publisher before any use requiring additional legal certainty.
 
 This repository contains no model weights, secrets, credentials, user data, or paid infrastructure configuration.
+
+The included Cburnett chess-piece SVGs are original, unmodified Wikimedia Commons files licensed under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). Source pages are linked from the deployed UI.
