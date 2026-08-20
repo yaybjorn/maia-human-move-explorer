@@ -14,6 +14,7 @@ from .chess_state import (
     replay,
 )
 from .engine import engine
+from .stockfish import stockfish
 
 ROOT = Path(__file__).resolve().parent
 START_FEN = chess.STARTING_FEN
@@ -67,7 +68,7 @@ def position_error(_, exc: PositionError):
 
 @app.get("/healthz")
 def health():
-    return {"status": "ok", "model": engine.model_name}
+    return {"status": "ok", "model": engine.model_name, "stockfish": stockfish.version}
 
 
 @app.post("/api/parse-pgn")
@@ -98,6 +99,14 @@ def predict(request: PredictRequest):
         "suggestions": engine.predict(position, request.rating, opponent),
         "model": engine.model_name,
     }
+
+
+@app.post("/api/stockfish")
+def stockfish_analysis(request: PositionRequest):
+    position = replay(START_FEN, request.moves)
+    if position.board.is_game_over(claim_draw=True):
+        raise HTTPException(409, "The game is over; there are no moves to analyze")
+    return stockfish.analyze(position.board)
 
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")

@@ -15,6 +15,12 @@ main{max-width:1060px;grid-template-columns:minmax(320px,560px) minmax(300px,400
 .move-chip.current{background:var(--accent);color:white}
 .move-chip.start{font-family:ui-sans-serif,system-ui,sans-serif}
 .variation{display:inline-flex;align-items:center;flex-wrap:wrap;gap:3px;color:#958a7a;background:#f3efe6;border-radius:7px;padding:1px 4px}
+.engine-lines{display:grid;gap:7px}
+.engine-line{display:grid;grid-template-columns:24px auto 1fr;grid-template-areas:"rank move score" "rank pv pv";align-items:center;gap:2px 9px;border:1px solid var(--line);background:#faf8f1;text-align:left;padding:9px 10px;min-width:0}
+.engine-rank{grid-area:rank;color:var(--muted)}
+.engine-line strong{grid-area:move;font:700 18px Georgia,serif}
+.engine-line em{grid-area:score;justify-self:end;font-style:normal;font-weight:700;color:var(--accent)}
+.engine-line small{grid-area:pv;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 
 /* Phones should feel like an app, not a desktop page squeezed into a viewport. */
 @media(max-width:520px){

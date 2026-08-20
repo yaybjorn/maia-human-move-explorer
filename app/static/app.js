@@ -1,6 +1,6 @@
 const pieceAsset={K:'white-king',Q:'white-queen',R:'white-rook',B:'white-bishop',N:'white-knight',P:'white-pawn',k:'black-king',q:'black-queen',r:'black-rook',b:'black-bishop',n:'black-knight',p:'black-pawn'};
 const pieceName={K:'white king',Q:'white queen',R:'white rook',B:'white bishop',N:'white knight',P:'white pawn',k:'black king',q:'black queen',r:'black rook',b:'black bishop',n:'black knight',p:'black pawn'};
-let root,newId,current,state=null,headers={},flipped=false,selected=null,busy=false,analysisQueued=false;
+let root,newId,current,state=null,headers={},flipped=false,selected=null,busy=false,analysisQueued=false,analysisToken=0;
 const $=id=>document.getElementById(id);
 
 function freshTree(){root={id:0,parent:null,children:[]};current=root;newId=1;headers={}}
@@ -55,10 +55,12 @@ async function clickSquare(sq,map){
 async function analyze(){
   if(state?.game_over)return;
   if(busy){analysisQueued=true;return}
-  busy=true;$('suggestions').innerHTML='<p class="empty">Maia is considering the position…</p>';
-  try{const data=await api('/api/predict',{...request(),rating:+$('rating').value,opponent_rating:+$('opponent').value});state=data;render();showSuggestions(data.suggestions);$('context').textContent=`${$('rating').value} vs ${$('opponent').value}`;$('error').textContent=''}catch(e){$('suggestions').innerHTML='<p class="empty">Prediction unavailable.</p>';$('error').textContent=e.message}finally{busy=false;if(analysisQueued){analysisQueued=false;analyze()}}
+  const token=++analysisToken;busy=true;$('suggestions').innerHTML='<p class="empty">Maia is considering the position…</p>';$('stockfish').innerHTML='<p class="empty">Analyzing position…</p>';
+  try{const [maiaResult,stockfishResult]=await Promise.allSettled([api('/api/predict',{...request(),rating:+$('rating').value,opponent_rating:+$('opponent').value}),api('/api/stockfish',request())]);if(token!==analysisToken)return;if(maiaResult.status==='fulfilled'){const data=maiaResult.value;state=data;render();showSuggestions(data.suggestions);$('context').textContent=`${$('rating').value} vs ${$('opponent').value}`}else{$('suggestions').innerHTML='<p class="empty">Prediction unavailable.</p>'}if(stockfishResult.status==='fulfilled'){showStockfish(stockfishResult.value)}else{$('stockfish').innerHTML='<p class="empty">Engine analysis unavailable.</p>'}$('error').textContent=maiaResult.status==='rejected'?maiaResult.reason.message:''}finally{busy=false;if(analysisQueued){analysisQueued=false;analyze()}}
 }
 function showSuggestions(items){$('suggestions').innerHTML='';items.forEach((m,i)=>{const b=document.createElement('button');b.className='suggestion';b.innerHTML=`<span>${i+1}</span><span><b>${m.san}</b><div class="bar"><div class="fill" style="width:${m.probability*100}%"></div></div></span><em>${(m.probability*100).toFixed(1)}%</em>`;b.onclick=()=>playMove(m.uci,m.san);$('suggestions').append(b)})}
+function scoreText(e){if(e.type==='mate')return e.value>0?`M${e.value}`:`−M${Math.abs(e.value)}`;const pawns=e.value/100;return `${pawns>=0?'+':''}${pawns.toFixed(2)}`}
+function showStockfish(data){$('stockfishDepth').textContent=`Depth ${data.depth} · + White`;$('stockfish').innerHTML='';data.lines.forEach((line,i)=>{const b=document.createElement('button');b.className='engine-line';b.innerHTML=`<span class="engine-rank">${i+1}</span><strong>${line.san}</strong><em>${scoreText(line.evaluation)}</em><small>${line.pv}</small>`;b.onclick=()=>playMove(line.uci,line.san);$('stockfish').append(b)})}
 
 function hydrateTree(items){freshTree();const nodes=new Map();for(const item of items){nodes.set(item.id,{...item,parent:null,children:[]});newId=Math.max(newId,item.id+1)}for(const item of items){const node=nodes.get(item.id),parent=item.parent_id===null?root:nodes.get(item.parent_id);node.parent=parent;parent.children.push(node)}current=root;while(current.children.length){current.preferred=current.children[0];current=current.children[0]}}
 $('loadPgn').onclick=async()=>{try{const data=await api('/api/parse-pgn',{pgn:$('pgn').value.trim()});hydrateTree(data.nodes);headers=data.headers;selected=null;renderHistory();await analyze();$('error').textContent=''}catch(e){$('error').textContent=e.message}};

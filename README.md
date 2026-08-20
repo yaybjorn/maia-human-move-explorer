@@ -1,6 +1,6 @@
 # Maia Human Move Explorer
 
-A public, unlisted web explorer for the moves a similarly rated human is likely to play. It uses the official [CSSLab Maia-3](https://github.com/CSSLab/maia3) implementation and its 5M checkpoint by default.
+A public, unlisted web explorer for the moves a similarly rated human is likely to play. It uses the official [CSSLab Maia-3](https://github.com/CSSLab/maia3) implementation and its 5M checkpoint by default, with separate Stockfish 18 best-move analysis for comparison.
 
 ## What it does
 

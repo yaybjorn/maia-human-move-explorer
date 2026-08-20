@@ -9,6 +9,7 @@ def test_health_does_not_load_model():
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json()["model"] == "maia3-5m"
+    assert response.json()["stockfish"] == "18"
 
 
 def test_state_contract_and_history():
@@ -31,6 +32,18 @@ def test_predict_contract_without_loading_weights(monkeypatch):
     response = client.post("/api/predict", json={"rating": 1500, "opponent_rating": 1600})
     assert response.status_code == 200
     assert response.json()["suggestions"][0]["san"] == "e4"
+
+
+def test_stockfish_contract_without_starting_process(monkeypatch):
+    monkeypatch.setattr("app.main.stockfish.analyze", lambda *_: {
+        "engine": "Stockfish 18", "depth": 16, "lines": [{
+            "uci": "e2e4", "san": "e4", "evaluation": {"type": "cp", "value": 31},
+            "pv": "1. e4 e5",
+        }],
+    })
+    response = client.post("/api/stockfish", json={"moves": []})
+    assert response.status_code == 200
+    assert response.json()["lines"][0]["evaluation"]["value"] == 31
 
 
 def test_pgn_parse_and_export_contract():
