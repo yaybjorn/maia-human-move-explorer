@@ -12,7 +12,7 @@ class StockfishEngine:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or os.getenv("STOCKFISH_PATH", "/usr/local/bin/stockfish")
         self.version = os.getenv("STOCKFISH_VERSION", "18")
-        self.depth = max(8, int(os.getenv("STOCKFISH_DEPTH", "16")))
+        self.time_ms = max(100, int(os.getenv("STOCKFISH_TIME_MS", "500")))
         self.lines = max(1, min(5, int(os.getenv("STOCKFISH_LINES", "3"))))
         self._engine = None
         self._lock = threading.Lock()
@@ -33,12 +33,12 @@ class StockfishEngine:
                 self._cache.move_to_end(key)
                 return {**cached, "lines": [dict(line) for line in cached["lines"]]}
             analyses = self._load().analyse(
-                board, chess.engine.Limit(depth=self.depth), multipv=self.lines
+                board, chess.engine.Limit(time=self.time_ms / 1000), multipv=self.lines
             )
             lines = [self._line(board, item) for item in analyses]
             result = {
                 "engine": f"Stockfish {self.version}",
-                "depth": min((item.get("depth", self.depth) for item in analyses), default=self.depth),
+                "depth": min((item.get("depth", 0) for item in analyses), default=0),
                 "lines": lines,
             }
             if self._cache_size:
