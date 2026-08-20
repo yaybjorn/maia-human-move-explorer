@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "maia-human-move-explorer"
 version = "0.1.0"
 description = "Explore likely human chess moves with Maia-3"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = {text = "AGPL-3.0-or-later"}
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
   "python-chess>=1.999,<2",
-  "maia3 @ git+https://github.com/CSSLab/maia3.git@main",
+  "maia3 @ git+https://github.com/CSSLab/maia3.git@1e13597c42d4858b7cfd7cfdae01e297263364b2",
 ]
 
 [project.optional-dependencies]
@@ -27,4 +27,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-
