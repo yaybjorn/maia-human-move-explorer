@@ -9,6 +9,7 @@ User=maia
 Group=maia
 WorkingDirectory=/opt/maia-human-move-explorer/current
 Environment=MAIA_MODEL=maia3-5m
+Environment=MAIA_PREDICTION_CACHE_SIZE=2048
 Environment=HF_HOME=/opt/maia-human-move-explorer/cache/huggingface
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/maia-human-move-explorer/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8310 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
@@ -26,4 +27,3 @@ MemoryDenyWriteExecute=false
 
 [Install]
 WantedBy=multi-user.target
-

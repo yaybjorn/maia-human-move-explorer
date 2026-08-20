@@ -44,8 +44,8 @@ class PgnTreeRequest(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
-def state_payload(request: PositionRequest):
-    position = replay(START_FEN, request.moves)
+def state_payload(request: PositionRequest, position=None):
+    position = position or replay(START_FEN, request.moves)
     board = position.board
     outcome = board.outcome(claim_draw=True)
     return {
@@ -94,7 +94,7 @@ def predict(request: PredictRequest):
         raise HTTPException(409, "The game is over; there are no moves to predict")
     opponent = request.opponent_rating if request.opponent_rating is not None else request.rating
     return {
-        **state_payload(request),
+        **state_payload(request, position),
         "suggestions": engine.predict(position, request.rating, opponent),
         "model": engine.model_name,
     }
