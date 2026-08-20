@@ -22,7 +22,7 @@ function render(){
     b.onclick=()=>clickSquare(sq,map);board.append(b);
   }
   $('status').textContent=state.game_over?`Game over · ${state.result}`:`${state.turn[0].toUpperCase()+state.turn.slice(1)} to move`;
-  $('undo').disabled=current===root;renderHistory();
+  $('back').disabled=current===root;$('forward').disabled=!nextNode();renderHistory();
 }
 
 function moveLabel(node){const number=Math.ceil(node.ply/2);return node.ply%2?`${number}. ${node.san}`:`${number}… ${node.san}`}
@@ -41,10 +41,12 @@ function renderHistory(){
   const start=document.createElement('button');start.className=`move-chip start${current===root?' current':''}`;start.textContent='Start';start.onclick=()=>navigate(root);history.append(start);appendFrom(root,history);
   const ply=pathTo(current).length;$('ply').textContent=ply?`${ply} ply selected`:'Start';
 }
-function navigate(node){current=node;selected=null;refresh();$('suggestions').innerHTML='<p class="empty">Analyze this point in the game to see likely moves.</p>';$('context').textContent='Awaiting analysis'}
+function rememberPath(node){while(node&&node.parent){node.parent.preferred=node;node=node.parent}}
+function nextNode(){return current.preferred||current.children[0]||null}
+function navigate(node){rememberPath(node);current=node;selected=null;refresh();$('suggestions').innerHTML='<p class="empty">Analyze this point in the game to see likely moves.</p>';$('context').textContent='Awaiting analysis'}
 
 async function refresh(){try{state=await api('/api/state',request());$('error').textContent='';render()}catch(e){$('error').textContent=e.message}}
-function addMove(uci,san){let node=current.children.find(child=>child.uci===uci);if(!node){node={id:newId++,parent:current,children:[],uci,san,ply:pathTo(current).length+1};current.children.push(node)}current=node}
+function addMove(uci,san){let node=current.children.find(child=>child.uci===uci);if(!node){node={id:newId++,parent:current,children:[],uci,san,ply:pathTo(current).length+1};current.children.push(node)}current.preferred=node;current=node}
 async function playMove(uci,san){addMove(uci,san);selected=null;await refresh();await analyze()}
 async function clickSquare(sq,map){
   if(busy)return;const choices=selected?state.legal_moves.filter(m=>m.from===selected&&m.to===sq):[];
@@ -57,11 +59,8 @@ async function analyze(){
 }
 function showSuggestions(items){$('suggestions').innerHTML='';items.forEach((m,i)=>{const b=document.createElement('button');b.className='suggestion';b.innerHTML=`<span>${i+1}</span><span><b>${m.san}</b><div class="bar"><div class="fill" style="width:${m.probability*100}%"></div></div></span><em>${(m.probability*100).toFixed(1)}%</em>`;b.onclick=()=>playMove(m.uci,m.san);$('suggestions').append(b)})}
 
-function hydrateTree(items){freshTree();const nodes=new Map();for(const item of items){nodes.set(item.id,{...item,parent:null,children:[]});newId=Math.max(newId,item.id+1)}for(const item of items){const node=nodes.get(item.id),parent=item.parent_id===null?root:nodes.get(item.parent_id);node.parent=parent;parent.children.push(node)}current=root;while(current.children.length)current=current.children[0]}
-function flatTree(){const out=[];function visit(parent){for(const child of parent.children){out.push({id:child.id,parent_id:child.parent===root?null:child.parent.id,uci:child.uci});visit(child)}}visit(root);return out}
+function hydrateTree(items){freshTree();const nodes=new Map();for(const item of items){nodes.set(item.id,{...item,parent:null,children:[]});newId=Math.max(newId,item.id+1)}for(const item of items){const node=nodes.get(item.id),parent=item.parent_id===null?root:nodes.get(item.parent_id);node.parent=parent;parent.children.push(node)}current=root;while(current.children.length){current.preferred=current.children[0];current=current.children[0]}}
 $('loadPgn').onclick=async()=>{try{const data=await api('/api/parse-pgn',{pgn:$('pgn').value.trim()});hydrateTree(data.nodes);headers=data.headers;selected=null;await refresh();$('suggestions').innerHTML='<p class="empty">PGN loaded. Select any move or analyze the current position.</p>';$('error').textContent=''}catch(e){$('error').textContent=e.message}};
-$('reset').onclick=async()=>{freshTree();selected=null;await refresh();$('suggestions').innerHTML='<p class="empty">New game ready.</p>'};
-$('undo').onclick=()=>navigate(current.parent||root);$('flip').onclick=()=>{flipped=!flipped;render()};$('analyze').onclick=analyze;
+$('back').onclick=()=>navigate(current.parent||root);$('forward').onclick=()=>{const node=nextNode();if(node)navigate(node)};$('flip').onclick=()=>{flipped=!flipped;render()};$('analyze').onclick=analyze;
 $('rating').oninput=e=>$('ratingOut').value=e.target.value;$('opponent').oninput=e=>$('opponentOut').value=e.target.value;
-async function copyPgn(){try{const data=await api('/api/export-pgn',{nodes:flatTree(),headers});await navigator.clipboard.writeText(data.pgn);const b=$('copyPgn'),old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1200)}catch(e){$('error').textContent=e.message}}
-$('copyPgn').onclick=copyPgn;refresh();
+refresh();
