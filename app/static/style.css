@@ -15,3 +15,24 @@ main{max-width:1060px;grid-template-columns:minmax(320px,560px) minmax(300px,400
 .move-chip.current{background:var(--accent);color:white}
 .move-chip.start{font-family:ui-sans-serif,system-ui,sans-serif}
 .variation{display:inline-flex;align-items:center;flex-wrap:wrap;gap:3px;color:#958a7a;background:#f3efe6;border-radius:7px;padding:1px 4px}
+
+/* Phones should feel like an app, not a desktop page squeezed into a viewport. */
+@media(max-width:520px){
+  html,body{max-width:100%;overflow-x:hidden}
+  header{height:58px;padding:0 14px}
+  .mark{width:34px;height:34px;font-size:18px}
+  .brand strong{font-size:20px}
+  main{width:100%;min-width:0;grid-template-columns:minmax(0,1fr);margin:12px auto 20px;padding:0 14px;gap:16px}
+  .board-column,aside{width:100%;min-width:0;max-width:none;margin:0}
+  .board{width:min(100%,calc(100vw - 28px));max-width:none;box-shadow:0 8px 22px #382b1b18}
+  .actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 1.45fr;gap:6px;margin-top:10px}
+  .actions button{min-width:0;min-height:44px;padding:8px 4px;font-size:18px}
+  .actions #flip{font-size:15px;white-space:nowrap}
+  aside{gap:10px}
+  .panel{padding:14px;border-radius:9px}
+  .history{min-height:74px}
+  .suggestion{min-height:46px}
+  input[type=range]{min-height:30px;margin:8px 0 12px}
+  textarea{font-size:16px}
+  footer{margin:0 14px 20px;padding:16px 0}
+}
