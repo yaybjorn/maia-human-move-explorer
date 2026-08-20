@@ -21,8 +21,7 @@ function render(){
     b.innerHTML=`${piece?`<img class="piece" src="/static/pieces/${pieceAsset[piece]}.svg" alt="" draggable="false">`:''}${file===files[7]?`<span class="coord rank">${rank}</span>`:''}${rank===ranks[7]?`<span class="coord file">${file}</span>`:''}`;
     b.onclick=()=>clickSquare(sq,map);board.append(b);
   }
-  $('status').textContent=state.game_over?`Game over · ${state.result}`:`${state.turn[0].toUpperCase()+state.turn.slice(1)} to move`;
-  $('back').disabled=current===root;$('forward').disabled=!nextNode();renderHistory();
+  $('start').disabled=current===root;$('back').disabled=current===root;$('forward').disabled=!nextNode();$('end').disabled=!nextNode();renderHistory();
 }
 
 function moveLabel(node){const number=Math.ceil(node.ply/2);return node.ply%2?`${number}. ${node.san}`:`${number}… ${node.san}`}
@@ -43,6 +42,7 @@ function renderHistory(){
 }
 function rememberPath(node){while(node&&node.parent){node.parent.preferred=node;node=node.parent}}
 function nextNode(){return current.preferred||current.children[0]||null}
+function endNode(){let node=current,next;while((next=node.preferred||node.children[0]||null))node=next;return node}
 function navigate(node){rememberPath(node);current=node;selected=null;refresh();$('suggestions').innerHTML='<p class="empty">Analyze this point in the game to see likely moves.</p>';$('context').textContent='Awaiting analysis'}
 
 async function refresh(){try{state=await api('/api/state',request());$('error').textContent='';render()}catch(e){$('error').textContent=e.message}}
@@ -61,6 +61,7 @@ function showSuggestions(items){$('suggestions').innerHTML='';items.forEach((m,i
 
 function hydrateTree(items){freshTree();const nodes=new Map();for(const item of items){nodes.set(item.id,{...item,parent:null,children:[]});newId=Math.max(newId,item.id+1)}for(const item of items){const node=nodes.get(item.id),parent=item.parent_id===null?root:nodes.get(item.parent_id);node.parent=parent;parent.children.push(node)}current=root;while(current.children.length){current.preferred=current.children[0];current=current.children[0]}}
 $('loadPgn').onclick=async()=>{try{const data=await api('/api/parse-pgn',{pgn:$('pgn').value.trim()});hydrateTree(data.nodes);headers=data.headers;selected=null;await refresh();$('suggestions').innerHTML='<p class="empty">PGN loaded. Select any move or analyze the current position.</p>';$('error').textContent=''}catch(e){$('error').textContent=e.message}};
-$('back').onclick=()=>navigate(current.parent||root);$('forward').onclick=()=>{const node=nextNode();if(node)navigate(node)};$('flip').onclick=()=>{flipped=!flipped;render()};$('analyze').onclick=analyze;
+$('start').onclick=()=>navigate(root);$('back').onclick=()=>navigate(current.parent||root);$('forward').onclick=()=>{const node=nextNode();if(node)navigate(node)};$('end').onclick=()=>navigate(endNode());$('flip').onclick=()=>{flipped=!flipped;render()};$('analyze').onclick=analyze;
 $('rating').oninput=e=>$('ratingOut').value=e.target.value;$('opponent').oninput=e=>$('opponentOut').value=e.target.value;
+document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||e.target.matches('input,textarea,select')||e.target.isContentEditable)return;const action={ArrowLeft:()=>navigate(current.parent||root),ArrowRight:()=>{const node=nextNode();if(node)navigate(node)},ArrowUp:()=>navigate(root),ArrowDown:()=>navigate(endNode())}[e.key];if(action){e.preventDefault();action()}});
 refresh();
