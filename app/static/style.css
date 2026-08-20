@@ -8,3 +8,10 @@ main{max-width:1060px;grid-template-columns:minmax(320px,560px) minmax(300px,400
 .square.selected{box-shadow:inset 0 0 0 4px #c4933e}
 .square.target:after{width:20%;background:#c4933ecc;z-index:3}
 .square.capture:after{width:76%;border:4px solid #c4933ecc;z-index:3}
+.pgn-help{margin:9px 0 0;color:var(--muted);font-size:12px}
+.move-tree{display:flex;align-items:center;flex-wrap:wrap;gap:5px;line-height:1.8}
+.move-chip{border:0;background:transparent;border-radius:6px;padding:3px 6px;color:var(--muted);font:600 14px ui-monospace,monospace}
+.move-chip:hover{background:#e7d9ba66;color:var(--ink)}
+.move-chip.current{background:var(--accent);color:white}
+.move-chip.start{font-family:ui-sans-serif,system-ui,sans-serif}
+.variation{display:inline-flex;align-items:center;flex-wrap:wrap;gap:3px;color:#958a7a;background:#f3efe6;border-radius:7px;padding:1px 4px}

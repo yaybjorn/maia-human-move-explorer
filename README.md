@@ -6,10 +6,11 @@ A public, unlisted web explorer for the moves a similarly rated human is likely 
 
 - Interactive, responsive chessboard with server-validated legal moves
 - Complete UCI history retained from the starting position and passed to Maia (up to its eight-position context)
-- Validated FEN input, conspicuously labelled **position-only** because earlier history is unknowable
+- PGN import with nested variations; custom-FEN PGNs are rejected because their earlier history is unknowable
+- Clickable move-tree navigation, with new moves added as variations when continuing from history
 - Independent self/opponent ratings (0–5000), with both defaulting to 1500
 - Top-five policy probabilities from Maia's official `score_moves()` path, displayed as SAN
-- Click-to-play suggestions, undo, reset, flip, copy FEN, and copy PGN
+- Click-to-play suggestions, undo, new game, flip, and variation-preserving PGN export
 - Cburnett's high-contrast tournament chess pieces, licensed CC BY-SA 3.0
 
 The probabilities represent human move likelihood, not objective move quality.

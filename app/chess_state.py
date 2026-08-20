@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from io import StringIO
 
 import chess
 import chess.pgn
@@ -55,3 +56,61 @@ def legal_moves(board: chess.Board) -> list[dict[str, str]]:
         for move in board.legal_moves
     ]
 
+
+def parse_pgn_tree(pgn_text: str) -> tuple[list[dict], dict[str, str]]:
+    try:
+        game = chess.pgn.read_game(StringIO(pgn_text.strip()))
+    except (ValueError, IndexError) as exc:
+        raise PositionError(f"Invalid PGN: {exc}") from exc
+    if game is None:
+        raise PositionError("Invalid PGN: no game found")
+    if game.errors:
+        raise PositionError(f"Invalid PGN: {game.errors[0]}")
+    if game.headers.get("SetUp") == "1" or game.headers.get("FEN"):
+        raise PositionError("PGN must begin from the standard starting position so Maia has full history")
+
+    nodes: list[dict] = []
+    next_id = 1
+
+    def visit(parent: chess.pgn.GameNode, parent_id: int | None) -> None:
+        nonlocal next_id
+        board = parent.board()
+        for variation in parent.variations:
+            node_id = next_id
+            next_id += 1
+            nodes.append({
+                "id": node_id,
+                "parent_id": parent_id,
+                "uci": variation.move.uci(),
+                "san": board.san(variation.move),
+                "ply": variation.ply(),
+            })
+            visit(variation, node_id)
+
+    visit(game, None)
+    headers = {key: value for key, value in game.headers.items() if value not in ("?", "*")}
+    return nodes, headers
+
+
+def export_pgn_tree(nodes: list[dict], headers: dict[str, str] | None = None) -> str:
+    game = chess.pgn.Game()
+    for key, value in (headers or {}).items():
+        if key not in ("FEN", "SetUp"):
+            game.headers[key] = value
+
+    created: dict[int, chess.pgn.GameNode] = {}
+    for item in nodes:
+        parent_id = item.get("parent_id")
+        parent = game if parent_id is None else created.get(parent_id)
+        if parent is None:
+            raise PositionError("Invalid variation tree: parent move is missing")
+        try:
+            move = chess.Move.from_uci(item["uci"])
+        except (KeyError, ValueError) as exc:
+            raise PositionError("Invalid variation tree: bad move") from exc
+        if move not in parent.board().legal_moves:
+            raise PositionError(f"Invalid variation tree: {item.get('uci')} is illegal")
+        created[item["id"]] = parent.add_variation(move)
+
+    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=False)
+    return game.accept(exporter).strip()
