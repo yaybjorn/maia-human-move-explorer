@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><title>Maia Human Move Explorer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header><div class="brand"><span class="mark">M</span><div><strong>Maia</strong><small>Human Move Explorer</small></div></div><span class="model">Maia-3 · 5M</span></header>
+  <main>
+    <section class="board-column">
+      <div id="notice" class="notice hidden"><strong>Position-only analysis</strong><span>This FEN has no move history. Maia sees the current position repeated as context.</span></div>
+      <div id="board" class="board" aria-label="Interactive chessboard"></div>
+      <div class="actions"><button id="undo">↶ Undo</button><button id="reset">Reset</button><button id="flip">⇅ Flip</button><button id="copyFen">Copy FEN</button><button id="copyPgn">Copy PGN</button></div>
+      <div id="status" class="status">White to move</div>
+    </section>
+    <aside>
+      <section class="panel"><div class="panel-title"><span>Position</span><button id="startFen" class="link">Starting position</button></div><textarea id="fen" rows="3" spellcheck="false" aria-label="FEN"></textarea><button id="loadFen" class="secondary wide">Load & validate FEN</button><p id="error" class="error"></p></section>
+      <section class="panel"><label for="rating">Your rating <output id="ratingOut">1500</output></label><input id="rating" type="range" min="0" max="3000" step="50" value="1500"><details><summary>Advanced</summary><label for="opponent">Opponent rating <output id="opponentOut">1500</output></label><input id="opponent" type="range" min="0" max="3000" step="50" value="1500"></details><button id="analyze" class="primary wide">Show likely human moves</button></section>
+      <section class="panel results"><div class="panel-title"><span>Likely moves</span><small id="context">Awaiting analysis</small></div><div id="suggestions" class="suggestions"><p class="empty">Play a move or analyze the position to see what a similarly rated human is likely to choose.</p></div></section>
+      <section class="panel history"><div class="panel-title"><span>Move history</span><small id="ply">0 ply</small></div><div id="history" class="moves">No moves yet</div></section>
+    </aside>
+  </main>
+  <footer>Predictions estimate human choices — they are not engine-best moves. <a href="https://github.com/yaybjorn/maia-human-move-explorer" rel="noopener">Source & AGPL license ↗</a></footer>
+  <script src="/static/app.js" defer></script>
+</body></html>
+
