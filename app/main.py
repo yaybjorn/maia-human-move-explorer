@@ -125,7 +125,7 @@ def stockfish_analysis(request: PositionRequest):
 @app.post("/api/check-repertoire")
 def repertoire_check(request: RepertoireCheckRequest):
     return check_repertoire(
-        request.pgn, request.repertoire_side, request.rating, request.threshold, engine
+        request.pgn, request.repertoire_side, request.rating, request.threshold, engine, stockfish
     )
 
 

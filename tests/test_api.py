@@ -146,6 +146,10 @@ def test_repertoire_check_finds_probable_missing_opponent_reply(monkeypatch):
             {"uci": "e7e6", "san": "e6", "probability": 0.08},
         ],
     )
+    monkeypatch.setattr(
+        "app.main.stockfish.analyze",
+        lambda *_: {"lines": [{"evaluation": {"type": "cp", "value": 0}}]},
+    )
     response = client.post(
         "/api/check-repertoire",
         json={"pgn": "1. e4 e5 *", "repertoire_side": "white", "threshold": 0.1},
@@ -164,6 +168,10 @@ def test_repertoire_check_treats_move_named_in_comment_as_addressed(monkeypatch)
     monkeypatch.setattr(
         "app.main.engine._predict_all",
         lambda *_: [{"uci": "c7c5", "san": "c5", "probability": 0.24}],
+    )
+    monkeypatch.setattr(
+        "app.main.stockfish.analyze",
+        lambda *_: {"lines": [{"evaluation": {"type": "cp", "value": 0}}]},
     )
     response = client.post(
         "/api/check-repertoire",

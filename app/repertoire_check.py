@@ -8,7 +8,7 @@ from .chess_state import PositionError, replay
 
 
 def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
-                     threshold: float, maia_engine) -> dict:
+                     threshold: float, maia_engine, stockfish_engine=None) -> dict:
     """Find probable opponent replies that are absent from a standard-start PGN tree."""
     if repertoire_side not in {"white", "black"}:
         raise PositionError("Repertoire side must be white or black")
@@ -61,9 +61,11 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
     findings = []
     analyzed = 0
     covered = 0
-    for entry in positions.values():
+    distributions = {}
+    for key, entry in sorted(positions.items(), key=lambda item: len(item[0])):
         position = replay(chess.STARTING_FEN, entry["moves"])
         scored = maia_engine._predict_all(position, rating, rating)
+        distributions[key] = {move["uci"]: move["probability"] for move in scored}
         analyzed += 1
         comments = " ".join(entry["comments"])
         missing = []
@@ -79,6 +81,8 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
             missing.append(move)
         if missing:
             board = entry["board"]
+            reach = _reach_probability(entry["moves"], distributions)
+            missing_mass = sum(move["probability"] for move in missing)
             findings.append({
                 "ply": len(entry["moves"]),
                 "move_number": board.fullmove_number,
@@ -91,19 +95,60 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
                 ],
                 "comments": entry["comments"],
                 "missing": missing,
+                "reach_probability": round(reach, 6),
+                "missing_probability_mass": round(missing_mass, 6),
+                "priority_score": round(reach * missing_mass, 6),
             })
 
-    findings.sort(key=lambda item: (-item["missing"][0]["probability"], item["ply"]))
+    minimum_priority = 0.005
+    excluded_low_priority = sum(1 for item in findings if item["priority_score"] < minimum_priority)
+    findings = [item for item in findings if item["priority_score"] >= minimum_priority]
+    excluded_winning = 0
+    if stockfish_engine is not None:
+        kept = []
+        for item in findings:
+            analysis = stockfish_engine.analyze(chess.Board(item["fen"]))
+            evaluation = analysis["lines"][0]["evaluation"]
+            item["evaluation"] = evaluation
+            if _already_winning(evaluation, repertoire_side):
+                excluded_winning += 1
+            else:
+                kept.append(item)
+        findings = kept
+
+    findings.sort(key=lambda item: (-item["priority_score"], item["ply"]))
     return {
         "positions_analyzed": analyzed,
         "positions_needing_attention": len(findings),
         "missing_moves": sum(len(item["missing"]) for item in findings),
         "covered_moves": covered,
+        "excluded_already_winning": excluded_winning,
+        "excluded_low_priority": excluded_low_priority,
+        "minimum_priority": minimum_priority,
         "threshold": threshold,
         "rating": rating,
         "repertoire_side": repertoire_side,
         "findings": findings,
     }
+
+
+def _reach_probability(moves: list[str], distributions: dict) -> float:
+    probability = 1.0
+    for index, uci in enumerate(moves):
+        distribution = distributions.get(tuple(moves[:index]))
+        if distribution is not None:
+            probability *= distribution.get(uci, 0.0)
+    return probability
+
+
+def _already_winning(evaluation: dict, repertoire_side: str) -> bool:
+    value = evaluation["value"]
+    if evaluation["type"] == "mate":
+        white_score = 100_000 if value > 0 else -100_000
+    else:
+        white_score = value
+    repertoire_score = white_score if repertoire_side == "white" else -white_score
+    return repertoire_score >= 200
 
 
 def _mentioned(san: str, uci: str, comments: str) -> bool:
