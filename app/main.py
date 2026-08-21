@@ -55,7 +55,7 @@ class PortsmouthMoveRequest(PositionRequest):
 class RepertoireCheckRequest(PgnRequest):
     repertoire_side: str = Field(default="white", pattern="^(white|black)$")
     rating: int = Field(default=1500, ge=500, le=3000)
-    threshold: float = Field(default=0.10, ge=0.01, le=0.50)
+    threshold: float = Field(default=0.30, ge=0.01, le=0.50)
 
 
 def state_payload(request: PositionRequest, position=None):
