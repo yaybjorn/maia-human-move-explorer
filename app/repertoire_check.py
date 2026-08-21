@@ -35,7 +35,7 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
     has_comments = any(
         getattr(node, "comment", "") or getattr(node, "starting_comment", "")
         for game in games
-        for node in game.mainline()
+        for node in _nodes(game)
     )
     excluded_before_opening = 0
 
@@ -192,3 +192,9 @@ def _history(sans: list[str]) -> str:
             chunk += f" {sans[index + 1]}"
         chunks.append(chunk)
     return " ".join(chunks) or "Starting position"
+
+
+def _nodes(root: chess.pgn.GameNode):
+    yield root
+    for child in root.variations:
+        yield from _nodes(child)
