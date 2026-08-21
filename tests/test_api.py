@@ -137,6 +137,25 @@ def test_portsmouth_page_exists():
     assert "Portsmouth Gambit Trainer" in response.text
 
 
+def test_kilkenny_page_and_first_move(monkeypatch):
+    response = client.get("/kilkenny")
+    assert response.status_code == 200
+    assert "Kilkenny Gambit Trainer" in response.text
+
+    monkeypatch.setattr(
+        "app.main.engine.choose",
+        lambda *args: {"uci": args[-1][0], "san": "", "probability": 1.0},
+    )
+    wrong = client.post("/api/kilkenny/play", json={"moves": [], "uci": "e2e4"})
+    assert wrong.status_code == 200
+    assert wrong.json()["correct"] is False
+
+    correct = client.post("/api/kilkenny/play", json={"moves": [], "uci": "d2d4"})
+    assert correct.status_code == 200
+    assert correct.json()["correct"] is True
+    assert correct.json()["moves"][0] == "d2d4"
+
+
 def test_repertoire_check_finds_probable_missing_opponent_reply(monkeypatch):
     monkeypatch.setattr(
         "app.main.engine._predict_all",

@@ -55,6 +55,8 @@ Record cold load, warm median/p95/max and peak RSS. Prefer 5M unless 23M remains
 
 ## Production deployment
 
+The opening trainers are available at `/portsmouth` and `/kilkenny`. Both use the same interactive trainer client and server-side Maia/Stockfish services; their repertoire data remains separate.
+
 The files under `deploy/` and `scripts/` target Debian/Ubuntu, Python 3.11+, systemd and nginx. They deliberately do not automate DNS, TLS, or firewall changes.
 
 1. Create an unprivileged `maia` system user and `/opt/maia-human-move-explorer`.

@@ -14,6 +14,7 @@ from .chess_state import (
     replay,
 )
 from .engine import engine
+from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire
 from .stockfish import stockfish
@@ -47,7 +48,7 @@ class PgnTreeRequest(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
-class PortsmouthMoveRequest(PositionRequest):
+class TrainerMoveRequest(PositionRequest):
     uci: str = Field(min_length=4, max_length=5)
     opponent_rating: int = Field(default=1500, ge=0, le=5000)
 
@@ -129,12 +130,11 @@ def repertoire_check(request: RepertoireCheckRequest):
     )
 
 
-@app.post("/api/portsmouth/play")
-def portsmouth_play(request: PortsmouthMoveRequest):
+def trainer_play(request: TrainerMoveRequest, repertoire, label: str):
     position = replay(START_FEN, request.moves)
-    puzzle = portsmouth.position(position.board)
+    puzzle = repertoire.position(position.board)
     if puzzle is None or not position.board.turn:
-        raise HTTPException(409, "This position is outside the Portsmouth repertoire")
+        raise HTTPException(409, f"This position is outside the {label} repertoire")
     try:
         move = chess.Move.from_uci(request.uci)
     except ValueError as exc:
@@ -145,13 +145,13 @@ def portsmouth_play(request: PortsmouthMoveRequest):
     if request.uci != correct["uci"]:
         return {
             "correct": False,
-            "feedback": portsmouth.wrong_feedback(puzzle, request.uci),
+            "feedback": repertoire.wrong_feedback(puzzle, request.uci),
             **state_payload(PositionRequest(moves=request.moves), position),
         }
 
     moves = [*request.moves, request.uci]
     after_white = replay(START_FEN, moves)
-    responses = portsmouth.responses(after_white.board)
+    responses = repertoire.responses(after_white.board)
     opponent_move = None
     if responses:
         allowed = [item["move"]["uci"] for item in responses]
@@ -161,19 +161,29 @@ def portsmouth_play(request: PortsmouthMoveRequest):
         moves.append(opponent_move["uci"])
 
     final_position = replay(START_FEN, moves)
-    complete = not responses
+    complete = repertoire.position(final_position.board) is None
     payload = {
         "correct": True,
         "feedback": correct["feedback"],
         "opponent_move": opponent_move,
         "white_state": state_payload(PositionRequest(moves=moves[:-1] if opponent_move else moves), after_white),
         "complete": complete,
-        "repertoire_version": portsmouth.version,
+        "repertoire_version": repertoire.version,
         **state_payload(PositionRequest(moves=moves), final_position),
     }
     if complete:
         payload["stockfish"] = stockfish.analyze(final_position.board)
     return payload
+
+
+@app.post("/api/portsmouth/play")
+def portsmouth_play(request: TrainerMoveRequest):
+    return trainer_play(request, portsmouth, "Portsmouth")
+
+
+@app.post("/api/kilkenny/play")
+def kilkenny_play(request: TrainerMoveRequest):
+    return trainer_play(request, kilkenny, "Kilkenny")
 
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
@@ -188,6 +198,14 @@ def index():
 def portsmouth_index():
     return FileResponse(
         ROOT / "static" / "portsmouth.html",
+        headers={"X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@app.get("/kilkenny")
+def kilkenny_index():
+    return FileResponse(
+        ROOT / "static" / "kilkenny.html",
         headers={"X-Robots-Tag": "noindex, nofollow"},
     )
 
