@@ -29,7 +29,10 @@ class MaiaEngine:
                 "--model", self.model_name,
                 "--device", "cpu",
                 "--use-uci-history",
-                "--multipv", "5",
+                # Keep policy scores for every legal move. The explorer still exposes
+                # only the top five, while repertoire training may need to weight an
+                # allowed reply that is outside Maia's top five.
+                "--multipv", "256",
                 "--no-use-amp",
             ])
             self._engine = Maia3UCIEngine(cfg)

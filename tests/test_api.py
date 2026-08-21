@@ -110,6 +110,27 @@ def test_portsmouth_correct_move_uses_allowed_maia_response(monkeypatch):
     assert received["self_elo"] == 2100
 
 
+def test_portsmouth_accepts_be3_after_qe4_check(monkeypatch):
+    moves = [
+        "e2e4", "c7c5", "g1f3", "b8c6", "b2b4", "c5b4", "d2d4", "d7d5",
+        "e4d5", "d8d5", "c2c4", "b4c3", "b1c3", "d5a5", "a1b1", "e7e6",
+        "c1d2", "f8b4", "b1b4", "a5b4", "d4d5", "e6d5", "c3d5", "b4e4",
+    ]
+    monkeypatch.setattr(
+        "app.main.engine.choose",
+        lambda *args: {"uci": args[-1][0], "san": "", "probability": 1.0},
+    )
+
+    response = client.post(
+        "/api/portsmouth/play",
+        json={"moves": moves, "uci": "d2e3", "opponent_rating": 1500},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["correct"] is True
+    assert response.json()["white_state"]["san_history"][-1] == "Be3"
+
+
 def test_portsmouth_page_exists():
     response = client.get("/portsmouth")
     assert response.status_code == 200
