@@ -26,7 +26,8 @@
         <p id="principalVariation" class="pv"></p>
         <button id="restart" class="primary wide">Train another line</button>
       </section>
-      <section class="panel trainer-note"><div class="panel-title"><span>How it works</span></div><p>Play the Portsmouth repertoire move. Maia chooses Black’s reply from the analyzed repertoire branches, weighted by how likely a 1500-rated player is to choose it.</p></section>
+      <section class="panel opponent-setting"><label for="opponentRating">Opponent rating <output id="opponentRatingOut">1500</output></label><input id="opponentRating" type="range" min="500" max="3000" step="50" value="1500"><p>Maia models Black at this playing strength.</p></section>
+      <section class="panel trainer-note"><div class="panel-title"><span>How it works</span></div><p>Play the Portsmouth repertoire move. Maia chooses Black’s reply from the analyzed repertoire branches, weighted by the selected opponent rating.</p></section>
     </aside>
   </main>
   <footer><span>Portsmouth repertoire · Maia-3 human move model · Stockfish 18 final evaluation</span><a href="/">Open Maia Explorer →</a></footer>

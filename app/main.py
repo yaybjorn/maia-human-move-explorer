@@ -48,7 +48,7 @@ class PgnTreeRequest(BaseModel):
 
 class PortsmouthMoveRequest(PositionRequest):
     uci: str = Field(min_length=4, max_length=5)
-    rating: int = Field(default=1500, ge=0, le=5000)
+    opponent_rating: int = Field(default=1500, ge=0, le=5000)
 
 
 def state_payload(request: PositionRequest, position=None):
@@ -141,7 +141,7 @@ def portsmouth_play(request: PortsmouthMoveRequest):
     opponent_move = None
     if responses:
         allowed = [item["move"]["uci"] for item in responses]
-        chosen = engine.choose(after_white, request.rating, request.rating, allowed)
+        chosen = engine.choose(after_white, request.opponent_rating, 1500, allowed)
         selected = next(item for item in responses if item["move"]["uci"] == chosen["uci"])
         opponent_move = selected["move"]
         moves.append(opponent_move["uci"])
