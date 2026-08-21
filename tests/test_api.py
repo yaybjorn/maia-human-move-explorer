@@ -76,6 +76,7 @@ def test_portsmouth_correct_move_uses_allowed_maia_response(monkeypatch):
     assert response.status_code == 200
     assert data["correct"] is True
     assert data["moves"] == ["e2e4", "c7c5"]
+    assert data["white_state"]["moves"] == ["e2e4"]
     assert data["opponent_move"]["san"] == "c5"
     assert data["complete"] is False
 

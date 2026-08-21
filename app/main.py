@@ -152,6 +152,7 @@ def portsmouth_play(request: PortsmouthMoveRequest):
         "correct": True,
         "feedback": correct["feedback"],
         "opponent_move": opponent_move,
+        "white_state": state_payload(PositionRequest(moves=moves[:-1] if opponent_move else moves), after_white),
         "complete": complete,
         "repertoire_version": portsmouth.version,
         **state_payload(PositionRequest(moves=moves), final_position),
