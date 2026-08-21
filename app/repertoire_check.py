@@ -19,11 +19,11 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         try:
             game = chess.pgn.read_game(stream)
         except (ValueError, IndexError) as exc:
-            raise PositionError(f"Invalid PGN: {exc}") from exc
+            raise PositionError(_pgn_error_message(exc)) from exc
         if game is None:
             break
         if game.errors:
-            raise PositionError(f"Invalid PGN: {game.errors[0]}")
+            raise PositionError(_pgn_error_message(game.errors[0]))
         if game.headers.get("SetUp") == "1" or game.headers.get("FEN"):
             raise PositionError("PGN must begin from the standard starting position")
         games.append(game)
@@ -182,6 +182,19 @@ def _mentioned(san: str, uci: str, comments: str) -> bool:
     lowered = comments.lower()
     return any(re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", lowered)
                for token in tokens)
+
+
+def _pgn_error_message(error: Exception) -> str:
+    detail = str(error)
+    illegal_san = re.search(r"illegal san: '([^']+)'", detail, re.IGNORECASE)
+    if illegal_san:
+        token = illegal_san.group(1)
+        return (
+            f"Invalid PGN near '{token}'. It appears that prose escaped a {{...}} comment "
+            "block, so the parser tried to read it as a move. Check the braces around the "
+            "nearby comment and upload the PGN again."
+        )
+    return f"Invalid PGN: {detail}"
 
 
 def _history(sans: list[str]) -> str:

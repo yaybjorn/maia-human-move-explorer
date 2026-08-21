@@ -210,6 +210,21 @@ def test_repertoire_check_starts_at_first_commented_position(monkeypatch):
     assert data["findings"][0]["missing"][0]["san"] == "Nf6"
 
 
+def test_repertoire_check_explains_prose_outside_comment_block():
+    response = client.post(
+        "/api/check-repertoire",
+        json={
+            "pgn": "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 "
+                   "6. Re1 b5 7. Bb3 d6 8. c3 O-O 9. h3 h7 *",
+            "repertoire_side": "white",
+        },
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "Invalid PGN near 'h7'" in detail
+    assert "comment" in detail
+
+
 def test_repertoire_check_page_exists():
     response = client.get("/check")
     assert response.status_code == 200
