@@ -32,10 +32,27 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
 
     opponent = chess.BLACK if repertoire_side == "white" else chess.WHITE
     positions: dict[tuple[str, ...], dict] = {}
+    has_comments = any(
+        getattr(node, "comment", "") or getattr(node, "starting_comment", "")
+        for game in games
+        for node in game.mainline()
+    )
+    excluded_before_opening = 0
 
-    def walk(node: chess.pgn.GameNode, moves: list[str], sans: list[str]) -> None:
+    def walk(node: chess.pgn.GameNode, moves: list[str], sans: list[str],
+             opening_started: bool = False) -> None:
+        nonlocal excluded_before_opening
         board = node.board()
-        if board.turn == opponent and node.variations and not board.is_game_over():
+        node_has_comment = bool(
+            getattr(node, "comment", "") or getattr(node, "starting_comment", "")
+        )
+        opening_started = opening_started or node_has_comment or not has_comments
+        is_opponent_position = (
+            board.turn == opponent and node.variations and not board.is_game_over()
+        )
+        if is_opponent_position and not opening_started:
+            excluded_before_opening += 1
+        if is_opponent_position and opening_started:
             key = tuple(moves)
             entry = positions.setdefault(key, {
                 "moves": list(moves),
@@ -50,7 +67,12 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
                     entry["comments"].append(comment)
 
         for child in node.variations:
-            walk(child, [*moves, child.move.uci()], [*sans, board.san(child.move)])
+            walk(
+                child,
+                [*moves, child.move.uci()],
+                [*sans, board.san(child.move)],
+                opening_started,
+            )
 
     for game in games:
         walk(game, [], [])
@@ -124,6 +146,8 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         "covered_moves": covered,
         "excluded_already_winning": excluded_winning,
         "excluded_low_priority": excluded_low_priority,
+        "excluded_before_opening": excluded_before_opening,
+        "opening_boundary": "first_comment" if has_comments else "full_pgn",
         "minimum_priority": minimum_priority,
         "threshold": threshold,
         "rating": rating,

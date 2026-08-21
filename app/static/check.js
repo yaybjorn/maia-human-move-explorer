@@ -37,7 +37,7 @@ function render(data) {
   results.hidden = false;
   document.querySelector('#summary').innerHTML = [
     [data.positions_analyzed,'positions checked'],[data.positions_needing_attention,'positions to address'],
-    [data.missing_moves,'uncovered opponent moves'],[data.excluded_low_priority,'low-priority positions hidden'],
+    [data.missing_moves,'uncovered opponent moves'],[data.excluded_before_opening,'pre-opening positions hidden'],[data.excluded_low_priority,'low-priority positions hidden'],
     [data.excluded_already_winning,'winning positions hidden']
   ].map(([value,label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   const findings = document.querySelector('#findings');

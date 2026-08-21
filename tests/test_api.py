@@ -181,6 +181,35 @@ def test_repertoire_check_treats_move_named_in_comment_as_addressed(monkeypatch)
     assert response.json()["positions_needing_attention"] == 0
 
 
+def test_repertoire_check_starts_at_first_commented_position(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.engine._predict_all",
+        lambda *_: [
+            {"uci": "c5b4", "san": "cxb4", "probability": 0.40},
+            {"uci": "g8f6", "san": "Nf6", "probability": 0.20},
+        ],
+    )
+    monkeypatch.setattr(
+        "app.main.stockfish.analyze",
+        lambda *_: {"lines": [{"evaluation": {"type": "cp", "value": 0}}]},
+    )
+    response = client.post(
+        "/api/check-repertoire",
+        json={
+            "pgn": "1. e4 c5 2. Nf3 Nc6 3. b4 {The Portsmouth Attack.} cxb4 *",
+            "repertoire_side": "white",
+            "threshold": 0.1,
+        },
+    )
+    data = response.json()
+    assert response.status_code == 200
+    assert data["opening_boundary"] == "first_comment"
+    assert data["excluded_before_opening"] == 2
+    assert data["positions_analyzed"] == 1
+    assert data["findings"][0]["history"] == "1. e4 c5 2. Nf3 Nc6 3. b4"
+    assert data["findings"][0]["missing"][0]["san"] == "Nf6"
+
+
 def test_repertoire_check_page_exists():
     response = client.get("/check")
     assert response.status_code == 200
