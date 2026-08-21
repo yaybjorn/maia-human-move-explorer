@@ -1,0 +1,31 @@
+:root { color-scheme: light; --ink:#20251f; --muted:#687066; --green:#718268; --paper:#f7f3e9; --line:#d8d2c2; --warn:#a94d32; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.5 system-ui,-apple-system,sans-serif; }
+main { width:min(920px,calc(100% - 32px)); margin:48px auto 80px; }
+header a { color:var(--green); font-weight:650; text-decoration:none; }
+h1 { margin:.35rem 0 0; font:700 clamp(2rem,6vw,3.7rem)/1.02 Georgia,serif; }
+header p { color:var(--muted); margin:.75rem 0 2rem; }
+form,.finding,.summary { background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:0 8px 28px #25301f0d; }
+.drop { display:grid; place-items:center; min-height:150px; border:2px dashed #aeb7a7; border-radius:10px; cursor:pointer; text-align:center; }
+.drop:hover,.drop.dragging { border-color:var(--green); background:#f4f7f1; }
+.drop span { color:var(--muted); }
+.drop input { position:absolute; width:1px; height:1px; opacity:0; }
+.settings { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin:24px 0; }
+.settings label { display:grid; gap:8px; font-weight:650; }
+select,input[type=range] { width:100%; }
+select { min-height:42px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:white; }
+output { color:var(--green); }
+button { border:0; border-radius:9px; padding:12px 18px; background:var(--green); color:white; font:700 1rem system-ui; cursor:pointer; }
+button:disabled { opacity:.55; cursor:wait; }
+#status { min-height:1.5em; margin:12px 0 0; color:var(--muted); }
+.summary { margin:28px 0 16px; display:flex; gap:28px; flex-wrap:wrap; }
+.summary strong { display:block; font-size:1.7rem; }
+.summary span { color:var(--muted); }
+.finding { margin:12px 0; }
+.finding h2 { margin:0 0 4px; font-size:1rem; color:var(--muted); }
+.history { font:600 1rem/1.55 ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }
+.moves { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 8px; }
+.move { border-radius:999px; padding:7px 11px; background:#fae8e1; color:#7b321f; font-weight:750; }
+.existing,.comments { color:var(--muted); margin:.45rem 0 0; }
+.empty { padding:32px; text-align:center; background:#edf4e9; border-radius:12px; }
+@media (max-width:680px) { main{margin-top:24px}.settings{grid-template-columns:1fr}.summary{gap:18px}.summary>div{min-width:120px} }

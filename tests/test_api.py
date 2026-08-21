@@ -137,6 +137,48 @@ def test_portsmouth_page_exists():
     assert "Portsmouth Gambit Trainer" in response.text
 
 
+def test_repertoire_check_finds_probable_missing_opponent_reply(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.engine._predict_all",
+        lambda *_: [
+            {"uci": "e7e5", "san": "e5", "probability": 0.48},
+            {"uci": "c7c5", "san": "c5", "probability": 0.24},
+            {"uci": "e7e6", "san": "e6", "probability": 0.08},
+        ],
+    )
+    response = client.post(
+        "/api/check-repertoire",
+        json={"pgn": "1. e4 e5 *", "repertoire_side": "white", "threshold": 0.1},
+    )
+    data = response.json()
+    assert response.status_code == 200
+    assert data["positions_analyzed"] == 1
+    assert data["positions_needing_attention"] == 1
+    assert data["findings"][0]["existing_replies"][0]["san"] == "e5"
+    assert data["findings"][0]["missing"] == [
+        {"uci": "c7c5", "san": "c5", "probability": 0.24}
+    ]
+
+
+def test_repertoire_check_treats_move_named_in_comment_as_addressed(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.engine._predict_all",
+        lambda *_: [{"uci": "c7c5", "san": "c5", "probability": 0.24}],
+    )
+    response = client.post(
+        "/api/check-repertoire",
+        json={"pgn": "1. e4 {c5 transposes elsewhere.} e5 *", "repertoire_side": "white"},
+    )
+    assert response.status_code == 200
+    assert response.json()["positions_needing_attention"] == 0
+
+
+def test_repertoire_check_page_exists():
+    response = client.get("/check")
+    assert response.status_code == 200
+    assert "Repertoire gap check" in response.text
+
+
 def test_portsmouth_line_reaches_stockfish_finish(monkeypatch):
     monkeypatch.setattr(
         "app.main.engine.choose",

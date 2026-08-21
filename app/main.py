@@ -15,6 +15,7 @@ from .chess_state import (
 )
 from .engine import engine
 from .portsmouth import portsmouth
+from .repertoire_check import check_repertoire
 from .stockfish import stockfish
 
 ROOT = Path(__file__).resolve().parent
@@ -49,6 +50,12 @@ class PgnTreeRequest(BaseModel):
 class PortsmouthMoveRequest(PositionRequest):
     uci: str = Field(min_length=4, max_length=5)
     opponent_rating: int = Field(default=1500, ge=0, le=5000)
+
+
+class RepertoireCheckRequest(PgnRequest):
+    repertoire_side: str = Field(default="white", pattern="^(white|black)$")
+    rating: int = Field(default=1500, ge=500, le=3000)
+    threshold: float = Field(default=0.10, ge=0.01, le=0.50)
 
 
 def state_payload(request: PositionRequest, position=None):
@@ -115,6 +122,13 @@ def stockfish_analysis(request: PositionRequest):
     return stockfish.analyze(position.board)
 
 
+@app.post("/api/check-repertoire")
+def repertoire_check(request: RepertoireCheckRequest):
+    return check_repertoire(
+        request.pgn, request.repertoire_side, request.rating, request.threshold, engine
+    )
+
+
 @app.post("/api/portsmouth/play")
 def portsmouth_play(request: PortsmouthMoveRequest):
     position = replay(START_FEN, request.moves)
@@ -174,5 +188,13 @@ def index():
 def portsmouth_index():
     return FileResponse(
         ROOT / "static" / "portsmouth.html",
+        headers={"X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@app.get("/check")
+def check_index():
+    return FileResponse(
+        ROOT / "static" / "check.html",
         headers={"X-Robots-Tag": "noindex, nofollow"},
     )

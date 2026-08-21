@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Maia Repertoire Check</title>
+  <link rel="stylesheet" href="/static/check.css">
+</head>
+<body>
+  <main>
+    <header>
+      <a href="/">Maia Human Move Explorer</a>
+      <h1>Repertoire gap check</h1>
+      <p>Find probable opponent replies your PGN has not addressed.</p>
+    </header>
+
+    <form id="check-form">
+      <label class="drop" for="pgn-file">
+        <strong>Choose a PGN</strong>
+        <span id="file-name">or drop it here</span>
+        <input id="pgn-file" type="file" accept=".pgn,application/x-chess-pgn,text/plain" required>
+      </label>
+      <div class="settings">
+        <label>My repertoire
+          <select id="side"><option value="white">White</option><option value="black">Black</option></select>
+        </label>
+        <label>Opponent rating <output id="rating-output">1500</output>
+          <input id="rating" type="range" min="500" max="3000" step="50" value="1500">
+        </label>
+        <label>Flag moves above <output id="threshold-output">10%</output>
+          <input id="threshold" type="range" min="5" max="30" step="1" value="10">
+        </label>
+      </div>
+      <button type="submit">Check repertoire</button>
+      <p id="status" role="status"></p>
+    </form>
+
+    <section id="results" hidden>
+      <div id="summary" class="summary"></div>
+      <div id="findings"></div>
+    </section>
+  </main>
+  <script src="/static/check.js" defer></script>
+</body>
+</html>
