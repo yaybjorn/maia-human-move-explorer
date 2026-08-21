@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><title>Portsmouth Gambit Trainer</title>
+  <link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/portsmouth.css">
+</head>
+<body>
+  <header><a class="brand trainer-brand" href="/"><span class="mark">M</span><div><strong>Portsmouth</strong><small>Gambit trainer</small></div></a><span class="model">Maia opponent · Stockfish finish</span></header>
+  <main class="trainer-layout">
+    <section class="board-column">
+      <div id="board" class="board" aria-label="Interactive chessboard"></div>
+      <div class="trainer-board-meta"><span>You play White</span><button id="flip" class="secondary">⇅ Flip</button></div>
+    </section>
+    <aside>
+      <section class="panel trainer-status" aria-live="polite">
+        <div class="eyebrow">Your turn</div>
+        <h1 id="prompt">Find the repertoire move</h1>
+        <p id="feedback">Start the Portsmouth Gambit as White.</p>
+        <div id="thinking" class="thinking hidden">Maia is choosing a repertoire response…</div>
+      </section>
+      <section class="panel history"><div class="panel-title"><span>Game</span><small id="moveCount">Start</small></div><div id="history" class="trainer-history"><span class="empty">Your first move is waiting.</span></div></section>
+      <section id="finish" class="panel finish hidden" aria-live="polite">
+        <div class="finish-mark">✓</div><div><div class="eyebrow">Line complete</div><h2>Final position</h2></div>
+        <div class="final-eval"><span>Stockfish 18</span><strong id="evaluation">—</strong><small id="depth"></small></div>
+        <p id="principalVariation" class="pv"></p>
+        <button id="restart" class="primary wide">Train another line</button>
+      </section>
+      <section class="panel trainer-note"><div class="panel-title"><span>How it works</span></div><p>Play the Portsmouth repertoire move. Maia chooses Black’s reply from the analyzed repertoire branches, weighted by how likely a 1500-rated player is to choose it.</p></section>
+    </aside>
+  </main>
+  <footer><span>Portsmouth repertoire · Maia-3 human move model · Stockfish 18 final evaluation</span><a href="/">Open Maia Explorer →</a></footer>
+  <script src="/static/portsmouth.js" defer></script>
+</body></html>

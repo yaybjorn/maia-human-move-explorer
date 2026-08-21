@@ -2,6 +2,8 @@
 
 A public, unlisted web explorer for the moves a similarly rated human is likely to play. It uses the official [CSSLab Maia-3](https://github.com/CSSLab/maia3) implementation and its 5M checkpoint by default, with separate Stockfish 18 best-move analysis for comparison.
 
+`/portsmouth` is a focused White repertoire trainer built from the approved Portsmouth Gambit pack. Correct moves advance the line, Maia chooses among analyzed Black responses, authored feedback explains mistakes, and Stockfish evaluates the final position.
+
 ## What it does
 
 - Interactive, responsive chessboard with server-validated legal moves

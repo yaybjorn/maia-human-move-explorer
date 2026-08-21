@@ -1,4 +1,5 @@
 import os
+import random
 import threading
 from collections import OrderedDict, deque
 from hashlib import blake2b
@@ -36,6 +37,18 @@ class MaiaEngine:
         return self._engine
 
     def predict(self, position: ReplayedPosition, self_elo: int, opponent_elo: int):
+        return self._predict_all(position, self_elo, opponent_elo)[:5]
+
+    def choose(self, position: ReplayedPosition, self_elo: int, opponent_elo: int,
+               allowed: list[str]) -> dict:
+        scored = {item["uci"]: item for item in self._predict_all(position, self_elo, opponent_elo)}
+        candidates = [scored[uci] for uci in allowed if uci in scored]
+        if not candidates:
+            raise ValueError("No analyzed repertoire response is legal in this position")
+        weights = [max(item["probability"], 1e-9) for item in candidates]
+        return random.SystemRandom().choices(candidates, weights=weights, k=1)[0]
+
+    def _predict_all(self, position: ReplayedPosition, self_elo: int, opponent_elo: int):
         self_elo = max(0, min(5000, self_elo))
         opponent_elo = max(0, min(5000, opponent_elo))
         cache_key = self._cache_key(position, self_elo, opponent_elo)
@@ -59,7 +72,7 @@ class MaiaEngine:
                     "san": position.board.san(item["move"]),
                     "probability": round(float(item["policy"]), 6),
                 }
-                for item in scored[:5]
+                for item in scored
             ]
             if self._cache_size:
                 self._cache[cache_key] = tuple(dict(item) for item in result)
