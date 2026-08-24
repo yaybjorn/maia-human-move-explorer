@@ -276,6 +276,7 @@ def test_repertoire_check_page_exists():
     response = client.get("/check")
     assert response.status_code == 200
     assert "Repertoire gap check" in response.text
+    assert response.text.index("Repertoire gaps") < response.text.index("Writing check")
 
 
 def test_portsmouth_line_reaches_stockfish_finish(monkeypatch):
