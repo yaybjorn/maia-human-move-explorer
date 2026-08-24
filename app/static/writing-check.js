@@ -13,12 +13,13 @@ let linterPromise;
 
 async function getLinter() {
   if (!linterPromise) {
-    linterPromise = Promise.all([
-      import('./vendor/harper/index.js'),
-      import('./vendor/harper/binary.js')
-    ]).then(async ([harper, binaryModule]) => {
+    linterPromise = import('./vendor/harper/index.js').then(async harper => {
+      const binary = harper.createBinaryModuleFromUrl(
+        new URL('./vendor/harper/harper-full.wasm', import.meta.url).href,
+        'full'
+      );
       const linter = new harper.LocalLinter({
-        binary: binaryModule.binary,
+        binary,
         dialect: harper.Dialect.British
       });
       await linter.setup();
