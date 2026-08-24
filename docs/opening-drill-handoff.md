@@ -22,6 +22,7 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - Priority is `reach probability × missing probability mass`; findings below 0.5% are hidden.
 - Positions where Stockfish already evaluates the repertoire side at +2.0 or better are hidden, with excluded counts shown.
 - Findings are sorted by descending priority score, then earlier ply.
+- PGN comments receive a British English spelling and grammar check grouped by move history. Harper runs entirely in the browser; comment text is not sent to a third-party writing service. Suggestions remain advisory because names and chess terminology can produce false positives.
 - Custom-FEN PGNs and malformed PGNs are rejected. Malformed comment braces receive a human-readable error.
 
 ## Trainer behavior

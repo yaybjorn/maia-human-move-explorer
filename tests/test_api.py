@@ -200,6 +200,34 @@ def test_repertoire_check_treats_move_named_in_comment_as_addressed(monkeypatch)
     assert response.json()["positions_needing_attention"] == 0
 
 
+def test_repertoire_check_returns_comments_with_their_positions(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.engine._predict_all",
+        lambda *_: [{"uci": "e7e5", "san": "e5", "probability": 1.0}],
+    )
+    monkeypatch.setattr(
+        "app.main.stockfish.analyze",
+        lambda *_: {"lines": [{"evaluation": {"type": "cp", "value": 0}}]},
+    )
+
+    response = client.post(
+        "/api/check-repertoire",
+        json={
+            "pgn": "1. e4 {This are the main move.} e5 *",
+            "repertoire_side": "white",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["writing_sources"] == [
+        {
+            "history": "1. e4",
+            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+            "comment": "This are the main move.",
+        }
+    ]
+
+
 def test_repertoire_check_starts_at_first_commented_position(monkeypatch):
     monkeypatch.setattr(
         "app.main.engine._predict_all",

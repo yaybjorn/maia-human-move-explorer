@@ -38,6 +38,22 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         for node in _nodes(game)
     )
     excluded_before_opening = 0
+    writing_sources = []
+    seen_writing_sources = set()
+
+    def add_writing_source(comment: str, moves: list[str], sans: list[str], board) -> None:
+        comment = comment.strip()
+        if not comment:
+            return
+        key = (tuple(moves), comment)
+        if key in seen_writing_sources:
+            return
+        seen_writing_sources.add(key)
+        writing_sources.append({
+            "history": _history(sans),
+            "fen": board.fen(),
+            "comment": comment,
+        })
 
     def walk(node: chess.pgn.GameNode, moves: list[str], sans: list[str],
              opening_started: bool = False) -> None:
@@ -46,6 +62,7 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         node_has_comment = bool(
             getattr(node, "comment", "") or getattr(node, "starting_comment", "")
         )
+        add_writing_source(getattr(node, "comment", ""), moves, sans, board)
         opening_started = opening_started or node_has_comment or not has_comments
         is_opponent_position = (
             board.turn == opponent and node.variations and not board.is_game_over()
@@ -67,6 +84,9 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
                     entry["comments"].append(comment)
 
         for child in node.variations:
+            add_writing_source(
+                getattr(child, "starting_comment", ""), moves, sans, board
+            )
             walk(
                 child,
                 [*moves, child.move.uci()],
@@ -152,6 +172,7 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         "threshold": threshold,
         "rating": rating,
         "repertoire_side": repertoire_side,
+        "writing_sources": writing_sources,
         "findings": findings,
     }
 

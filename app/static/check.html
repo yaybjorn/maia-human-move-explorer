@@ -33,12 +33,18 @@
         </label>
       </div>
       <button type="submit">Check repertoire</button>
-      <p class="help">If the PGN contains comments, checking begins at the first commented position on each line. This avoids treating the moves used to reach the opening as repertoire gaps.</p>
+      <p class="help">If the PGN contains comments, checking begins at the first commented position on each line. This avoids treating the moves used to reach the opening as repertoire gaps. The writing check runs locally in your browser using British English; comment text is not sent to a third-party writing service.</p>
       <p id="status" role="status"></p>
     </form>
 
     <section id="results" hidden>
       <div id="summary" class="summary"></div>
+      <section id="writing" class="writing-section">
+        <h2>Writing check</h2>
+        <p id="writing-status" class="help"></p>
+        <div id="writing-findings"></div>
+      </section>
+      <h2 class="section-title">Repertoire gaps</h2>
       <div id="findings"></div>
     </section>
   </main>

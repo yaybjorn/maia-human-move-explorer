@@ -6,6 +6,15 @@ header a { color:var(--green); font-weight:650; text-decoration:none; }
 h1 { margin:.35rem 0 0; font:700 clamp(2rem,6vw,3.7rem)/1.02 Georgia,serif; }
 header p { color:var(--muted); margin:.75rem 0 2rem; }
 form,.finding,.summary { background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:0 8px 28px #25301f0d; }
+.writing-section { margin:28px 0; }
+.writing-section>h2,.section-title { margin:0 0 8px; font-size:1.15rem; }
+.writing-issue { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:10px 0; }
+.writing-issue h3 { margin:0 0 5px; font-size:.95rem; color:var(--muted); }
+.writing-issue p { margin:.35rem 0 0; }
+.writing-original { color:var(--ink); }
+.writing-problem { text-decoration:underline wavy #b44; text-decoration-thickness:1.5px; }
+.writing-message { color:var(--muted); }
+.writing-suggestion { color:#315d2d; font-weight:650; }
 .drop { display:grid; place-items:center; min-height:150px; border:2px dashed #aeb7a7; border-radius:10px; cursor:pointer; text-align:center; }
 .drop:hover,.drop.dragging { border-color:var(--green); background:#f4f7f1; }
 .drop span { color:var(--muted); }
