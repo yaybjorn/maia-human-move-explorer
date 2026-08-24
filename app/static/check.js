@@ -21,10 +21,11 @@ form.addEventListener('submit', async event => {
   const button = form.querySelector('button');
   button.disabled = true; results.hidden = true; status.textContent = 'Checking each opponent position with Maia…';
   try {
-    const response = await fetch('/api/check-repertoire', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    const payload = {
       pgn: await file.text(), repertoire_side:document.querySelector('#side').value,
       rating:Number(document.querySelector('#rating').value), threshold:Number(document.querySelector('#threshold').value)/100
-    })});
+    };
+    const response = await requestCheck(payload);
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'The check failed');
     render(data);
@@ -34,6 +35,17 @@ form.addEventListener('submit', async event => {
   } catch (error) { status.textContent = error.message; }
   finally { button.disabled = false; }
 });
+
+async function requestCheck(payload) {
+  const options = { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) };
+  try {
+    return await fetch('/api/check-repertoire', options);
+  } catch (error) {
+    status.textContent = 'The analysis is still warming up. Retrying automatically…';
+    await new Promise(resolve => setTimeout(resolve, 12000));
+    return fetch('/api/check-repertoire', options);
+  }
+}
 
 function escapeHtml(value) { const node=document.createElement('span'); node.textContent=String(value); return node.innerHTML; }
 function highlightProblem(comment, start, end) {
