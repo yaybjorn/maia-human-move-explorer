@@ -1,3 +1,10 @@
+import {
+  canIgnoreWord,
+  ignoredWritingRanges,
+  normaliseIgnoredWord,
+  overlapsIgnoredRange
+} from './writing-rules.mjs';
+
 const CHECKED_KINDS = new Set([
   'Agreement', 'BoundaryError', 'Capitalization', 'Eggcorn', 'Formatting',
   'Grammar', 'Malapropism', 'Nonstandard', 'Punctuation', 'Regionalism',
@@ -6,7 +13,8 @@ const CHECKED_KINDS = new Set([
 
 const CHESS_TERMS = [
   'Maia', 'Stockfish', 'PGN', 'FEN', 'SAN', 'UCI', 'chess', 'checkmate',
-  'castling', 'fianchetto', 'gambit', 'kingside', 'queenside', 'repertoire'
+  'castling', 'fianchetto', 'gambit', 'kingside', 'queenside', 'repertoire',
+  'Kilkenny', 'Portsmouth', 'Jobava'
 ];
 
 let linterPromise;
@@ -34,11 +42,13 @@ function looksLikeChessNotation(value) {
   return /^(?:O-O(?:-O)?[+#]?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h][1-8][a-h][1-8][qrbn]?)$/i.test(value);
 }
 
-export async function checkWriting(sources) {
+export async function checkWriting(sources, { ignoredWords = [] } = {}) {
   const linter = await getLinter();
   const findings = [];
+  const ignoredWordSet = new Set(ignoredWords.map(normaliseIgnoredWord));
 
   for (const source of sources) {
+    const ignoredRanges = ignoredWritingRanges(source.comment);
     const lints = await linter.lint(source.comment, {
       language: 'plaintext',
       dedup: true
@@ -47,12 +57,18 @@ export async function checkWriting(sources) {
     for (const lint of lints) {
       const kind = lint.lint_kind();
       const problem = lint.get_problem_text();
-      if (!CHECKED_KINDS.has(kind) || looksLikeChessNotation(problem)) {
+      const span = lint.span();
+      if (
+        !CHECKED_KINDS.has(kind) ||
+        looksLikeChessNotation(problem) ||
+        ignoredWordSet.has(normaliseIgnoredWord(problem)) ||
+        overlapsIgnoredRange(span.start, span.end, ignoredRanges)
+      ) {
+        span.free();
         lint.free();
         continue;
       }
 
-      const span = lint.span();
       const suggestions = lint.suggestions();
       findings.push({
         history: source.history,
@@ -62,6 +78,7 @@ export async function checkWriting(sources) {
         problem,
         start: span.start,
         end: span.end,
+        canIgnore: canIgnoreWord(problem),
         suggestions: suggestions
           .map(suggestion => suggestion.get_replacement_text())
           .filter((value, index, values) => value && values.indexOf(value) === index)

@@ -3,6 +3,22 @@ const fileInput = document.querySelector('#pgn-file');
 const drop = document.querySelector('.drop');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
+const IGNORED_WORDS_KEY = 'maia-writing-check-ignored-words-v1';
+
+function loadIgnoredWords() {
+  try {
+    const value = JSON.parse(localStorage.getItem(IGNORED_WORDS_KEY) || '[]');
+    return Array.isArray(value) ? value.filter(word => typeof word === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIgnoredWord(word) {
+  const words = new Set(loadIgnoredWords().map(value => value.toLocaleLowerCase('en-GB')));
+  words.add(word.toLocaleLowerCase('en-GB'));
+  localStorage.setItem(IGNORED_WORDS_KEY, JSON.stringify([...words].sort()));
+}
 
 for (const id of ['rating', 'threshold']) {
   const input = document.querySelector(`#${id}`);
@@ -64,18 +80,26 @@ async function renderWriting(sources) {
   writingStatus.textContent = `Checking ${sources.length} comments in your browser…`;
   try {
     const { checkWriting } = await import('./writing-check.js');
-    const issues = await checkWriting(sources);
+    const issues = await checkWriting(sources, { ignoredWords: loadIgnoredWords() });
     if (!issues.length) {
       writingStatus.textContent = `No spelling or grammar issues found in ${sources.length} comments.`;
       return;
     }
     writingStatus.textContent = `${issues.length} possible ${issues.length === 1 ? 'issue' : 'issues'} found. Chess names and terminology may need your judgement.`;
-    writingFindings.innerHTML = issues.map(issue => `<article class="writing-issue">
+    writingFindings.innerHTML = issues.map((issue, index) => `<article class="writing-issue">
       <h3>${escapeHtml(issue.history)} · ${escapeHtml(issue.kind)}</h3>
       <p class="writing-original">${highlightProblem(issue.comment,issue.start,issue.end)}</p>
       <p class="writing-message">${escapeHtml(issue.message)}</p>
       ${issue.suggestions.length ? `<p class="writing-suggestion">Suggested: ${issue.suggestions.map(escapeHtml).join(' / ')}</p>` : ''}
+      ${issue.canIgnore ? `<button class="ignore-word" type="button" data-issue="${index}">Ignore “${escapeHtml(issue.problem)}”</button>` : ''}
     </article>`).join('');
+    writingFindings.querySelectorAll('.ignore-word').forEach(button => {
+      button.addEventListener('click', () => {
+        const issue = issues[Number(button.dataset.issue)];
+        saveIgnoredWord(issue.problem);
+        renderWriting(sources);
+      });
+    });
   } catch (error) {
     writingStatus.textContent = 'The writing checker could not load. The repertoire results are still complete.';
     console.error(error);
