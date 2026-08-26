@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>PGN Spellcheck</title>
+  <link rel="stylesheet" href="/static/check.css">
+</head>
+<body>
+  <main>
+    <header>
+      <nav><a href="/">Maia Human Move Explorer</a><a href="/check">Repertoire gap check</a></nav>
+      <h1>PGN spellcheck</h1>
+      <p>Check and correct the English in your PGN comments.</p>
+    </header>
+
+    <form id="spellcheck-form">
+      <label class="drop" for="pgn-file">
+        <strong>Choose a PGN</strong>
+        <span id="file-name">or drop it here</span>
+        <input id="pgn-file" type="file" accept=".pgn,application/x-chess-pgn,text/plain" required>
+      </label>
+      <button type="submit">Check spelling</button>
+      <p class="help">The British English check runs locally in your browser. Bracketed PGN directives and chess notation are ignored.</p>
+      <p id="status" role="status"></p>
+    </form>
+
+    <section id="results" class="writing-section" hidden>
+      <div class="result-heading">
+        <div><h2>Writing suggestions</h2><p id="writing-status" class="help"></p></div>
+        <button id="download-fixed" type="button" disabled>Download fixed PGN</button>
+      </div>
+      <div id="writing-findings"></div>
+    </section>
+  </main>
+  <script src="/static/spellcheck.js" type="module"></script>
+</body>
+</html>

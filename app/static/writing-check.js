@@ -71,6 +71,7 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
 
       const suggestions = lint.suggestions();
       findings.push({
+        sourceId: source.sourceId,
         history: source.history,
         comment: source.comment,
         kind: lint.lint_kind_pretty(),
@@ -81,7 +82,7 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
         canIgnore: canIgnoreWord(problem),
         suggestions: suggestions
           .map(suggestion => suggestion.get_replacement_text())
-          .filter((value, index, values) => value && values.indexOf(value) === index)
+          .filter((value, index, values) => values.indexOf(value) === index)
           .slice(0, 4)
       });
       suggestions.forEach(suggestion => suggestion.free());

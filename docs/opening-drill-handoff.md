@@ -7,6 +7,7 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 ## Routes
 
 - `/check`: Simon uploads a standard-start PGN and finds probable opponent replies not covered by PGN variations or explicitly named in position comments.
+- `/spellcheck`: Simon checks PGN comments in British English, applies individual suggestions, and downloads a corrected copy.
 - `/portsmouth`: White repertoire trainer built from the approved Portsmouth pack.
 - `/kilkenny`: White repertoire trainer built from Simon’s Kilkenny PGN.
 - `/`: general history-aware Maia move explorer with PGN variations and separate Stockfish analysis.
@@ -22,8 +23,15 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - Priority is `reach probability × missing probability mass`; findings below 0.5% are hidden.
 - Positions where Stockfish already evaluates the repertoire side at +2.0 or better are hidden, with excluded counts shown.
 - Findings are sorted by descending priority score, then earlier ply.
-- PGN comments receive a British English spelling and grammar check grouped by move history. Harper runs entirely in the browser; comment text is not sent to a third-party writing service. Square-bracketed PGN directives and black-move ellipsis notation are excluded. Known course terms are preloaded, and authors can persistently ignore additional names in their own browser.
 - Custom-FEN PGNs and malformed PGNs are rejected. Malformed comment braces receive a human-readable error.
+
+## `/spellcheck` current behavior
+
+- PGN comments receive a British English spelling and grammar check grouped by move history.
+- Harper runs entirely in the browser; comment text is not sent to a third-party writing service.
+- Square-bracketed PGN directives and black-move ellipsis notation are excluded. Known course terms are preloaded, and authors can persistently ignore additional names in their own browser.
+- Each proposed replacement has its own fix button. Fixes update the original uploaded PGN without reformatting its moves, headers, variations, or untouched comments.
+- The corrected PGN downloads as a separate `-fixed.pgn` file; the uploaded file is never overwritten.
 
 ## Trainer behavior
 

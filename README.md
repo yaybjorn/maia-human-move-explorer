@@ -24,8 +24,12 @@ The probabilities represent human move likelihood, not objective move quality.
 The repertoire gap checker at `/check` accepts a standard-start PGN and uses
 Maia to find probable opponent replies that are not represented as variations
 or explicitly named in a position comment. Repertoire side, opponent rating,
-and probability threshold are configurable. PGN comments also receive an
-on-device British English spelling and grammar check, grouped by move history.
+and probability threshold are configurable.
+
+The standalone `/spellcheck` route checks PGN comments in British English in
+the browser, keeps findings grouped by move history, applies selected fixes to
+the original PGN text, and downloads the corrected copy without overwriting the
+uploaded file.
 
 Python 3.11 or newer and Git are required. Installing the package also installs a pinned revision of Maia-3 directly from its official public repository. The first prediction downloads the selected checkpoint from Hugging Face.
 

@@ -16,7 +16,7 @@ from .chess_state import (
 from .engine import engine
 from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
-from .repertoire_check import check_repertoire
+from .repertoire_check import check_repertoire, writing_sources
 from .stockfish import stockfish
 
 ROOT = Path(__file__).resolve().parent
@@ -130,6 +130,11 @@ def repertoire_check(request: RepertoireCheckRequest):
     )
 
 
+@app.post("/api/spellcheck-context")
+def spellcheck_context(request: PgnRequest):
+    return {"sources": writing_sources(request.pgn)}
+
+
 def trainer_play(request: TrainerMoveRequest, repertoire, label: str):
     position = replay(START_FEN, request.moves)
     puzzle = repertoire.position(position.board)
@@ -214,5 +219,13 @@ def kilkenny_index():
 def check_index():
     return FileResponse(
         ROOT / "static" / "check.html",
+        headers={"X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@app.get("/spellcheck")
+def spellcheck_index():
+    return FileResponse(
+        ROOT / "static" / "spellcheck.html",
         headers={"X-Robots-Tag": "noindex, nofollow"},
     )

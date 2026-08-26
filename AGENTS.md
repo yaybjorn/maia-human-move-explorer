@@ -7,11 +7,12 @@ This repository owns the public, unlisted Maia web tools at `maia.fablelabs.no`.
 `#opening_drill` (`1526981218833403995`) is the canonical product channel for:
 
 - `/check` — reusable PGN repertoire-gap analysis;
+- `/spellcheck` — local British English checking and correction for PGN comments;
 - `/portsmouth` — Portsmouth Gambit White trainer;
 - `/kilkenny` — Kilkenny Gambit White trainer;
 - shared Maia/Stockfish behavior and UI used by those routes.
 
-In that channel, a request referring to “the checker,” “the check page,” or `/check` means this repository. Work on these routes is Opening Drill product work and does not require returning to `#brain` unless it introduces workspace-wide infrastructure, security-sensitive exposure, paid infrastructure, a separate repository/service, or another product’s scope.
+In that channel, a request referring to “the checker,” “the check page,” `/check`, or `/spellcheck` means this repository. Work on these routes is Opening Drill product work and does not require returning to `#brain` unless it introduces workspace-wide infrastructure, security-sensitive exposure, paid infrastructure, a separate repository/service, or another product’s scope.
 
 Read `docs/opening-drill-handoff.md` before changing these routes.
 

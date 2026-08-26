@@ -7,12 +7,7 @@ import chess.pgn
 from .chess_state import PositionError, replay
 
 
-def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
-                     threshold: float, maia_engine, stockfish_engine=None) -> dict:
-    """Find probable opponent replies that are absent from a standard-start PGN tree."""
-    if repertoire_side not in {"white", "black"}:
-        raise PositionError("Repertoire side must be white or black")
-
+def parse_pgn_games(pgn_text: str) -> list[chess.pgn.Game]:
     stream = StringIO(pgn_text.strip())
     games: list[chess.pgn.Game] = []
     while True:
@@ -29,6 +24,41 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         games.append(game)
     if not games:
         raise PositionError("Invalid PGN: no game found")
+    return games
+
+
+def writing_sources(pgn_text: str) -> list[dict]:
+    """Return every PGN comment with its move history, without running chess engines."""
+    sources = []
+
+    def add(comment: str, sans: list[str], board) -> None:
+        comment = comment.strip()
+        if comment:
+            sources.append({
+                "history": _history(sans),
+                "fen": board.fen(),
+                "comment": comment,
+            })
+
+    def walk(node: chess.pgn.GameNode, sans: list[str]) -> None:
+        board = node.board()
+        add(getattr(node, "comment", ""), sans, board)
+        for child in node.variations:
+            add(getattr(child, "starting_comment", ""), sans, board)
+            walk(child, [*sans, board.san(child.move)])
+
+    for game in parse_pgn_games(pgn_text):
+        walk(game, [])
+    return sources
+
+
+def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
+                     threshold: float, maia_engine, stockfish_engine=None) -> dict:
+    """Find probable opponent replies that are absent from a standard-start PGN tree."""
+    if repertoire_side not in {"white", "black"}:
+        raise PositionError("Repertoire side must be white or black")
+
+    games = parse_pgn_games(pgn_text)
 
     opponent = chess.BLACK if repertoire_side == "white" else chess.WHITE
     positions: dict[tuple[str, ...], dict] = {}
@@ -38,22 +68,6 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         for node in _nodes(game)
     )
     excluded_before_opening = 0
-    writing_sources = []
-    seen_writing_sources = set()
-
-    def add_writing_source(comment: str, moves: list[str], sans: list[str], board) -> None:
-        comment = comment.strip()
-        if not comment:
-            return
-        key = (tuple(moves), comment)
-        if key in seen_writing_sources:
-            return
-        seen_writing_sources.add(key)
-        writing_sources.append({
-            "history": _history(sans),
-            "fen": board.fen(),
-            "comment": comment,
-        })
 
     def walk(node: chess.pgn.GameNode, moves: list[str], sans: list[str],
              opening_started: bool = False) -> None:
@@ -62,7 +76,6 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         node_has_comment = bool(
             getattr(node, "comment", "") or getattr(node, "starting_comment", "")
         )
-        add_writing_source(getattr(node, "comment", ""), moves, sans, board)
         opening_started = opening_started or node_has_comment or not has_comments
         is_opponent_position = (
             board.turn == opponent and node.variations and not board.is_game_over()
@@ -84,9 +97,6 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
                     entry["comments"].append(comment)
 
         for child in node.variations:
-            add_writing_source(
-                getattr(child, "starting_comment", ""), moves, sans, board
-            )
             walk(
                 child,
                 [*moves, child.move.uci()],
@@ -172,7 +182,6 @@ def check_repertoire(pgn_text: str, repertoire_side: str, rating: int,
         "threshold": threshold,
         "rating": rating,
         "repertoire_side": repertoire_side,
-        "writing_sources": writing_sources,
         "findings": findings,
     }
 

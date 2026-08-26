@@ -200,34 +200,6 @@ def test_repertoire_check_treats_move_named_in_comment_as_addressed(monkeypatch)
     assert response.json()["positions_needing_attention"] == 0
 
 
-def test_repertoire_check_returns_comments_with_their_positions(monkeypatch):
-    monkeypatch.setattr(
-        "app.main.engine._predict_all",
-        lambda *_: [{"uci": "e7e5", "san": "e5", "probability": 1.0}],
-    )
-    monkeypatch.setattr(
-        "app.main.stockfish.analyze",
-        lambda *_: {"lines": [{"evaluation": {"type": "cp", "value": 0}}]},
-    )
-
-    response = client.post(
-        "/api/check-repertoire",
-        json={
-            "pgn": "1. e4 {This are the main move.} e5 *",
-            "repertoire_side": "white",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["writing_sources"] == [
-        {
-            "history": "1. e4",
-            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-            "comment": "This are the main move.",
-        }
-    ]
-
-
 def test_repertoire_check_starts_at_first_commented_position(monkeypatch):
     monkeypatch.setattr(
         "app.main.engine._predict_all",
@@ -276,7 +248,33 @@ def test_repertoire_check_page_exists():
     response = client.get("/check")
     assert response.status_code == 200
     assert "Repertoire gap check" in response.text
-    assert response.text.index("Repertoire gaps") < response.text.index("Writing check")
+    assert "Writing check" not in response.text
+    assert "/spellcheck" in response.text
+
+
+def test_spellcheck_page_and_context_exist():
+    page = client.get("/spellcheck")
+    assert page.status_code == 200
+    assert "PGN spellcheck" in page.text
+    assert "Download fixed PGN" in page.text
+
+    response = client.post(
+        "/api/spellcheck-context",
+        json={"pgn": "1. e4 {This are wrong.} e5 {A second comment.} *"},
+    )
+    assert response.status_code == 200
+    assert response.json()["sources"] == [
+        {
+            "history": "1. e4",
+            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+            "comment": "This are wrong.",
+        },
+        {
+            "history": "1. e4 e5",
+            "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+            "comment": "A second comment.",
+        },
+    ]
 
 
 def test_portsmouth_line_reaches_stockfish_finish(monkeypatch):

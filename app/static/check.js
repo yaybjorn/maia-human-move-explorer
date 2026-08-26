@@ -3,22 +3,6 @@ const fileInput = document.querySelector('#pgn-file');
 const drop = document.querySelector('.drop');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
-const IGNORED_WORDS_KEY = 'maia-writing-check-ignored-words-v1';
-
-function loadIgnoredWords() {
-  try {
-    const value = JSON.parse(localStorage.getItem(IGNORED_WORDS_KEY) || '[]');
-    return Array.isArray(value) ? value.filter(word => typeof word === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveIgnoredWord(word) {
-  const words = new Set(loadIgnoredWords().map(value => value.toLocaleLowerCase('en-GB')));
-  words.add(word.toLocaleLowerCase('en-GB'));
-  localStorage.setItem(IGNORED_WORDS_KEY, JSON.stringify([...words].sort()));
-}
 
 for (const id of ['rating', 'threshold']) {
   const input = document.querySelector(`#${id}`);
@@ -45,9 +29,7 @@ form.addEventListener('submit', async event => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'The check failed');
     render(data);
-    status.textContent = 'Repertoire check complete. Checking the writing locally…';
-    await renderWriting(data.writing_sources || []);
-    status.textContent = `Checked ${data.positions_analyzed} opponent positions and ${data.writing_sources?.length || 0} comments.`;
+    status.textContent = `Checked ${data.positions_analyzed} opponent positions.`;
   } catch (error) { status.textContent = error.message; }
   finally { button.disabled = false; }
 });
@@ -64,48 +46,6 @@ async function requestCheck(payload) {
 }
 
 function escapeHtml(value) { const node=document.createElement('span'); node.textContent=String(value); return node.innerHTML; }
-function highlightProblem(comment, start, end) {
-  return `${escapeHtml(comment.slice(0,start))}<mark class="writing-problem">${escapeHtml(comment.slice(start,end))}</mark>${escapeHtml(comment.slice(end))}`;
-}
-
-async function renderWriting(sources) {
-  const writingStatus = document.querySelector('#writing-status');
-  const writingFindings = document.querySelector('#writing-findings');
-  writingFindings.innerHTML = '';
-  if (!sources.length) {
-    writingStatus.textContent = 'No PGN comments to check.';
-    return;
-  }
-
-  writingStatus.textContent = `Checking ${sources.length} comments in your browser…`;
-  try {
-    const { checkWriting } = await import('./writing-check.js');
-    const issues = await checkWriting(sources, { ignoredWords: loadIgnoredWords() });
-    if (!issues.length) {
-      writingStatus.textContent = `No spelling or grammar issues found in ${sources.length} comments.`;
-      return;
-    }
-    writingStatus.textContent = `${issues.length} possible ${issues.length === 1 ? 'issue' : 'issues'} found. Chess names and terminology may need your judgement.`;
-    writingFindings.innerHTML = issues.map((issue, index) => `<article class="writing-issue">
-      <h3>${escapeHtml(issue.history)} · ${escapeHtml(issue.kind)}</h3>
-      <p class="writing-original">${highlightProblem(issue.comment,issue.start,issue.end)}</p>
-      <p class="writing-message">${escapeHtml(issue.message)}</p>
-      ${issue.suggestions.length ? `<p class="writing-suggestion">Suggested: ${issue.suggestions.map(escapeHtml).join(' / ')}</p>` : ''}
-      ${issue.canIgnore ? `<button class="ignore-word" type="button" data-issue="${index}">Ignore “${escapeHtml(issue.problem)}”</button>` : ''}
-    </article>`).join('');
-    writingFindings.querySelectorAll('.ignore-word').forEach(button => {
-      button.addEventListener('click', () => {
-        const issue = issues[Number(button.dataset.issue)];
-        saveIgnoredWord(issue.problem);
-        renderWriting(sources);
-      });
-    });
-  } catch (error) {
-    writingStatus.textContent = 'The writing checker could not load. The repertoire results are still complete.';
-    console.error(error);
-  }
-}
-
 function render(data) {
   results.hidden = false;
   document.querySelector('#summary').innerHTML = [
