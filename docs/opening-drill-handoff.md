@@ -30,7 +30,7 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - PGN comments receive a British English spelling and grammar check grouped by move history.
 - Harper runs entirely in the browser; comment text is not sent to a third-party writing service.
 - Square-bracketed PGN directives and black-move ellipsis notation are excluded. Known course terms are preloaded, and authors can persistently ignore additional names in their own browser.
-- Each proposed replacement has its own fix button. Fixes update the original uploaded PGN without reformatting its moves, headers, variations, or untouched comments.
+- Each proposed replacement has its own fix button. A custom-fix control also accepts any replacement text when the preferred wording is not suggested. Fixes update the original uploaded PGN without reformatting its moves, headers, variations, or untouched comments.
 - The corrected PGN downloads as a separate `-fixed.pgn` file; the uploaded file is never overwritten.
 
 ## Trainer behavior

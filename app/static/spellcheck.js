@@ -78,7 +78,18 @@ async function runCheck() {
     <h3>${escapeHtml(issue.history)} · ${escapeHtml(issue.kind)}</h3>
     <p class="writing-original">${highlightProblem(issue.comment,issue.start,issue.end)}</p>
     <p class="writing-message">${escapeHtml(issue.message)}</p>
-    ${issue.suggestions.length ? `<div class="suggestion-buttons">${issue.suggestions.map((suggestion, suggestionIndex) => `<button type="button" class="fix-suggestion" data-issue="${issueIndex}" data-suggestion="${suggestionIndex}">Fix: ${escapeHtml(suggestion || 'Remove')}</button>`).join('')}</div>` : ''}
+    <div class="suggestion-buttons">
+      ${issue.suggestions.map((suggestion, suggestionIndex) => `<button type="button" class="fix-suggestion" data-issue="${issueIndex}" data-suggestion="${suggestionIndex}">Fix: ${escapeHtml(suggestion || 'Remove')}</button>`).join('')}
+      <button type="button" class="custom-fix-toggle" data-issue="${issueIndex}">Custom fix…</button>
+    </div>
+    <form class="custom-fix-form" data-issue="${issueIndex}" hidden>
+      <label for="custom-fix-${issueIndex}">Replace “${escapeHtml(issue.problem)}” with</label>
+      <div class="custom-fix-controls">
+        <input id="custom-fix-${issueIndex}" class="custom-fix-input" type="text" value="${escapeHtml(issue.problem)}" autocomplete="off">
+        <button type="submit">Apply</button>
+        <button type="button" class="custom-fix-cancel">Cancel</button>
+      </div>
+    </form>
     ${issue.canIgnore ? `<button class="ignore-word" type="button" data-issue="${issueIndex}">Ignore “${escapeHtml(issue.problem)}”</button>` : ''}
   </article>`).join('');
   writingFindings.querySelectorAll('.fix-suggestion').forEach(button => {
@@ -90,6 +101,34 @@ async function runCheck() {
       status.textContent = 'Fix applied. Checking the updated PGN…';
       await runCheck();
       status.textContent = 'Updated PGN ready to download.';
+    });
+  });
+  writingFindings.querySelectorAll('.custom-fix-toggle').forEach(button => {
+    button.addEventListener('click', () => {
+      const customForm = writingFindings.querySelector(`.custom-fix-form[data-issue="${button.dataset.issue}"]`);
+      customForm.hidden = false;
+      button.hidden = true;
+      const input = customForm.querySelector('.custom-fix-input');
+      input.focus();
+      input.select();
+    });
+  });
+  writingFindings.querySelectorAll('.custom-fix-form').forEach(customForm => {
+    const issueIndex = Number(customForm.dataset.issue);
+    customForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const replacement = customForm.querySelector('.custom-fix-input').value;
+      currentPgn = applyIssueSuggestion(currentPgn, issues[issueIndex], replacement);
+      fixesApplied += 1;
+      status.textContent = 'Custom fix applied. Checking the updated PGN…';
+      await runCheck();
+      status.textContent = 'Updated PGN ready to download.';
+    });
+    customForm.querySelector('.custom-fix-cancel').addEventListener('click', () => {
+      customForm.hidden = true;
+      const toggle = writingFindings.querySelector(`.custom-fix-toggle[data-issue="${issueIndex}"]`);
+      toggle.hidden = false;
+      toggle.focus();
     });
   });
   writingFindings.querySelectorAll('.ignore-word').forEach(button => {

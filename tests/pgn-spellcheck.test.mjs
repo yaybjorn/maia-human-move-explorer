@@ -29,6 +29,12 @@ test('applies a suggestion only inside the selected comment', () => {
   assert.equal(fixed, '1. e4 {This is wrong.} e5 *');
 });
 
+test('applies an arbitrary custom replacement', () => {
+  const pgn = '1. e4 {The centre is colourfull.} e5 *';
+  const fixed = applyIssueSuggestion(pgn, {sourceId:0, start:14, end:24}, 'vibrant');
+  assert.equal(fixed, '1. e4 {The centre is vibrant.} e5 *');
+});
+
 test('creates a separate fixed filename', () => {
   assert.equal(fixedFilename('London.pgn'), 'London-fixed.pgn');
   assert.equal(fixedFilename('London.PGN'), 'London-fixed.pgn');
