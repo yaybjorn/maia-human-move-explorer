@@ -16,7 +16,7 @@ rollback() {
     ln -sfn "$PREVIOUS" "$APP/current.rollback"
     mv -Tf "$APP/current.rollback" "$APP/current"
     systemctl restart maia-explorer.service || true
-    curl --fail --silent --retry 5 --retry-delay 2 http://127.0.0.1:8310/healthz >/dev/null || true
+    curl --fail --silent --retry 5 --retry-delay 2 --retry-connrefused http://127.0.0.1:8310/healthz >/dev/null || true
   fi
   exit "$exit_code"
 }
@@ -31,7 +31,7 @@ mv -Tf "$APP/current.next" "$APP/current"
 SWITCHED=1
 chown -R maia:maia "$RELEASE"
 systemctl restart maia-explorer.service
-curl --fail --silent --retry 10 --retry-delay 2 http://127.0.0.1:8310/healthz >/dev/null
+curl --fail --silent --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:8310/healthz >/dev/null
 SWITCHED=0
 trap - ERR
 echo "Updated to $(git -C "$RELEASE" rev-parse --short HEAD)"
