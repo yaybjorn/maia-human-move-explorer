@@ -51,6 +51,8 @@ export function normalizeDocument(input = {}) {
     id: chapter.id || `chapter-${index + 1}`,
     title: chapter.title || `Chapter ${index + 1}`,
     startNodeID: chapter.startNodeID === null ? null : String(chapter.startNodeID),
+    startIndex: Number.isInteger(chapter.startIndex) ? chapter.startIndex : null,
+    startPath: Array.isArray(chapter.startPath) ? chapter.startPath.map(String) : null,
   }));
   document.ignoredSuggestionIDs = [...(input.ignoredSuggestionIDs || [])];
   document.ignoredWords = [...(input.ignoredWords || [])];
@@ -63,6 +65,20 @@ export function importParsedPGN(parsed, metadata = {}) {
     headers: parsed.headers,
     nodes: parsed.nodes,
   });
+}
+
+export function pgnHasMoves(pgn = "") {
+  const movetext = String(pgn)
+    .split(/\r?\n/)
+    .filter(line => !line.trimStart().startsWith("["))
+    .join("\n")
+    .replace(/\{[^}]*\}/gs, " ")
+    .replace(/;[^\r\n]*/g, " ")
+    .replace(/\$\d+/g, " ")
+    .replace(/\b(?:1-0|0-1|1\/2-1\/2)\b|\*/g, " ")
+    .replace(/\d+\.(?:\.\.)?/g, " ")
+    .trim();
+  return movetext.length > 0;
 }
 
 export function childrenOf(document, parentID) {
@@ -237,7 +253,14 @@ export function hydrateRestoredDocument(parsed, saved) {
   const hydrated = importParsedPGN(parsed, saved.metadata);
   hydrated.sourcePGN = saved.sourcePGN || "";
   hydrated.chapters = structuredClone(saved.chapters || []);
-  hydrated.chapterDrafts = structuredClone(saved.chapterDrafts || []);
+  const positions = trainingPack(hydrated, hydrated.metadata.slug || "draft").positions;
+  const byPath = new Map(positions.map(position => [JSON.stringify(position.path), position.id]));
+  hydrated.chapterDrafts = (saved.chapterDrafts || []).map((chapter, index) => {
+    if (index === 0) return { ...chapter, startNodeID: null };
+    const pathID = Array.isArray(chapter.startPath) ? byPath.get(JSON.stringify(chapter.startPath)) : null;
+    const indexedID = Number.isInteger(chapter.startIndex) ? positions[chapter.startIndex]?.id : null;
+    return { ...chapter, startNodeID: pathID || indexedID || chapter.startNodeID };
+  });
   hydrated.ignoredSuggestionIDs = [...(saved.ignoredSuggestionIDs || [])];
   hydrated.ignoredWords = [...(saved.ignoredWords || [])];
   return hydrated;
@@ -247,7 +270,19 @@ export function documentForStorage(document, sourcePGN) {
   // The PGN is the move-tree authority. Omitting hydrated nodes avoids sending
   // the same large course twice and keeps create/save requests under the proxy
   // ceiling; opening the draft deterministically hydrates the tree again.
-  return { ...structuredClone(document), sourcePGN, nodes: [] };
+  const stored = structuredClone(document);
+  const positions = trainingPack(document, document.metadata.slug || "draft").positions;
+  const chapters = ensureChapters(document, document.metadata.slug || "draft");
+  const positionIndex = new Map(positions.map((position, index) => [position.id, index]));
+  stored.chapterDrafts = chapters.map((chapter, index) => {
+    const startIndex = index === 0 ? 0 : positionIndex.get(chapter.startNodeID);
+    return {
+      ...chapter,
+      startIndex,
+      startPath: positions[startIndex]?.path || [],
+    };
+  });
+  return { ...stored, sourcePGN, nodes: [] };
 }
 
 export function evaluatePreviewMove(position, move, fallbackFeedback) {

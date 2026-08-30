@@ -3,9 +3,15 @@ import test from "node:test";
 
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
-  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, promoteVariation, removeBranch,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, pgnHasMoves, promoteVariation, removeBranch,
   reorderVariation, serializeForPGN, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
+
+test("recognises a header-only PGN as an editable blank course", () => {
+  const blank = `[Event "Blank course"]\n[Result "*"]\n\n*\n`;
+  assert.equal(pgnHasMoves(blank), false);
+  assert.equal(pgnHasMoves(`${blank}1. e4 e5 *`), true);
+});
 
 const parsed = {
   headers: { Event: "Test course" },
@@ -109,14 +115,21 @@ test("source-only restores hydrate safely and storage payload does not duplicate
     metadata: { title: "Restored", slug: "restored", side: "white" },
     sourcePGN: "1. e4 c5 *",
     chapters: [{ id: "intro", title: "Intro", positionIDs: ["sha256:one"] }],
+    chapterDrafts: [
+      { id: "intro", title: "Intro", startNodeID: null, startIndex: 0, startPath: [] },
+      { id: "branch", title: "Branch", startNodeID: "old-node-id", startIndex: 1, startPath: ["e2e4", "c7c5"] },
+    ],
     ignoredWords: ["Kilkenny"],
   });
   const hydrated = hydrateRestoredDocument(parsed, saved);
   assert.equal(hydrated.nodes.length, 4);
   assert.deepEqual(hydrated.ignoredWords, ["Kilkenny"]);
+  assert.equal(hydrated.chapterDrafts[1].startNodeID, "2");
   const stored = documentForStorage(hydrated, saved.sourcePGN);
   assert.deepEqual(stored.nodes, []);
   assert.equal(stored.sourcePGN, "1. e4 c5 *");
+  assert.deepEqual(stored.chapterDrafts[1].startPath, ["e2e4", "c7c5"]);
+  assert.equal(stored.chapterDrafts[1].startIndex, 1);
 });
 
 test("authored chapter boundaries may start at any training position", () => {

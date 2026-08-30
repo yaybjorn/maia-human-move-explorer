@@ -1,6 +1,6 @@
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs";
 import {
-  addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode,
+  addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
@@ -114,7 +114,9 @@ async function openCourse(id) {
     state.reconciliationError = null;
     state.document = await hydrateSourceDocument(state.document);
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
-    state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0; state.validation = null;
+    state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0;
+    state.previewAttempt = null; state.previewPosition = null; state.previewSelectedSquare = null;
+    state.validation = null;
     restoreCrashRecovery();
     $("course-title").textContent = state.document.metadata.title;
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
@@ -124,7 +126,7 @@ async function openCourse(id) {
 }
 
 async function hydrateSourceDocument(document) {
-  if (document.nodes.length || !document.sourcePGN.trim()) return document;
+  if (document.nodes.length || !pgnHasMoves(document.sourcePGN)) return document;
   const parsed = await analysisAPI.parsePGN(document.sourcePGN);
   const hydrated = hydrateRestoredDocument(parsed, document);
   state.reconciliationError = null;
@@ -155,7 +157,15 @@ async function hydrateSourceDocument(document) {
 
 function commit(next, { navigateTo } = {}) {
   const value = typeof next === "function" ? next(structuredClone(state.document)) : next;
-  if (!value || JSON.stringify(value) === JSON.stringify(state.document)) return;
+  if (!value) return;
+  if (JSON.stringify(value) === JSON.stringify(state.document)) {
+    if (navigateTo !== undefined && navigateTo !== state.currentNodeID) {
+      state.currentNodeID = navigateTo;
+      renderAll();
+    }
+    updateSaveState();
+    return;
+  }
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
   state.redo = []; state.document = value; state.validation = null;
   if (navigateTo !== undefined) state.currentNodeID = navigateTo;
@@ -450,7 +460,7 @@ function renderChapters(){
 function chapterDrop(index,existing){if(index===0)return"";return`<button type="button" class="chapter-drop" data-chapter-drop="${index}" aria-pressed="${existing}" aria-label="${existing?"Move chapter boundary here":"Start a chapter at position "+(index+1)}">${existing?"Chapter starts here":"Start chapter here"}</button>`}
 function bindChapters(){
   const pack=trainingPack(state.document,state.document.metadata.slug||"draft");
-  $("studio-chapters").querySelectorAll("[data-chapter-title]").forEach(input=>{input.addEventListener("input",markPendingInput);input.addEventListener("change",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts[Number(input.dataset.chapterTitle)].title=input.value.trim()||`Chapter ${Number(input.dataset.chapterTitle)+1}`;commit({...state.document,chapterDrafts:drafts,chapters:[]});})});
+  $("studio-chapters").querySelectorAll("[data-chapter-title]").forEach(input=>{input.addEventListener("input",markPendingInput);input.addEventListener("change",()=>{const index=Number(input.dataset.chapterTitle),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),title=input.value.trim()||`Chapter ${index+1}`;if(drafts[index].title===title){updateSaveState();return}drafts[index].title=title;commit({...state.document,chapterDrafts:drafts,chapters:[]});})});
   $("studio-chapters").querySelectorAll("[data-delete-chapter]").forEach(button=>button.addEventListener("click",()=>{const index=Number(button.dataset.deleteChapter),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");if(!confirm(`Delete “${drafts[index].title}”? Its positions will move into the previous chapter.`))return;drafts.splice(index,1);commit({...state.document,chapterDrafts:drafts,chapters:[]});}));
   $("studio-chapters").querySelectorAll("[data-boundary-step]").forEach(button=>button.addEventListener("click",()=>{const index=Number(button.dataset.boundaryChapter),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),current=pack.positions.findIndex(position=>position.id===drafts[index].startNodeID);moveChapterBoundary(index,current+Number(button.dataset.boundaryStep));}));
   $("studio-chapters").querySelectorAll("[data-chapter-drag]").forEach(header=>{header.addEventListener("dragstart",()=>{state.chapterDrag=Number(header.dataset.chapterDrag)});header.addEventListener("dragend",()=>{state.chapterDrag=null;document.querySelectorAll(".chapter-drop").forEach(zone=>zone.classList.remove("active"));});});
