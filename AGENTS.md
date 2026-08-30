@@ -25,6 +25,7 @@ Read `docs/opening-drill-handoff.md` before changing these routes.
 - No paid infrastructure may be added without founder approval and cost options.
 - The service and exact deployed source remain public under AGPL. Do not deploy uncommitted source.
 - Preserve the accepted Cburnett pieces, cream/green board palette, fixed 8×8 squares, and mobile-friendly layout unless a redesign is explicitly requested.
+- Every CSS chessboard grid must constrain both axes with `repeat(8,minmax(0,1fr))`, and every square must use `min-width:0`, `min-height:0`, and clipped overflow. Do not rely on `repeat(8,1fr)` or implicit rows: SVG intrinsic sizing can stretch the grid on mobile Safari.
 
 ## Implementation and verification
 

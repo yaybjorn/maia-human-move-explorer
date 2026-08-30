@@ -166,6 +166,15 @@ def test_chapter_editor_page_and_course_proxy(monkeypatch):
     assert client.get("/api/chapter-courses/not_allowed").status_code == 404
 
 
+def test_chapter_editor_board_uses_bounded_eight_by_eight_grid():
+    css = client.get("/static/chapters.css")
+
+    assert css.status_code == 200
+    assert "grid-template-columns:repeat(8,minmax(0,1fr))" in css.text
+    assert "grid-template-rows:repeat(8,minmax(0,1fr))" in css.text
+    assert ".square{display:grid;place-items:center;min-width:0;min-height:0;overflow:hidden}" in css.text
+
+
 def test_kilkenny_page_and_first_move(monkeypatch):
     response = client.get("/kilkenny")
     assert response.status_code == 200
