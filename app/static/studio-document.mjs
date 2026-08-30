@@ -5,7 +5,7 @@ const DEFAULT_METADATA = Object.freeze({
   side: "white",
   access: "subscriber",
   catalogVisible: true,
-  fallbackFeedback: "That move is not part of this repertoire. Try another idea.",
+  fallbackFeedback: "The repertoire move is {san}.",
   opponentRating: 1500,
   slug: "",
   versionNotes: "",
@@ -42,9 +42,6 @@ export function normalizeDocument(input = {}) {
     comment: node.comment || "",
     startingComment: node.startingComment || node.starting_comment || "",
     nags: [...(node.nags || [])].map(Number).filter(Number.isInteger),
-    wrongMoveFeedback: [...(node.wrongMoveFeedback || [])].map(item => ({
-      uci: item.uci || "", san: item.san || item.uci || "", feedback: item.feedback || "",
-    })),
   }));
   document.chapters = structuredClone((input.chapters || []).filter(chapter => chapter.positionIDs));
   // Draft boundaries use editor node IDs. They are never sent as positionIDs.
@@ -108,7 +105,6 @@ export function addMove(document, parentID, move) {
     comment: "",
     startingComment: "",
     nags: [],
-    wrongMoveFeedback: [],
   };
   next.nodes.push(node);
   return { document: next, node, created: true };

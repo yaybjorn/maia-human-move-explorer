@@ -24,6 +24,7 @@ test("normalises imported nested variations and preserves authored semantics", (
   assert.equal(document.nodes[1].startingComment, "The Sicilian");
   assert.equal(document.nodes[1].comment, "[%csl Gd4]");
   assert.deepEqual(serializeForPGN(document)[0].nags, [1]);
+  assert.equal(document.metadata.fallbackFeedback, "The repertoire move is {san}.");
 });
 
 test("supports add, delete, reorder, promote, comments and undo-safe immutable changes", () => {

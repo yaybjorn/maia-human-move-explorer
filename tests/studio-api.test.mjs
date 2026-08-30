@@ -31,10 +31,16 @@ test("login and logout use the canonical routes without browser tokens", async (
 
 test("surfaces edit conflicts without discarding response details", async () => {
   const api = new StudioAPI("/studio/api", async () => new Response(JSON.stringify({
-    code: "revision_conflict", detail: "A newer draft exists", errors: { currentRevision: 4 },
+    error: {
+      code: "revision_conflict",
+      message: "A newer draft exists",
+      details: { currentRevision: 4 },
+    },
   }), { status: 409, headers: { "Content-Type": "application/json" } }));
   await assert.rejects(api.saveDraft("course", 3, {}), error => {
     assert.ok(error instanceof StudioAPIError); assert.equal(error.status, 409);
+    assert.equal(error.code, "revision_conflict");
+    assert.equal(error.message, "A newer draft exists");
     assert.equal(error.details.currentRevision, 4); return true;
   });
 });

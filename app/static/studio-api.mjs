@@ -47,9 +47,10 @@ export class StudioAPI {
     }
     const data = response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) {
+      const payload = data?.error && typeof data.error === "object" ? data.error : data;
       const error = new StudioAPIError(
-        data?.detail || data?.message || "The request could not be completed.",
-        { status: response.status, code: data?.code, details: data?.errors || data?.details },
+        payload?.message || payload?.detail || "The request could not be completed.",
+        { status: response.status, code: payload?.code, details: payload?.details || payload?.errors },
       );
       if (response.status === 401 && this.onUnauthorized) this.onUnauthorized(error);
       throw error;

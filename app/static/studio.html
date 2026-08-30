@@ -70,13 +70,15 @@
         <form id="details-form" class="form-card two-column">
           <label class="span-two">Title<input name="title" maxlength="100" required></label>
           <label class="span-two">Subtitle<input name="subtitle" maxlength="160"></label>
-          <label>Course ID<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" aria-describedby="slug-help" required><small id="slug-help">Lowercase words and hyphens. Cannot change after first publish.</small></label>
+          <label>Course ID<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" aria-describedby="slug-help" required readonly><small id="slug-help">Fixed after course creation so app links and learner progress remain stable.</small></label>
           <label>Play as<select name="side"><option value="white">White</option><option value="black">Black</option></select></label>
           <label>Access<select name="access"><option value="subscriber">Subscribers</option><option value="free">Free</option></select></label>
+          <label>Display price<input name="displayPrice" maxlength="40" placeholder="Included with membership"></label>
+          <label>App Store product ID<input name="purchaseProductID" maxlength="180" placeholder="Optional product identifier"></label>
           <label class="checkbox-label"><input name="catalogVisible" type="checkbox"> Show in app catalogue</label>
           <label>Default opponent rating<input name="opponentRating" type="number" min="500" max="3000" step="50"></label>
           <label class="span-two">Description<textarea name="description" rows="5" maxlength="2000"></textarea></label>
-          <label class="span-two">Fallback feedback<textarea name="fallbackFeedback" rows="2" maxlength="500">That move is not part of this repertoire. Try another idea.</textarea><small>Used when a wrong move has no specific authored explanation.</small></label>
+          <label class="span-two">Fallback feedback<textarea name="fallbackFeedback" rows="2" maxlength="500">The repertoire move is {san}.</textarea><small>Used when a wrong move has no specific authored explanation. Keep <code>{san}</code> so the learner sees the correct move.</small></label>
           <label class="span-two">Notes for this version<textarea name="versionNotes" rows="3" maxlength="1000" placeholder="What changed for learners?"></textarea></label>
         </form>
       </section>
