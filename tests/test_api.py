@@ -239,7 +239,11 @@ def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):
     monkeypatch.setattr("app.main.studio_upstream_request", fake_upstream)
     response = client.get(
         "/studio/api/session",
-        headers={"X-Studio-Proxy-Secret": "attacker-value", "Cookie": "studio_session=old"},
+        headers={
+            "X-Studio-Proxy-Secret": "attacker-value",
+            "X-Studio-Client-IP": "203.0.113.9",
+            "Cookie": "studio_session=old",
+        },
     )
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
@@ -247,7 +251,8 @@ def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):
     headers = dict(received["request"].header_items())
     assert headers["X-studio-proxy-secret"] == "server-only-secret"
     assert headers["Cookie"] == "studio_session=old"
-    assert headers["Cf-connecting-ip"] == "testclient"
+    assert headers["X-studio-client-ip"] == "testclient"
+    assert "Cf-connecting-ip" not in headers
     assert client.delete("/studio/api/courses/course").status_code == 405
     assert client.get("/studio/api/not-allowed").status_code == 404
 

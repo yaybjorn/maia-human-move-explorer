@@ -243,7 +243,10 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
         if value := request.headers.get(name):
             headers[name.title()] = value
     if request.client and request.client.host:
-        headers["CF-Connecting-IP"] = request.client.host
+        # CF-Connecting-IP is reserved by Cloudflare. Spoofing it from the VM
+        # can be rejected at the edge as a DNS loop, so use our signed
+        # proxy-only header instead.
+        headers["X-Studio-Client-IP"] = request.client.host
     if origin in STUDIO_ALLOWED_ORIGINS:
         headers["Origin"] = origin
     upstream = Request(
