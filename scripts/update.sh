@@ -25,6 +25,7 @@ trap rollback ERR
 
 if [[ ${EUID} -ne 0 ]]; then echo "Run as root" >&2; exit 1; fi
 git clone --depth 1 "$REPO" "$RELEASE"
+DEPLOYED_COMMIT=$(git -C "$RELEASE" rev-parse --short HEAD)
 "$APP/venv/bin/pip" install --upgrade "$RELEASE"
 ln -sfn "$RELEASE" "$APP/current.next"
 mv -Tf "$APP/current.next" "$APP/current"
@@ -34,4 +35,4 @@ systemctl restart maia-explorer.service
 curl --fail --silent --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:8310/healthz >/dev/null
 SWITCHED=0
 trap - ERR
-echo "Updated to $(git -C "$RELEASE" rev-parse --short HEAD)"
+echo "Updated to $DEPLOYED_COMMIT"
