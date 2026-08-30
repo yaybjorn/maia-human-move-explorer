@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>GingerGM Chapter Editor</title>
+  <link rel="stylesheet" href="/static/chapters.css">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div><a class="eyebrow" href="/">Maia tools</a><h1>Chapter editor</h1><p>Shape a course into memorable, named lessons.</p></div>
+      <div class="header-actions">
+        <label class="file-button">Import pack<input id="pack-file" type="file" accept=".json,application/json"></label>
+        <label class="file-button">Import manifest<input id="manifest-file" type="file" accept=".json,application/json"></label>
+        <button id="download" type="button" disabled>Download manifest</button>
+      </div>
+    </header>
+
+    <section class="course-bar" aria-label="Course selection">
+      <label>Course<select id="course"><option>Loading courses…</option></select></label>
+      <div id="summary" class="summary"></div>
+      <button id="reset" class="quiet" type="button" disabled>Reset</button>
+    </section>
+    <p id="status" role="status">Loading the GingerGM catalogue…</p>
+
+    <div id="workspace" class="workspace" hidden>
+      <section class="timeline-panel">
+        <div class="panel-heading"><div><h2>Learning order</h2><p>Drag a chapter header to any “Start chapter here” line.</p></div><button id="add-mode" class="quiet" type="button">Add chapter</button></div>
+        <div id="timeline" class="timeline"></div>
+      </section>
+      <aside class="preview-panel">
+        <div id="board" class="board" aria-label="Selected chess position"></div>
+        <div id="position-detail" class="position-detail"><p>Select a move to inspect it.</p></div>
+        <div class="legend"><span><i class="good"></i> 16–32 moves</span><span><i class="warn"></i> Consider resizing</span></div>
+      </aside>
+    </div>
+  </main>
+  <script type="module" src="/static/chapters.js"></script>
+</body>
+</html>

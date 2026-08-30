@@ -1,4 +1,8 @@
+import json
+import os
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import chess
 from fastapi import FastAPI, HTTPException
@@ -21,6 +25,9 @@ from .stockfish import stockfish
 
 ROOT = Path(__file__).resolve().parent
 START_FEN = chess.STARTING_FEN
+GINGERGM_API_BASE = os.getenv(
+    "GINGERGM_API_BASE", "https://gingergm-opening-drill-api.fablelabs.workers.dev"
+).rstrip("/")
 app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None)
 
 
@@ -135,6 +142,43 @@ def spellcheck_context(request: PgnRequest):
     return {"sources": writing_sources(request.pgn)}
 
 
+def fetch_json(url: str) -> dict:
+    request = Request(url, headers={"Accept": "application/json", "User-Agent": "MaiaChapterEditor/1"})
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.load(response)
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise HTTPException(502, "The GingerGM course API is temporarily unavailable") from exc
+
+
+@app.get("/api/chapter-courses")
+def chapter_courses():
+    catalog = fetch_json(f"{GINGERGM_API_BASE}/v1/catalog")
+    return {
+        "openings": [
+            {
+                "id": opening["id"],
+                "title": opening["title"],
+                "version": opening["version"],
+                "pack_url": opening["packURL"],
+            }
+            for opening in catalog.get("openings", [])
+            if opening.get("id") and opening.get("version") and opening.get("packURL")
+        ]
+    }
+
+
+@app.get("/api/chapter-courses/{pack_id}")
+def chapter_course(pack_id: str):
+    if not pack_id or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in pack_id):
+        raise HTTPException(404, "Unknown course")
+    catalog = chapter_courses()
+    opening = next((item for item in catalog["openings"] if item["id"] == pack_id), None)
+    if opening is None:
+        raise HTTPException(404, "Unknown course")
+    return fetch_json(f"{GINGERGM_API_BASE}/{opening['pack_url'].lstrip('/')}")
+
+
 def trainer_play(request: TrainerMoveRequest, repertoire, label: str):
     position = replay(START_FEN, request.moves)
     puzzle = repertoire.position(position.board)
@@ -228,4 +272,12 @@ def spellcheck_index():
     return FileResponse(
         ROOT / "static" / "spellcheck.html",
         headers={"X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@app.get("/chapters")
+def chapters_index():
+    return FileResponse(
+        ROOT / "static" / "chapters.html",
+        headers={"X-Robots-Tag": "noindex, nofollow, noarchive"},
     )

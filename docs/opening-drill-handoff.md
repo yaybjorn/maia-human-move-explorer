@@ -8,6 +8,7 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 
 - `/check`: Simon uploads a standard-start PGN and finds probable opponent replies not covered by PGN variations or explicitly named in position comments.
 - `/spellcheck`: Simon checks PGN comments in British English, applies individual suggestions, and downloads a corrected copy.
+- `/chapters`: Simon loads a current GingerGM course, names its learning chapters, and moves contiguous chapter boundaries before downloading a version-controlled manifest.
 - `/portsmouth`: White repertoire trainer built from the approved Portsmouth pack.
 - `/kilkenny`: White repertoire trainer built from Simon’s Kilkenny PGN.
 - `/`: general history-aware Maia move explorer with PGN variations and separate Stockfish analysis.
@@ -32,6 +33,14 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - Square-bracketed PGN directives and black-move ellipsis notation are excluded. Known course terms are preloaded, and authors can persistently ignore additional names in their own browser.
 - Each proposed replacement has its own fix button. A custom-fix control also accepts any replacement text when the preferred wording is not suggested. Fixes update the original uploaded PGN without reformatting its moves, headers, variations, or untouched comments.
 - The corrected PGN downloads as a separate `-fixed.pgn` file; the uploaded file is never overwritten.
+
+## `/chapters` current behavior
+
+- The current course catalogue and packs are loaded through a narrow server-side proxy to the public GingerGM course API.
+- Chapter headers can be dragged to any boundary in the stable learning order. Chapters may also be added, removed, and renamed.
+- The editor previews each position and warns when a chapter falls outside the suggested 16–32 move range.
+- A local pack or existing manifest can be imported. The result downloads as `<pack-id>-chapters.json` for review and commit beside the course PGN and metadata.
+- The editor never writes directly to production. Backend compilation validates full coverage, uniqueness, and unchanged learning order before a manifest can ship.
 
 ## Trainer behavior
 

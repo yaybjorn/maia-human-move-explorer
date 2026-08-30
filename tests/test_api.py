@@ -137,6 +137,35 @@ def test_portsmouth_page_exists():
     assert "Portsmouth Gambit Trainer" in response.text
 
 
+def test_chapter_editor_page_and_course_proxy(monkeypatch):
+    catalog = {
+        "openings": [
+            {
+                "id": "portsmouth-gambit",
+                "title": "Portsmouth Gambit",
+                "version": "1.2.3",
+                "packURL": "packs/portsmouth-gambit/1.2.3.json",
+            }
+        ]
+    }
+    pack = {"id": "portsmouth-gambit", "version": "1.2.3", "positions": []}
+
+    def fake_fetch(url):
+        return catalog if url.endswith("/v1/catalog") else pack
+
+    monkeypatch.setattr("app.main.fetch_json", fake_fetch)
+
+    page = client.get("/chapters")
+    assert page.status_code == 200
+    assert "GingerGM Chapter Editor" in page.text
+    assert page.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+    courses = client.get("/api/chapter-courses")
+    assert courses.json()["openings"][0]["version"] == "1.2.3"
+    course = client.get("/api/chapter-courses/portsmouth-gambit")
+    assert course.json() == pack
+    assert client.get("/api/chapter-courses/not_allowed").status_code == 404
+
+
 def test_kilkenny_page_and_first_move(monkeypatch):
     response = client.get("/kilkenny")
     assert response.status_code == 200
