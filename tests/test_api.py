@@ -3,7 +3,7 @@ from email.message import Message
 import chess
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import PgnRequest, PgnTreeRequest, app, studio_path_allowed
 from app.portsmouth import portsmouth
 
 client = TestClient(app)
@@ -212,6 +212,17 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert "grid-template-columns:repeat(8,minmax(0,1fr))" in css.text
     assert "grid-template-rows:repeat(8,minmax(0,1fr))" in css.text
     assert "min-width:0;min-height:0;overflow:hidden" in css.text
+    assert 'id="raw-pgn-dialog"' in page.text
+    assert 'id="preview-chapter"' in page.text
+    assert 'aria-expanded="false"' in page.text
+    assert ".sidebar .nav-item[data-view=details],.sidebar .nav-item[data-view=history]{display:grid}" in css.text
+
+
+def test_course_studio_accepts_full_size_course_pgns():
+    schema = PgnRequest.model_json_schema()
+    assert schema["properties"]["pgn"]["maxLength"] == 1_800_000
+    assert PgnTreeRequest.model_json_schema()["properties"]["nodes"]["maxItems"] == 20_000
+    assert studio_path_allowed("import/parse", "POST") is True
 
 
 def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):
@@ -236,6 +247,7 @@ def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):
     headers = dict(received["request"].header_items())
     assert headers["X-studio-proxy-secret"] == "server-only-secret"
     assert headers["Cookie"] == "studio_session=old"
+    assert headers["Cf-connecting-ip"] == "testclient"
     assert client.delete("/studio/api/courses/course").status_code == 405
     assert client.get("/studio/api/not-allowed").status_code == 404
 

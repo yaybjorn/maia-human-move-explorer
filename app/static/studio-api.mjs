@@ -3,6 +3,7 @@ const ROUTES = Object.freeze({
   login: "/login",
   logout: "/logout",
   courses: "/courses",
+  import: "/import/parse",
   course: id => `/courses/${encodeURIComponent(id)}`,
   draft: id => `/courses/${encodeURIComponent(id)}/draft`,
   validate: id => `/courses/${encodeURIComponent(id)}/validate`,
@@ -65,6 +66,7 @@ export class StudioAPI {
   courses() { return this.request(ROUTES.courses); }
   course(id) { return this.request(ROUTES.course(id)); }
   createCourse(input) { return this.request(ROUTES.courses, { method: "POST", body: input }); }
+  importPGN(pgn) { return this.request(ROUTES.import, { method: "POST", body: { pgn } }); }
   saveDraft(id, revision, document) {
     return this.request(ROUTES.draft(id), { method: "PUT", body: { revision, document } });
   }
@@ -81,6 +83,10 @@ export class StudioAPI {
 }
 
 export const studioRoutes = ROUTES;
+
+export function importedCoursePayload({ title, slug, side, pgn }) {
+  return { title, slug, side, sourcePGN: pgn };
+}
 
 async function localRequest(path, body) {
   const response = await fetch(path, {

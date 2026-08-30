@@ -53,11 +53,17 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
   a validated same-origin `Origin`; auth tokens are never stored in browser storage.
 - Every save first exports the current structured variation tree to PGN locally. Publication is
   blocked if comments, NAGs, bracket directives, or nested variations cannot be exported.
+- Imported and saved drafts send the PGN once; hydrated editor nodes are rebuilt from that source
+  when opened. The author chooses White or Black before an import creates a course. A browser-local
+  recovery snapshot protects unsaved edits without becoming a publication authority.
 - Maia, Stockfish, spellcheck, and coverage results remain suggestions until an author explicitly
   accepts a change. Results for an older board position cannot be applied.
 - Chapter dividers use temporary authoring node IDs in `chapterDrafts`. Validation returns compiled
   preview positions, after which the browser resolves boundaries to canonical `sha256:` position
-  IDs before the final save and publication.
+  IDs before the final save and publication. Dividers can start at every training position and can
+  be moved with drag, touch-friendly step buttons, or the keyboard.
+- Learner preview is chapter-aware and interactive: answers remain hidden until an attempted move,
+  authored wrong feedback is exercised, and only a correct move enables the next position.
 - Published versions are immutable. Restore creates a new working draft and does not alter the live
   catalogue until the author publishes again.
 

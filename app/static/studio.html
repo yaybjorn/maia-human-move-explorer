@@ -32,9 +32,9 @@
         <button id="redo" class="icon-button" type="button" title="Redo (⇧⌘Z)" aria-label="Redo" disabled>↷</button>
         <button id="save" class="secondary" type="button" hidden disabled>Save draft</button>
         <button id="publish" class="primary" type="button" hidden>Publish</button>
-        <button id="account-button" class="account-button" type="button" aria-haspopup="true"><span id="avatar">O</span><span id="account-name">Author</span></button>
+        <button id="account-button" class="account-button" type="button" aria-haspopup="menu" aria-controls="account-menu" aria-expanded="false"><span id="avatar">O</span><span id="account-name">Author</span></button>
       </div>
-      <div id="account-menu" class="account-menu" hidden><span id="account-email"></span><button id="logout" type="button">Sign out</button></div>
+      <div id="account-menu" class="account-menu" role="menu" hidden><span id="account-email"></span><button id="logout" type="button" role="menuitem">Sign out</button></div>
     </header>
 
     <aside id="sidebar" class="sidebar">
@@ -62,7 +62,7 @@
       <section class="view active" data-panel="dashboard">
         <div class="page-heading"><div><p class="eyebrow">Library</p><h1>Your courses</h1><p>Create, improve and publish opening courses.</p></div><div class="heading-actions"><label class="secondary file-action">Import PGN<input id="dashboard-import" type="file" accept=".pgn,application/x-chess-pgn,text/plain"></label><button id="new-course" class="primary" type="button">New course</button></div></div>
         <div id="course-stats" class="stat-strip"></div>
-        <div id="course-list" class="course-grid"><div class="loading-card">Loading courses…</div></div>
+        <div id="course-list" class="course-grid" aria-live="polite"><div class="loading-card">Loading courses…</div></div>
       </section>
 
       <section class="view" data-panel="details">
@@ -94,6 +94,7 @@
           <section class="author-pane">
             <article class="tool-card move-tree-card"><div class="card-heading"><div><h2>Variation tree</h2><p>The first move at each position is the main line.</p></div></div><div id="move-tree" class="move-tree"></div></article>
             <article id="move-inspector" class="tool-card"><div class="empty-state"><strong>Select a move</strong><p>Its explanation and feedback will appear here.</p></div></article>
+            <button id="raw-pgn" class="secondary" type="button">View or edit raw PGN</button>
           </section>
         </div>
       </section>
@@ -101,7 +102,7 @@
       <section class="view" data-panel="analysis">
         <div class="page-heading"><div><p class="eyebrow">Suggestions</p><h1>Maia &amp; Stockfish</h1><p>Human-likelihood and objective chess analysis, kept deliberately separate.</p></div><button id="run-analysis" class="primary" type="button">Analyse this position</button></div>
         <div class="analysis-position"><div id="analysis-path" class="move-path">Starting position</div><button class="link-button" data-jump-editor>Change position</button></div>
-        <div class="analysis-grid">
+        <div class="analysis-grid" aria-live="polite">
           <article class="tool-card accent-maia"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia suggestions</h2></div><label>Rating <select id="maia-rating"><option>1000</option><option>1500</option><option>2000</option><option>2500</option></select></label></div><div id="maia-results" class="suggestion-list"><div class="empty-state"><p>Run analysis to see likely human moves.</p></div></div></article>
           <article class="tool-card accent-engine"><div class="card-heading"><div><p class="eyebrow">Objective</p><h2>Stockfish 18</h2></div><span id="engine-depth" class="tag">Engine lines</span></div><div id="engine-results" class="suggestion-list"><div class="empty-state"><p>Run analysis to see the strongest continuations.</p></div></div></article>
         </div>
@@ -110,7 +111,7 @@
 
       <section class="view" data-panel="writing">
         <div class="page-heading"><div><p class="eyebrow">Writing</p><h1>Spellcheck &amp; explanations</h1><p>British English suggestions run locally. Chess directives and notation are ignored.</p></div><button id="run-spellcheck" class="primary" type="button">Check all writing</button></div>
-        <div id="writing-summary" class="stat-strip"></div><div id="writing-results" class="quality-list"><div class="empty-state"><p>Run the writing check when your explanations are ready.</p></div></div>
+        <div id="writing-summary" class="stat-strip"></div><div id="writing-results" class="quality-list" aria-live="polite"><div class="empty-state"><p>Run the writing check when your explanations are ready.</p></div></div>
       </section>
 
       <section class="view" data-panel="chapters">
@@ -119,8 +120,8 @@
       </section>
 
       <section class="view" data-panel="preview">
-        <div class="page-heading"><div><p class="eyebrow">Learner view</p><h1>Preview the course</h1><p>Review every answer, explanation and chapter before publishing.</p></div><button id="restart-preview" class="secondary">Restart chapter</button></div>
-        <div class="preview-layout"><div><div id="preview-board" class="chessboard" aria-label="Learner preview board"></div><p class="muted">Course preview is read-only.</p></div><article id="preview-card" class="tool-card learner-card"></article></div>
+        <div class="page-heading"><div><p class="eyebrow">Learner view</p><h1>Preview the course</h1><p>Play a chapter exactly as a learner would before publishing.</p></div><div class="heading-actions"><label class="inline-control">Chapter<select id="preview-chapter" aria-label="Preview chapter"></select></label><button id="restart-preview" class="secondary">Restart chapter</button></div></div>
+        <div class="preview-layout"><div><div id="preview-board" class="chessboard" aria-label="Interactive learner preview board"></div><p class="muted">Make a move to reveal feedback. Preview attempts never affect learner scores.</p></div><article id="preview-card" class="tool-card learner-card" aria-live="polite"></article></div>
       </section>
 
       <section class="view" data-panel="quality">
@@ -135,9 +136,9 @@
     </section>
   </div>
 
-  <dialog id="create-dialog">
+  <dialog id="create-dialog" aria-labelledby="create-title">
     <form id="create-form" method="dialog" class="dialog-card">
-      <div class="dialog-heading"><div><p class="eyebrow">New course</p><h2>Start from scratch</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <div class="dialog-heading"><div><p class="eyebrow">New course</p><h2 id="create-title">Start from scratch</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
       <label>Course title<input name="title" required autofocus maxlength="100"></label>
       <label>Course ID<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="my-opening-course"></label>
       <label>Repertoire side<select name="side"><option value="white">White</option><option value="black">Black</option></select></label>
@@ -145,8 +146,33 @@
     </form>
   </dialog>
 
-  <dialog id="publish-dialog">
-    <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2>Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
+  <dialog id="import-dialog" aria-labelledby="import-title">
+    <form id="import-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading"><div><p class="eyebrow">Import PGN</p><h2 id="import-title">Create a course from PGN</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <p id="import-file-name" class="muted"></p>
+      <label>Course title<input name="title" required maxlength="100"></label>
+      <label>Course ID<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*"></label>
+      <label>Repertoire side<select name="side"><option value="white">White</option><option value="black">Black</option></select></label>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="default" class="primary">Create course</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="raw-pgn-dialog" aria-labelledby="raw-pgn-title">
+    <form id="raw-pgn-form" method="dialog" class="dialog-card wide-dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">Advanced editing</p><h2 id="raw-pgn-title">Raw PGN</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <p class="muted">The PGN is parsed before it replaces the move tree. No change is applied if parsing fails.</p>
+      <label>Course PGN<textarea id="raw-pgn-text" rows="22" spellcheck="false"></textarea></label>
+      <p id="raw-pgn-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button id="apply-raw-pgn" value="default" class="primary">Parse and apply</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="conflict-dialog" aria-labelledby="conflict-title">
+    <div class="dialog-card"><div class="dialog-heading"><div><p class="eyebrow">Newer draft found</p><h2 id="conflict-title">This course changed elsewhere</h2></div></div><p>Your local work is preserved. Reload the server draft to compare, or keep this tab unchanged and export your PGN first.</p><div class="dialog-actions"><button id="conflict-keep" class="secondary">Keep local work</button><button id="conflict-reload" class="primary">Reload server draft</button></div></div>
+  </dialog>
+
+  <dialog id="publish-dialog" aria-labelledby="publish-title">
+    <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
   <script type="module" src="/static/studio.js"></script>

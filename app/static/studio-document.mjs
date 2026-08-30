@@ -21,6 +21,7 @@ export function newCourseDocument(metadata = {}) {
     chapters: [],
     chapterDrafts: [],
     ignoredSuggestionIDs: [],
+    ignoredWords: [],
   };
 }
 
@@ -52,6 +53,7 @@ export function normalizeDocument(input = {}) {
     startNodeID: chapter.startNodeID === null ? null : String(chapter.startNodeID),
   }));
   document.ignoredSuggestionIDs = [...(input.ignoredSuggestionIDs || [])];
+  document.ignoredWords = [...(input.ignoredWords || [])];
   return document;
 }
 
@@ -107,7 +109,7 @@ export function addMove(document, parentID, move) {
     nags: [],
   };
   next.nodes.push(node);
-  return { document: next, node, created: true };
+  return { document: structuralDocument(document, next), node, created: true };
 }
 
 export function removeBranch(document, id) {
@@ -124,10 +126,7 @@ export function removeBranch(document, id) {
   }
   const next = structuredClone(document);
   next.nodes = next.nodes.filter(node => !descendants.has(node.id));
-  next.chapters = next.chapters.map(chapter => ({
-    ...chapter, positionIDs: chapter.positionIDs.filter(positionID => !descendants.has(positionID)),
-  })).filter(chapter => chapter.positionIDs.length);
-  return next;
+  return structuralDocument(document, next);
 }
 
 export function promoteVariation(document, id) {
@@ -140,7 +139,7 @@ export function promoteVariation(document, id) {
   if (firstIndex < 0 || nodeIndex < 0 || firstIndex === nodeIndex) return next;
   next.nodes.splice(nodeIndex, 1);
   next.nodes.splice(firstIndex, 0, node);
-  return next;
+  return structuralDocument(document, next);
 }
 
 export function reorderVariation(document, id, direction) {
@@ -154,7 +153,7 @@ export function reorderVariation(document, id, direction) {
   const nodeIndex = next.nodes.findIndex(item => item.id === node.id);
   const targetIndex = next.nodes.findIndex(item => item.id === targetSibling.id);
   [next.nodes[nodeIndex], next.nodes[targetIndex]] = [next.nodes[targetIndex], next.nodes[nodeIndex]];
-  return next;
+  return structuralDocument(document, next);
 }
 
 export function updateNode(document, id, patch) {
@@ -167,25 +166,101 @@ export function updateNode(document, id, patch) {
 export function trainingPack(document, packID = "draft") {
   const learnerOnOddPly = document.metadata.side !== "black";
   const positions = [];
-  const visit = parentID => {
-    const children = childrenOf(document, parentID);
-    const parentPly = parentID === null ? 0 : nodeByID(document, parentID)?.ply || 0;
-    const learnerTurn = learnerOnOddPly ? parentPly % 2 === 0 : parentPly % 2 === 1;
-    if (learnerTurn && children.length) {
-      const positionID = parentID === null ? "start" : String(parentID);
+  const visitLine = startingParentID => {
+    let parentID = startingParentID;
+    const deferredOpponentBranches = [];
+    while (true) {
+      const children = childrenOf(document, parentID);
+      if (!children.length) break;
+      const parentPly = parentID === null ? 0 : nodeByID(document, parentID)?.ply || 0;
+      const learnerTurn = learnerOnOddPly ? parentPly % 2 === 0 : parentPly % 2 === 1;
       const main = children[0];
-      positions.push({
-        id: positionID,
-        learningOrder: positions.length,
-        correctMove: { san: main.san, uci: main.uci, feedback: main.comment },
-        path: movesToNode(document, parentID),
-        source: { chapter: main.startingComment || "Repertoire line" },
-      });
+      if (learnerTurn) {
+        const positionID = parentID === null ? "start" : String(parentID);
+        positions.push({
+          id: positionID,
+          learningOrder: positions.length,
+          ply: main.ply,
+          moveNumber: Math.ceil(main.ply / 2),
+          correctMove: { san: main.san, uci: main.uci, feedback: main.comment },
+          wrongMoves: children.slice(1).map(child => ({
+            san: child.san, uci: child.uci, feedback: child.comment,
+          })),
+          path: movesToNode(document, parentID),
+          breadcrumb: pathToNode(document, parentID).map(moveLabel).join(" ") || "Starting position",
+          source: { chapter: main.startingComment || "Repertoire line" },
+        });
+        // Learner siblings are feedback-only; their continuations never train.
+      } else {
+        // Like the compiler, defer every opponent sibling until the complete
+        // current main sequence has been visited.
+        deferredOpponentBranches.push(...children.slice(1).map(child => child.id));
+      }
+      parentID = main.id;
     }
-    children.forEach(child => visit(child.id));
+    deferredOpponentBranches.forEach(branchID => visitLine(branchID));
   };
-  visit(null);
+  visitLine(null);
   return { id: packID, positions };
+}
+
+export function reconcileChapterDrafts(previous, next, packID = "draft") {
+  const oldPositions = trainingPack(previous, packID).positions;
+  const newPositions = trainingPack(next, packID).positions;
+  const newIDs = new Set(newPositions.map(position => position.id));
+  const oldIndex = new Map(oldPositions.map((position, index) => [position.id, index]));
+  const drafts = ensureChapters(previous, packID);
+  if (!newPositions.length) return [];
+  const reconciled = drafts.map((chapter, index) => {
+    if (index === 0) return { ...chapter, startNodeID: null };
+    if (newIDs.has(chapter.startNodeID)) return { ...chapter };
+    const preferred = Math.min(oldIndex.get(chapter.startNodeID) ?? index, newPositions.length - 1);
+    return { ...chapter, startNodeID: newPositions[preferred]?.id || null };
+  });
+  const seen = new Set();
+  return reconciled.filter((chapter, index) => {
+    const key = index === 0 ? "__start__" : chapter.startNodeID;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function structuralDocument(previous, next, packID = previous.metadata?.slug || "draft") {
+  const output = structuredClone(next);
+  output.chapterDrafts = reconcileChapterDrafts(previous, output, packID);
+  output.chapters = [];
+  return output;
+}
+
+export function hydrateRestoredDocument(parsed, saved) {
+  const hydrated = importParsedPGN(parsed, saved.metadata);
+  hydrated.sourcePGN = saved.sourcePGN || "";
+  hydrated.chapters = structuredClone(saved.chapters || []);
+  hydrated.chapterDrafts = structuredClone(saved.chapterDrafts || []);
+  hydrated.ignoredSuggestionIDs = [...(saved.ignoredSuggestionIDs || [])];
+  hydrated.ignoredWords = [...(saved.ignoredWords || [])];
+  return hydrated;
+}
+
+export function documentForStorage(document, sourcePGN) {
+  // The PGN is the move-tree authority. Omitting hydrated nodes avoids sending
+  // the same large course twice and keeps create/save requests under the proxy
+  // ceiling; opening the draft deterministically hydrates the tree again.
+  return { ...structuredClone(document), sourcePGN, nodes: [] };
+}
+
+export function evaluatePreviewMove(position, move, fallbackFeedback) {
+  const correct = move.uci === position.correctMove.uci;
+  const authored = (position.wrongMoves || []).find(item => item.uci === move.uci);
+  return {
+    correct,
+    move,
+    feedback: correct
+      ? position.correctMove.feedback || "Correct."
+      : authored?.feedback || String(fallbackFeedback || "The repertoire move is {san}.")
+        .replaceAll("{san}", position.correctMove.san),
+  };
 }
 
 export function ensureChapters(document, packID = "draft") {
@@ -258,6 +333,11 @@ export function serializeForPGN(document) {
 
 function numericID(id, nodes) {
   return nodes.findIndex(node => node.id === String(id)) + 1;
+}
+
+function moveLabel(node) {
+  const number = Math.ceil(node.ply / 2);
+  return node.ply % 2 ? `${number}. ${node.san}` : `${number}… ${node.san}`;
 }
 
 function uniqueNodeID(document) {

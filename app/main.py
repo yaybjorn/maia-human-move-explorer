@@ -52,7 +52,7 @@ class PredictRequest(PositionRequest):
 
 
 class PgnRequest(BaseModel):
-    pgn: str = Field(min_length=1, max_length=200_000)
+    pgn: str = Field(min_length=1, max_length=1_800_000)
 
 
 class PgnNode(BaseModel):
@@ -65,7 +65,7 @@ class PgnNode(BaseModel):
 
 
 class PgnTreeRequest(BaseModel):
-    nodes: list[PgnNode] = Field(default_factory=list, max_length=2048)
+    nodes: list[PgnNode] = Field(default_factory=list, max_length=20_000)
     headers: dict[str, str] = Field(default_factory=dict)
 
 
@@ -207,6 +207,8 @@ def studio_path_allowed(path: str, method: str) -> bool:
     }
     if tuple(parts) in allowed:
         return method in allowed[tuple(parts)]
+    if tuple(parts) == ("import", "parse"):
+        return method == "POST"
     if len(parts) == 2 and parts[0] == "courses":
         return method == "GET"
     if len(parts) == 3 and parts[0] == "courses" and parts[2] in {
@@ -240,6 +242,8 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
     for name in ("cookie", "x-csrf-token"):
         if value := request.headers.get(name):
             headers[name.title()] = value
+    if request.client and request.client.host:
+        headers["CF-Connecting-IP"] = request.client.host
     if origin in STUDIO_ALLOWED_ORIGINS:
         headers["Origin"] = origin
     upstream = Request(

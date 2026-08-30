@@ -1,23 +1,26 @@
-import { StudioAPI, StudioAPIError, analysisAPI } from "./studio-api.mjs";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode,
-  newCourseDocument, nodeByID, normalizeDocument, pathToNode, promoteVariation,
-  removeBranch, reorderVariation, serializeForPGN, trainingPack, updateNode, validateDocument,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
+  normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
+  serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
 } from "./studio-document.mjs";
 import { checkWriting } from "./writing-check.js";
 
 const api = new StudioAPI();
 const $ = id => document.getElementById(id);
 const state = {
-  user: null, courses: [], courseID: null, revision: null, document: null,
+  user: null, courses: [], currentCourse: null, courseID: null, revision: null, document: null,
   savedSnapshot: "", undo: [], redo: [], currentNodeID: null, position: null,
   flipped: false, selectedSquare: null, dragFrom: null, view: "dashboard",
   requestToken: 0, analysisToken: 0, validation: null, versions: [],
-  chapterDrag: null, chapterAddMode: false, previewIndex: 0,
+  chapterDrag: null, chapterAddMode: false, previewIndex: 0, previewChapter: 0,
+  previewAttempt: null, previewPosition: null, previewSelectedSquare: null,
+  reconciliationError: null, pendingImport: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
-const IGNORED_WORDS_KEY = "gingergm-studio-ignored-words-v1";
+const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
 
 function escapeHTML(value = "") {
   const node = document.createElement("span");
@@ -26,6 +29,7 @@ function escapeHTML(value = "") {
 }
 function slugify(value) { return String(value).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80); }
 function dirty() { return Boolean(state.document) && JSON.stringify(state.document) !== state.savedSnapshot; }
+function recoveryKey() { return `${RECOVERY_PREFIX}${state.courseID || "unknown"}`; }
 function showStatus(message, error = false) {
   const toast = $("global-status");
   toast.textContent = message; toast.classList.toggle("error", error); toast.hidden = false;
@@ -79,7 +83,7 @@ async function loadCourses() {
 function renderDashboard() {
   const liveVersion = course => course.currentPublishedVersion || course.publishedVersion;
   const live = state.courses.filter(course => liveVersion(course) || course.status === "published").length;
-  const drafts = state.courses.filter(course => course.hasUnpublishedChanges || course.status === "draft").length;
+  const drafts = state.courses.filter(course => course.hasUnpublishedChanges ?? (!liveVersion(course) || Number(course.draftRevision || 0) > Number(course.latestPublishedRevision || course.publishedDocumentRevision || 0))).length;
   $("course-stats").innerHTML = [
     [state.courses.length, "Courses"], [live, "Live in app"], [drafts, "Drafts to finish"],
   ].map(([value,label]) => `<div class="stat"><strong>${value}</strong><span>${escapeHTML(label)}</span></div>`).join("");
@@ -87,13 +91,12 @@ function renderDashboard() {
     $("course-list").innerHTML = '<div class="loading-card"><strong>No courses yet.</strong><p>Import a PGN or start from scratch.</p></div>';
     return;
   }
-  $("course-list").innerHTML = state.courses.map(course => `<article class="course-card" data-course="${escapeHTML(course.id)}" tabindex="0">
-    <header><div><h2>${escapeHTML(course.title || "Untitled course")}</h2><p>${escapeHTML(course.subtitle || course.description || "Opening course")}</p></div><span class="tag ${liveVersion(course) ? "live" : "draft"}">${liveVersion(course) ? `Live · ${escapeHTML(liveVersion(course))}` : "Draft"}</span></header>
-    <div class="course-meta"><span>${Number(course.positionCount || 0)} positions</span><span>${Number(course.chapterCount || 0)} chapters</span><span>${escapeHTML(course.updatedAt ? formatDate(course.updatedAt) : "Not saved")}</span></div>
-  </article>`).join("");
+  $("course-list").innerHTML = state.courses.map(course => { const changed = course.hasUnpublishedChanges ?? (Number(course.draftRevision || 0) > Number(course.latestPublishedRevision || course.publishedDocumentRevision || 0)); return `<button type="button" class="course-card" data-course="${escapeHTML(course.id)}" aria-label="Open ${escapeHTML(course.title || "Untitled course")}">
+    <span class="course-card-head"><span><span class="course-card-title">${escapeHTML(course.title || "Untitled course")}</span><span class="course-card-description">${escapeHTML(course.subtitle || course.description || "Opening course")}</span></span><span class="tag ${liveVersion(course) ? "live" : "draft"}">${liveVersion(course) ? `Live · ${escapeHTML(liveVersion(course))}` : "Draft"}</span></span>
+    <span class="course-meta"><span>${Number(course.draftPositionCount ?? course.positionCount ?? 0)} positions</span><span>${Number(course.draftChapterCount ?? course.chapterCount ?? 0)} chapters</span><span>${changed ? "Unpublished changes" : escapeHTML(course.updatedAt ? formatDate(course.updatedAt) : "Not saved")}</span></span>
+  </button>`; }).join("");
   document.querySelectorAll("[data-course]").forEach(card => {
-    const open = () => openCourse(card.dataset.course);
-    card.addEventListener("click", open); card.addEventListener("keydown", event => { if (["Enter"," "].includes(event.key)) open(); });
+    card.addEventListener("click", () => openCourse(card.dataset.course));
   });
 }
 
@@ -104,16 +107,50 @@ async function openCourse(id) {
     const payload = await api.course(id);
     const draft = payload.draft || payload;
     state.courseID = payload.course?.id || payload.id || id;
+    state.currentCourse = payload.course || state.courses.find(course => course.id === state.courseID) || null;
     state.revision = draft.revision ?? payload.revision ?? 0;
     state.document = normalizeDocument(draft.document || draft || payload.document || {});
     state.document.metadata.slug = payload.course?.slug || state.document.metadata.slug;
+    state.reconciliationError = null;
+    state.document = await hydrateSourceDocument(state.document);
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
-    state.currentNodeID = null; state.previewIndex = 0; state.validation = null;
+    state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0; state.validation = null;
+    restoreCrashRecovery();
     $("course-title").textContent = state.document.metadata.title;
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
     $("save").hidden = false; $("publish").hidden = false;
     renderAll(); await refreshPosition(); switchView("editor");
   } catch (error) { showStatus(error.message, true); }
+}
+
+async function hydrateSourceDocument(document) {
+  if (document.nodes.length || !document.sourcePGN.trim()) return document;
+  const parsed = await analysisAPI.parsePGN(document.sourcePGN);
+  const hydrated = hydrateRestoredDocument(parsed, document);
+  state.reconciliationError = null;
+  if (!hydrated.chapters.length) return hydrated;
+  try {
+    const validation = await api.validateCourse(state.courseID, state.revision);
+    const compiled = [...(validation.compiledPreview?.positions || [])]
+      .sort((left, right) => (left.learningOrder ?? 0) - (right.learningOrder ?? 0));
+    const local = trainingPack(hydrated, hydrated.metadata.slug || "draft").positions;
+    const compiledIndex = new Map(compiled.map((position, index) => [position.id, index]));
+    if (compiled.length === local.length) {
+      const drafts = hydrated.chapters.map((chapter, index) => {
+        const start = index === 0 ? 0 : compiledIndex.get(chapter.positionIDs[0]);
+        return {
+          id: chapter.id,
+          title: chapter.title,
+          startNodeID: index === 0 ? null : local[start]?.id,
+        };
+      });
+      if (drafts.every((chapter, index) => index === 0 || chapter.startNodeID)) hydrated.chapterDrafts = drafts;
+    }
+    state.validation = validation;
+  } catch (error) {
+    state.reconciliationError = `Authored chapters could not be reconciled: ${error.message}`;
+  }
+  return hydrated;
 }
 
 function commit(next, { navigateTo } = {}) {
@@ -122,18 +159,33 @@ function commit(next, { navigateTo } = {}) {
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
   state.redo = []; state.document = value; state.validation = null;
   if (navigateTo !== undefined) state.currentNodeID = navigateTo;
-  renderAll(); updateSaveState();
+  saveCrashRecovery(); renderAll(); updateSaveState();
+}
+
+function saveCrashRecovery() {
+  if (!state.document || !state.courseID) return;
+  try { localStorage.setItem(recoveryKey(), JSON.stringify({ revision: state.revision, savedAt: Date.now(), document: state.document })); } catch { /* browser storage may be full */ }
+}
+function clearCrashRecovery() { try { localStorage.removeItem(recoveryKey()); } catch { /* unavailable storage */ } }
+function restoreCrashRecovery() {
+  let recovery;
+  try { recovery = JSON.parse(localStorage.getItem(recoveryKey()) || "null"); } catch { recovery = null; }
+  if (!recovery?.document || JSON.stringify(recovery.document) === state.savedSnapshot) return;
+  if (confirm(`Unsaved browser recovery from ${formatDate(recovery.savedAt)} was found. Restore it?`)) {
+    state.document = normalizeDocument(recovery.document);
+    showStatus("Recovered unsaved browser work. Save the draft when ready.");
+  } else clearCrashRecovery();
 }
 function undo() {
   const previous = state.undo.pop(); if (!previous) return;
   state.redo.push(structuredClone(state.document)); state.document = previous;
   if (state.currentNodeID && !nodeByID(state.document, state.currentNodeID)) state.currentNodeID = null;
-  renderAll(); refreshPosition();
+  saveCrashRecovery(); renderAll(); refreshPosition();
 }
 function redo() {
   const next = state.redo.pop(); if (!next) return;
   state.undo.push(structuredClone(state.document)); state.document = next;
-  renderAll(); refreshPosition();
+  saveCrashRecovery(); renderAll(); refreshPosition();
 }
 function updateSaveState(saving = false) {
   const changed = dirty();
@@ -148,26 +200,37 @@ async function exportSource(document = state.document) {
   return payload.pgn;
 }
 async function saveDraft({ quiet = false } = {}) {
+  flushActiveEditor();
   if (!state.document || !dirty()) return true;
   updateSaveState(true);
   try {
     const sourcePGN = await exportSource();
-    const toSave = { ...state.document, sourcePGN };
-    const payload = await api.saveDraft(state.courseID, state.revision, toSave);
-    const saved = payload.draft || payload.document || toSave;
-    state.document = normalizeDocument(saved);
+    const localDocument = normalizeDocument({ ...state.document, sourcePGN });
+    const payload = await api.saveDraft(state.courseID, state.revision, documentForStorage(localDocument, sourcePGN));
+    const saved = payload.draft || payload.document || {};
+    state.document = localDocument;
+    state.document.metadata = { ...state.document.metadata, ...(saved.metadata || {}) };
     state.document.metadata.slug = payload.course?.slug || state.document.metadata.slug;
+    state.currentCourse = payload.course || state.currentCourse;
     state.revision = saved.revision ?? payload.revision ?? state.revision + 1;
-    state.savedSnapshot = JSON.stringify(state.document); updateSaveState();
+    state.savedSnapshot = JSON.stringify(state.document); clearCrashRecovery(); updateSaveState();
     if (!quiet) showStatus("Draft saved.");
     return true;
   } catch (error) {
     updateSaveState();
-    if (error.status === 409) showStatus("Someone else saved a newer revision. Your work is preserved here; reload the course before deciding what to keep.", true);
+    if (error.status === 409) { showStatus("A newer server draft exists. Your work is preserved here.", true); $("conflict-dialog").showModal(); }
     else showStatus(error.message, true);
     return false;
   }
 }
+
+function flushActiveEditor() {
+  const active = document.activeElement;
+  if (!active || !active.matches("input,textarea,select")) return;
+  if (active.id === "node-comment" || active.id === "node-start-comment" || active.id === "node-nags"
+      || active.dataset.chapterTitle !== undefined || active.form === $("details-form")) active.blur();
+}
+function markPendingInput(){if(!state.document)return;$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
 function switchView(view) {
   if (view !== "dashboard" && !state.document) view = "dashboard";
@@ -210,7 +273,7 @@ function pieceMap(fen) {
   });
   return output;
 }
-function renderBoard(element, position, { interactive = false, selected = null } = {}) {
+function renderBoard(element, position, { interactive = false, selected = null, onSquare = boardSquare, onMove = tryBoardMove } = {}) {
   if (!position?.fen) { element.innerHTML = ""; return; }
   const map = pieceMap(position.fen), files = state.flipped ? "hgfedcba" : "abcdefgh", ranks = state.flipped ? "12345678" : "87654321";
   element.innerHTML = "";
@@ -222,9 +285,9 @@ function renderBoard(element, position, { interactive = false, selected = null }
     if (interactive) button.setAttribute("aria-label", `${square}${piece ? ` ${pieceNames[piece]}` : ""}`);
     button.innerHTML = `${piece ? `<img class="piece" src="/static/pieces/${pieceAssets[piece]}.svg" alt="" draggable="false">` : ""}${file===files[0]?`<span class="coord rank">${rank}</span>`:""}${rank===ranks[7]?`<span class="coord file">${file}</span>`:""}`;
     if (interactive) {
-      button.addEventListener("click", () => boardSquare(square, map));
+      button.addEventListener("click", () => onSquare(square, map));
       button.addEventListener("pointerdown", () => { if (piece && position.legal_moves.some(move => move.from === square)) state.dragFrom = square; });
-      button.addEventListener("pointerup", () => { if (state.dragFrom && state.dragFrom !== square) tryBoardMove(state.dragFrom, square); state.dragFrom = null; });
+      button.addEventListener("pointerup", () => { if (state.dragFrom && state.dragFrom !== square) onMove(state.dragFrom, square); state.dragFrom = null; });
     }
     element.append(button);
   }
@@ -305,6 +368,7 @@ function renderInspector() {
   $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
   $("node-start-comment").addEventListener("change", event => update({ startingComment: event.target.value }));
   $("node-nags").addEventListener("change", event => update({ nags: event.target.value.split(/[, ]+/).map(Number).filter(value => Number.isInteger(value) && value > 0) }));
+  inspector.querySelectorAll("textarea,input").forEach(control=>control.addEventListener("input",markPendingInput));
   inspector.querySelector('[data-action="promote"]').addEventListener("click", () => commit(promoteVariation(state.document,node.id)));
   inspector.querySelector('[data-action="earlier"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,-1)));
   inspector.querySelector('[data-action="later"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,1)));
@@ -323,7 +387,7 @@ async function runPositionAnalysis() {
   $("engine-results").innerHTML='<div class="empty-state"><p>Stockfish is analysing the position…</p></div>';
   const isCurrent=()=>token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
   await Promise.allSettled([
-    analysisAPI.maia(moves,Number($("maia-rating").value),Number($("maia-rating").value)).then(data=>{if(isCurrent())renderMaia(data.suggestions,token,positionKey)}).catch(error=>{if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
+    analysisAPI.maia(moves,Number($("maia-rating").value),Number(state.document.metadata.opponentRating||$("maia-rating").value)).then(data=>{if(isCurrent())renderMaia(data.suggestions,token,positionKey)}).catch(error=>{if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
     analysisAPI.stockfish(moves).then(data=>{if(isCurrent()){renderEngine(data.lines,token,positionKey);$("engine-depth").textContent=`Depth ${data.depth||"—"}`;}}).catch(error=>{if(isCurrent())$("engine-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
   ]); setBusy(button,false);
 }
@@ -331,28 +395,117 @@ function renderMaia(items=[],token,positionKey) { $("maia-results").innerHTML=it
 function scoreText(e={}) { if(e.type==="mate") return e.value>0?`M${e.value}`:`−M${Math.abs(e.value)}`;const p=(e.value||0)/100;return`${p>=0?"+":""}${p.toFixed(2)}`; }
 function renderEngine(items=[],token,positionKey) { $("engine-results").innerHTML=items.map((line,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(line.san)}</span><span>${escapeHTML(line.pv||scoreText(line.evaluation))}</span><button data-accept-move="${escapeHTML(line.uci)}" data-san="${escapeHTML(line.san)}">Add line · ${escapeHTML(scoreText(line.evaluation))}</button></div>`).join("")||'<div class="empty-state"><p>No engine lines returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
 function bindSuggestedMoves(token,positionKey){document.querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Analyse again before adding it.",true);const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
-async function runGapCheck(){const button=$("run-gap-check");setBusy(button,true,"Checking…");try{const pgn=await exportSource();const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,Number($("maia-rating").value),.15);$("gap-results").innerHTML=(data.findings||[]).map(f=>qualityHTML("warning",`${f.history||"Repertoire position"}`,`${(f.missing||[]).map(move=>`${move.san} ${(move.probability*100).toFixed(0)}%`).join(", ")} may need a line.`)).join("")||qualityHTML("good","Coverage looks good",`No missing responses above the threshold in ${data.positions_analyzed||0} checked positions.`);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+async function runGapCheck(){
+  const button=$("run-gap-check"); setBusy(button,true,"Checking…");
+  try {
+    const pgn=await exportSource();
+    const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,Number($("maia-rating").value),.15);
+    const findings=(data.findings||[]).map(finding=>({ ...finding, nodeID: nodeIDForHistory(finding.history) }));
+    $("gap-results").innerHTML=findings.map((finding,index)=>{
+      const missing=(finding.missing||[]).filter(move=>!state.document.ignoredSuggestionIDs.includes(gapSuggestionID(finding,move)));
+      if(!missing.length)return"";
+      return `<article class="quality-item warning" data-gap="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(finding.history||"Repertoire position")}</h3><p>${escapeHTML(missing.map(move=>`${move.san} ${(move.probability*100).toFixed(0)}%`).join(", "))} may need a line.</p><div class="quality-context"><span>Reach ${(100*(finding.reach_probability||0)).toFixed(1)}%</span><span>Missing mass ${(100*(finding.missing_probability_mass||0)).toFixed(1)}%</span><span>Existing ${(finding.existing_replies||[]).map(move=>escapeHTML(move.san)).join(", ")||"none"}</span></div><div class="quality-actions"><button data-gap-jump>Open position</button>${missing.map((move,moveIndex)=>`<button data-gap-add="${moveIndex}">Add ${escapeHTML(move.san)}</button><button data-gap-ignore="${moveIndex}">Deliberately omit ${escapeHTML(move.san)}</button>`).join("")}</div></div></article>`;
+    }).join("")||qualityHTML("good","Coverage looks good",`No unreviewed missing responses above the threshold in ${data.positions_analyzed||0} checked positions.`);
+    $("gap-results").querySelectorAll("[data-gap]").forEach(card=>{
+      const finding=findings[Number(card.dataset.gap)], missing=(finding.missing||[]).filter(move=>!state.document.ignoredSuggestionIDs.includes(gapSuggestionID(finding,move)));
+      card.querySelector("[data-gap-jump]")?.addEventListener("click",()=>jumpToFinding(finding));
+      card.querySelectorAll("[data-gap-add]").forEach(control=>control.addEventListener("click",()=>addGapMove(finding,missing[Number(control.dataset.gapAdd)])));
+      card.querySelectorAll("[data-gap-ignore]").forEach(control=>control.addEventListener("click",()=>{const id=gapSuggestionID(finding,missing[Number(control.dataset.gapIgnore)]);commit({...state.document,ignoredSuggestionIDs:[...new Set([...state.document.ignoredSuggestionIDs,id])]});runGapCheck();}));
+    });
+  } catch(error){showStatus(error.message,true)} finally {setBusy(button,false)}
+}
+function gapSuggestionID(finding,move){return`coverage:${finding.history||"start"}:${move.uci}`}
+function nodeIDForHistory(history){
+  if(!history||history==="Starting position")return null;
+  for(const node of state.document.nodes){if(pgnHistory(pathToNode(state.document,node.id))===history)return node.id;}
+  return undefined;
+}
+function pgnHistory(nodes){const chunks=[];for(let index=0;index<nodes.length;index+=2){let chunk=`${index/2+1}. ${nodes[index].san}`;if(nodes[index+1])chunk+=` ${nodes[index+1].san}`;chunks.push(chunk)}return chunks.join(" ")||"Starting position"}
+function jumpToFinding(finding){if(finding.nodeID===undefined)return showStatus("This finding no longer matches the edited tree. Run coverage again.",true);navigate(finding.nodeID);switchView("editor")}
+function addGapMove(finding,move){if(!move)return;if(finding.nodeID===undefined)return showStatus("Run coverage again after the latest edits.",true);const result=addMove(state.document,finding.nodeID,move);commit(result.document,{navigateTo:result.node.id});refreshPosition();switchView("editor");showStatus(`${move.san} added. Add the author explanation before publishing.`)}
 
-function writingSources(){const sources=[];for(const node of state.document.nodes){if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});}return sources;}
-function loadIgnoredWords(){try{return JSON.parse(localStorage.getItem(IGNORED_WORDS_KEY)||"[]")}catch{return[]}}
-async function runSpellcheck(){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
-function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Explanations checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Ignored words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">Fix: ${escapeHTML(suggestion||"Remove")}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Ignore “${escapeHTML(issue.problem)}”</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} explanations.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",()=>{const words=new Set(loadIgnoredWords().map(word=>word.toLocaleLowerCase("en-GB")));words.add(issue.problem.toLocaleLowerCase("en-GB"));localStorage.setItem(IGNORED_WORDS_KEY,JSON.stringify([...words].sort()));runSpellcheck();});});}
+function writingSources(){
+  const sources=[];
+  const metadataFields=["title","subtitle","description","fallbackFeedback","versionNotes"];
+  for(const field of metadataFields){const value=String(state.document.metadata[field]||"");if(value.trim())sources.push({sourceId:`metadata:${field}`,history:`Course ${field}`,comment:value});}
+  for(const node of state.document.nodes){
+    if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});
+    if(node.startingComment.trim())sources.push({sourceId:`starting:${node.id}`,history:`Before ${moveLabel(node)}`,comment:node.startingComment});
+  }
+  return sources;
+}
+function loadIgnoredWords(){return [...(state.document?.ignoredWords||[])]}
+async function runSpellcheck(){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{flushActiveEditor();const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Writing fields checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Ignored words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">Fix: ${escapeHTML(suggestion||"Remove")}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Ignore “${escapeHTML(issue.problem)}”</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} writing fields.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",()=>{const words=new Set(loadIgnoredWords().map(word=>word.toLocaleLowerCase("en-GB")));words.add(issue.problem.toLocaleLowerCase("en-GB"));commit({...state.document,ignoredWords:[...words].sort()});runSpellcheck();});});}
 function highlight(text,start,end){return`${escapeHTML(text.slice(0,start))}<mark>${escapeHTML(text.slice(start,end))}</mark>${escapeHTML(text.slice(end))}`}
-function applyWritingFix(issue,replacement){const [,nodeID]=String(issue.sourceId).split(":");const node=nodeByID(state.document,nodeID);if(!node)return;const text=node.comment.slice(0,issue.start)+replacement+node.comment.slice(issue.end);commit(updateNode(state.document,nodeID,{comment:text}));runSpellcheck();}
+function applyWritingFix(issue,replacement){const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":"comment",current=node[field];const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
 
-function renderChapters(){if(!state.document)return;const id=state.document.metadata.slug||"draft",slices=chapterSlices(state.document,id),container=$("studio-chapters");container.classList.toggle("adding",state.chapterAddMode);container.innerHTML=slices.map((chapter,index)=>`${chapterDrop(chapter.startIndex,index)}<section class="studio-chapter"><div class="studio-chapter-head" draggable="${index>0}" data-chapter-drag="${index}"><span>⠿</span><input data-chapter-title="${index}" value="${escapeHTML(chapter.title)}" maxlength="80" aria-label="Chapter ${index+1} name"><span class="chapter-count ${chapter.positions.length<16||chapter.positions.length>32?"outside":""}">${chapter.positions.length} positions</span>${index?`<button data-delete-chapter="${index}" class="icon-button" aria-label="Delete chapter">×</button>`:"<span></span>"}</div>${chapter.positions.map(position=>`<button class="chapter-position-row" data-chapter-position="${escapeHTML(position.id)}"><span>#${position.learningOrder+1}</span><span>${escapeHTML(position.source.chapter)}</span><strong>${escapeHTML(position.correctMove.san)}</strong></button>`).join("")}</section>`).join("")+chapterDrop(trainingPack(state.document,id).positions.length,slices.length);bindChapters();}
-function chapterDrop(index,chapterIndex){if(index===0)return"";return`<div class="chapter-drop" data-chapter-drop="${index}" data-before-chapter="${chapterIndex}">Start chapter here</div>`}
-function bindChapters(){const pack=trainingPack(state.document,state.document.metadata.slug||"draft");$("studio-chapters").querySelectorAll("[data-chapter-title]").forEach(input=>input.addEventListener("change",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts[Number(input.dataset.chapterTitle)].title=input.value.trim()||`Chapter ${Number(input.dataset.chapterTitle)+1}`;commit({...state.document,chapterDrafts:drafts,chapters:[]});}));$("studio-chapters").querySelectorAll("[data-delete-chapter]").forEach(button=>button.addEventListener("click",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts.splice(Number(button.dataset.deleteChapter),1);commit({...state.document,chapterDrafts:drafts,chapters:[]});}));$("studio-chapters").querySelectorAll("[data-chapter-drag]").forEach(header=>{header.addEventListener("dragstart",()=>{state.chapterDrag=Number(header.dataset.chapterDrag)});header.addEventListener("dragend",()=>{state.chapterDrag=null;document.querySelectorAll(".chapter-drop").forEach(zone=>zone.classList.remove("active"));});});$("studio-chapters").querySelectorAll("[data-chapter-drop]").forEach(zone=>{zone.addEventListener("dragover",event=>{if(state.chapterDrag!==null){event.preventDefault();zone.classList.add("active")}});zone.addEventListener("dragleave",()=>zone.classList.remove("active"));zone.addEventListener("drop",event=>{event.preventDefault();moveChapterBoundary(state.chapterDrag,Number(zone.dataset.chapterDrop));});zone.addEventListener("click",()=>{if(!state.chapterAddMode)return;addChapterBoundary(Number(zone.dataset.chapterDrop));});});$("studio-chapters").querySelectorAll("[data-chapter-position]").forEach(button=>button.addEventListener("click",()=>showChapterPosition(pack.positions.find(item=>item.id===button.dataset.chapterPosition))));}
+function renderChapters(){
+  if(!state.document)return;
+  const id=state.document.metadata.slug||"draft",slices=chapterSlices(state.document,id),container=$("studio-chapters"),starts=new Set(slices.slice(1).map(chapter=>chapter.startIndex));
+  container.classList.toggle("adding",state.chapterAddMode);
+  container.innerHTML=slices.map((chapter,index)=>`<section class="studio-chapter"><div class="studio-chapter-head" draggable="${index>0}" data-chapter-drag="${index}"><span aria-hidden="true">⠿</span><input data-chapter-title="${index}" value="${escapeHTML(chapter.title)}" maxlength="80" aria-label="Chapter ${index+1} name"><span class="chapter-count ${chapter.positions.length<16||chapter.positions.length>32?"outside":""}">${chapter.positions.length} positions</span>${index?`<span class="boundary-controls"><button data-boundary-step="-1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position earlier">↑</button><button data-boundary-step="1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position later">↓</button></span><button data-delete-chapter="${index}" class="icon-button" aria-label="Delete chapter ${escapeHTML(chapter.title)}">×</button>`:"<span></span><span></span>"}</div>${chapter.positions.map(position=>`${chapterDrop(position.learningOrder,starts.has(position.learningOrder))}<button class="chapter-position-row" data-chapter-position="${escapeHTML(position.id)}"><span>#${position.learningOrder+1} · move ${position.moveNumber}</span><span>${escapeHTML(position.breadcrumb)}<small>${escapeHTML(position.source.chapter)}</small></span><strong>${escapeHTML(position.correctMove.san)}</strong></button>`).join("")}</section>`).join("");
+  bindChapters();
+}
+function chapterDrop(index,existing){if(index===0)return"";return`<button type="button" class="chapter-drop" data-chapter-drop="${index}" aria-pressed="${existing}" aria-label="${existing?"Move chapter boundary here":"Start a chapter at position "+(index+1)}">${existing?"Chapter starts here":"Start chapter here"}</button>`}
+function bindChapters(){
+  const pack=trainingPack(state.document,state.document.metadata.slug||"draft");
+  $("studio-chapters").querySelectorAll("[data-chapter-title]").forEach(input=>{input.addEventListener("input",markPendingInput);input.addEventListener("change",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts[Number(input.dataset.chapterTitle)].title=input.value.trim()||`Chapter ${Number(input.dataset.chapterTitle)+1}`;commit({...state.document,chapterDrafts:drafts,chapters:[]});})});
+  $("studio-chapters").querySelectorAll("[data-delete-chapter]").forEach(button=>button.addEventListener("click",()=>{const index=Number(button.dataset.deleteChapter),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");if(!confirm(`Delete “${drafts[index].title}”? Its positions will move into the previous chapter.`))return;drafts.splice(index,1);commit({...state.document,chapterDrafts:drafts,chapters:[]});}));
+  $("studio-chapters").querySelectorAll("[data-boundary-step]").forEach(button=>button.addEventListener("click",()=>{const index=Number(button.dataset.boundaryChapter),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),current=pack.positions.findIndex(position=>position.id===drafts[index].startNodeID);moveChapterBoundary(index,current+Number(button.dataset.boundaryStep));}));
+  $("studio-chapters").querySelectorAll("[data-chapter-drag]").forEach(header=>{header.addEventListener("dragstart",()=>{state.chapterDrag=Number(header.dataset.chapterDrag)});header.addEventListener("dragend",()=>{state.chapterDrag=null;document.querySelectorAll(".chapter-drop").forEach(zone=>zone.classList.remove("active"));});});
+  $("studio-chapters").querySelectorAll("[data-chapter-drop]").forEach(zone=>{zone.addEventListener("dragover",event=>{if(state.chapterDrag!==null){event.preventDefault();zone.classList.add("active")}});zone.addEventListener("dragleave",()=>zone.classList.remove("active"));zone.addEventListener("drop",event=>{event.preventDefault();moveChapterBoundary(state.chapterDrag,Number(zone.dataset.chapterDrop));});zone.addEventListener("click",()=>{const index=Number(zone.dataset.chapterDrop);if(state.chapterAddMode)addChapterBoundary(index);else if(state.chapterDrag!==null)moveChapterBoundary(state.chapterDrag,index);});});
+  $("studio-chapters").querySelectorAll("[data-chapter-position]").forEach(button=>button.addEventListener("click",()=>showChapterPosition(pack.positions.find(item=>item.id===button.dataset.chapterPosition))));
+}
 function moveChapterBoundary(chapterIndex,newIndex){const pack=trainingPack(state.document,state.document.metadata.slug||"draft"),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),starts=drafts.map((draft,index)=>index?pack.positions.findIndex(position=>position.id===draft.startNodeID):0);if(chapterIndex<=0)return;const min=starts[chapterIndex-1]+1,max=(starts[chapterIndex+1]??pack.positions.length)-1;const index=Math.max(min,Math.min(max,newIndex));drafts[chapterIndex].startNodeID=pack.positions[index].id;state.chapterDrag=null;commit({...state.document,chapterDrafts:drafts,chapters:[]});}
 function addChapterBoundary(index){const pack=trainingPack(state.document,state.document.metadata.slug||"draft"),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");if(index<=0||index>=pack.positions.length)return;const starts=drafts.map((draft,i)=>i?pack.positions.findIndex(position=>position.id===draft.startNodeID):0);if(starts.includes(index))return;const at=starts.findIndex(start=>start>index),insert=at<0?drafts.length:at;drafts.splice(insert,0,{id:`${state.document.metadata.slug||"draft"}-chapter-${Date.now()}`,title:`Chapter ${insert+1}`,startNodeID:pack.positions[index].id});state.chapterAddMode=false;$("add-chapter").textContent="Add chapter";commit({...state.document,chapterDrafts:drafts,chapters:[]});}
 async function showChapterPosition(position){if(!position)return;const data=await analysisAPI.position(position.path);renderBoard($("chapter-board"),data);$("chapter-position").innerHTML=`<h2>${escapeHTML(position.correctMove.san)}</h2><p>${escapeHTML(position.correctMove.feedback||"No teaching note yet.")}</p><p><code>${escapeHTML(data.fen)}</code></p>`;}
 
-async function renderPreview(){if(!state.document)return;const positions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!positions.length){$("preview-card").innerHTML='<div class="empty-state"><p>Add learner moves before previewing the course.</p></div>';return;}state.previewIndex=Math.max(0,Math.min(state.previewIndex,positions.length-1));const position=positions[state.previewIndex];try{const data=await analysisAPI.position(position.path);renderBoard($("preview-board"),data);$("preview-card").innerHTML=`<p class="eyebrow">Position ${state.previewIndex+1} of ${positions.length}</p><h2>Find the best move</h2><p>${escapeHTML(position.source.chapter)}</p><div class="learner-answer"><strong>${escapeHTML(position.correctMove.san)}</strong><span>${escapeHTML(position.correctMove.feedback||"No explanation yet.")}</span></div><div class="dialog-actions"><button id="preview-previous" class="secondary" ${state.previewIndex===0?"disabled":""}>Previous</button><button id="preview-next" class="primary" ${state.previewIndex===positions.length-1?"disabled":""}>Next position</button></div>`;$("preview-previous").addEventListener("click",()=>{state.previewIndex-=1;renderPreview()});$("preview-next").addEventListener("click",()=>{state.previewIndex+=1;renderPreview()});}catch(error){showStatus(error.message,true)}}
+function previewChapters(){return chapterSlices(state.document,state.document.metadata.slug||"draft")}
+async function renderPreview(){
+  if(!state.document)return;
+  const chapters=previewChapters();
+  if(!chapters.length||!chapters.some(chapter=>chapter.positions.length)){$("preview-board").innerHTML="";$("preview-card").innerHTML='<div class="empty-state"><p>Add learner moves before previewing the course.</p></div>';return;}
+  state.previewChapter=Math.max(0,Math.min(state.previewChapter,chapters.length-1));
+  const chapter=chapters[state.previewChapter],positions=chapter.positions;
+  state.previewIndex=Math.max(0,Math.min(state.previewIndex,positions.length-1));
+  const select=$("preview-chapter");
+  select.innerHTML=chapters.map((item,index)=>`<option value="${index}" ${index===state.previewChapter?"selected":""}>${escapeHTML(item.title)} · ${item.positions.length}</option>`).join("");
+  select.onchange=()=>{state.previewChapter=Number(select.value);restartPreviewChapter()};
+  const position=positions[state.previewIndex],token=++state.analysisToken;
+  try{
+    const data=await analysisAPI.position(position.path);if(token!==state.analysisToken)return;
+    state.previewPosition=data;state.previewSelectedSquare=null;
+    renderPreviewBoard();renderPreviewCard(position,chapter);
+  }catch(error){showStatus(error.message,true)}
+}
+function renderPreviewBoard(){renderBoard($("preview-board"),state.previewPosition,{interactive:true,selected:state.previewSelectedSquare,onSquare:previewSquare,onMove:tryPreviewMove})}
+function previewSquare(square,map){
+  if(!state.previewPosition||state.previewAttempt?.correct)return;
+  const candidates=state.previewSelectedSquare?state.previewPosition.legal_moves.filter(move=>move.from===state.previewSelectedSquare&&move.to===square):[];
+  if(candidates.length){attemptPreviewMove(candidates[0]);return;}
+  state.previewSelectedSquare=map[square]&&state.previewPosition.legal_moves.some(move=>move.from===square)?square:null;renderPreviewBoard();
+}
+function tryPreviewMove(from,to){const candidate=state.previewPosition?.legal_moves.find(move=>move.from===from&&move.to===to);if(candidate)attemptPreviewMove(candidate)}
+function attemptPreviewMove(move){
+  const chapter=previewChapters()[state.previewChapter],position=chapter.positions[state.previewIndex];
+  state.previewAttempt=evaluatePreviewMove(position,move,state.document.metadata.fallbackFeedback);
+  state.previewSelectedSquare=null;renderPreviewBoard();renderPreviewCard(position,chapter);
+}
+function renderPreviewCard(position,chapter){
+  const attempt=state.previewAttempt;
+  const answer=attempt?`<div class="learner-answer ${attempt.correct?"":"wrong"}"><strong>${attempt.correct?"Correct":escapeHTML(attempt.move.san)}</strong><span>${escapeHTML(attempt.feedback)}</span></div>`:'<div class="learner-answer pending"><strong>Answer hidden</strong><span>Make a move on the board to test this position.</span></div>';
+  $("preview-card").innerHTML=`<p class="eyebrow">${escapeHTML(chapter.title)} · ${state.previewIndex+1} of ${chapter.positions.length}</p><h2>Find the best move</h2><p>${escapeHTML(position.source.chapter)}</p>${answer}<div class="dialog-actions"><button id="preview-previous" class="secondary" ${state.previewIndex===0?"disabled":""}>Previous</button><button id="preview-next" class="primary" ${!attempt?.correct||state.previewIndex===chapter.positions.length-1?"disabled":""}>Next position</button></div>`;
+  $("preview-previous").addEventListener("click",()=>{state.previewIndex-=1;state.previewAttempt=null;renderPreview()});
+  $("preview-next").addEventListener("click",()=>{state.previewIndex+=1;state.previewAttempt=null;renderPreview()});
+}
+function restartPreviewChapter(){state.previewIndex=0;state.previewAttempt=null;state.previewSelectedSquare=null;renderPreview()}
 
-function combinedValidation(remote=null){const local=validateDocument(state.document);if(!remote)return local;const source=remote.validation||remote;return{blockers:[...local.blockers,...(source.blockers||source.errors||[])].map(normalizeCheck),warnings:[...local.warnings,...(source.warnings||[])].map(normalizeCheck)};}
+function combinedValidation(remote=null){const local=validateDocument(state.document);if(state.reconciliationError)local.blockers.push({area:"Chapters",message:state.reconciliationError});if(!remote)return local;const source=remote.validation||remote;return{blockers:[...local.blockers,...(source.blockers||source.errors||[])].map(normalizeCheck),warnings:[...local.warnings,...(source.warnings||[])].map(normalizeCheck)};}
 function normalizeCheck(item){return typeof item==="string"?{area:"Validation",message:item}:{area:item.area||item.path||"Validation",message:item.message||item.detail||"Course issue"}}
-function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item.area,item.message)),...checks.warnings.map(item=>qualityHTML("warning",item.area,item.message))].join("")||qualityHTML("good","Ready to publish","No blockers or warnings found.");return checks;}
-function qualityHTML(type,title,message){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(title)}</h3><p>${escapeHTML(message)}</p></div></article>`}
+function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item.area,item.message,true)),...checks.warnings.map(item=>qualityHTML("warning",item.area,item.message,true))].join("")||qualityHTML("good","Ready to publish","No blockers or warnings found.");$("quality-results").querySelectorAll("[data-quality-area]").forEach(button=>button.addEventListener("click",()=>switchView(areaView(button.dataset.qualityArea))));return checks;}
+function qualityHTML(type,title,message,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(title)}</h3><p>${escapeHTML(message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(title)}">Review this area</button></div>`:""}</div></article>`}
+function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
 async function runQuality(){const button=$("refresh-quality");setBusy(button,true,"Checking…");try{if(dirty()&&!await saveDraft({quiet:true}))return null;state.validation=await api.validateCourse(state.courseID,state.revision);renderQuality();showStatus("Quality checks complete.");return state.validation;}catch(error){showStatus(error.message,true);return null}finally{setBusy(button,false)}}
 function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 async function beginPublish(){
@@ -364,36 +517,52 @@ async function beginPublish(){
   if(!resolveCompiledChapters(validation)) return showStatus("The compiled chapter positions could not be matched safely. Publishing is blocked.",true);
   if(dirty()){if(!await saveDraft({quiet:true}))return;validation=await runQuality();if(!validation)return;}
   const warnings=combinedValidation(validation).warnings;
-  $("publish-review").innerHTML=`<p><strong>${escapeHTML(state.document.metadata.title)}</strong> will update in the live app after publication.</p><div class="stat-strip"><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug).positions.length}</strong><span>Positions</span></div><div class="stat"><strong>${ensureChapters(state.document,state.document.metadata.slug).length}</strong><span>Chapters</span></div><div class="stat"><strong>${warnings.length}</strong><span>Warnings accepted</span></div></div><p class="muted">Published versions are immutable. You can restore one later without destroying history.</p>`;
+  let history={versions:[]};try{history=await api.versions(state.courseID)}catch{/* publication still has local review */}
+  const latest=(history.versions||[])[0],liveSummary=latest?.validation?.summary||{},positions=trainingPack(state.document,state.document.metadata.slug).positions.length,chapters=ensureChapters(state.document,state.document.metadata.slug).length;
+  const changes=[
+    latest?`Training positions: ${liveSummary.positionCount??"unknown"} → ${positions}`:`First publication with ${positions} training positions`,
+    latest?`Chapters: ${liveSummary.chapterCount??"unknown"} → ${chapters}`:`${chapters} authored chapters`,
+    state.document.metadata.versionNotes?.trim()?`Release notes: ${state.document.metadata.versionNotes.trim()}`:"No release notes added",
+  ];
+  $("publish-review").innerHTML=`<p><strong>${escapeHTML(state.document.metadata.title)}</strong> will update in the live app after publication.</p><h3>Changes from ${latest?escapeHTML(latest.version):"no live version"}</h3><ul class="change-list">${changes.map(item=>`<li>${escapeHTML(item)}</li>`).join("")}</ul><h3>Warnings to accept (${warnings.length})</h3>${warnings.length?`<ul class="warning-list">${warnings.map(item=>`<li><strong>${escapeHTML(item.area)}</strong> · ${escapeHTML(item.message)}</li>`).join("")}</ul>`:'<p class="muted">No warnings.</p>'}<p class="muted">Published versions are immutable. You can restore one later without destroying history.</p>`;
   $("publish-dialog").showModal();
 }
 async function confirmPublish(){const button=$("confirm-publish");setBusy(button,true,"Publishing…");try{const result=await api.publishCourse(state.courseID,state.revision);state.revision=result.revision??state.revision;state.savedSnapshot=JSON.stringify(state.document);$("publish-dialog").close();updateSaveState();showStatus(`Published ${result.version||"successfully"}. The app will receive the update automatically.`);await loadCourses();await loadHistory();}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
-async function loadHistory(){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||payload||[];$("history-list").innerHTML=state.versions.map((version,index)=>`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`).join("")||'<div class="loading-card">No published versions yet.</div>';$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`}}
-async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),draft=payload.draft||payload.document;state.document=normalizeDocument(draft);state.document.metadata.slug=payload.course?.slug||state.document.metadata.slug;state.revision=draft?.revision??payload.revision;state.savedSnapshot=JSON.stringify(state.document);state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored as a new draft.");}catch(error){showStatus(error.message,true)}}
+async function loadHistory(){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||[];const publications=state.versions.map((version,index)=>{const summary=version.validation?.summary||{};return`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>${Number(summary.positionCount||0)} positions · ${Number(summary.chapterCount||0)} chapters · draft revision ${Number(version.documentRevision||0)}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`}).join("");const revisions=(payload.revisions||[]).slice(0,12).map(revision=>`<article class="history-row"><div><h2>Draft revision ${Number(revision.revision)}</h2><p>${escapeHTML(revision.reason||"save")} · ${escapeHTML(formatDate(revision.createdAt))}</p></div><span class="tag draft">Draft activity</span></article>`).join("");$("history-list").innerHTML=`${publications||'<div class="loading-card">No published versions yet.</div>'}${revisions?`<div class="page-heading compact"><div><h2>Recent draft activity</h2></div></div>${revisions}`:""}`;$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`}}
+async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;state.revision=raw?.revision??payload.revision;state.document=await hydrateSourceDocument(draft);state.savedSnapshot=JSON.stringify(state.document);clearCrashRecovery();state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
 
-async function importPGN(file) { if(!file)return;try{const pgn=await file.text(),parsed=await analysisAPI.parsePGN(pgn),title=parsed.headers?.Event&&parsed.headers.Event!=="?"?parsed.headers.Event:file.name.replace(/\.pgn$/i,"");const document=importParsedPGN(parsed,{title,slug:slugify(title),side:"white"});document.sourcePGN=pgn;const payload=await api.createCourse({title,slug:document.metadata.slug,side:"white",sourcePGN:pgn,document});await loadCourses();await openCourse(payload.course?.id||payload.id);}catch(error){showStatus(error.message,true)}}
+async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),preview=await api.importPGN(pgn),title=preview.inferredTitle&&preview.inferredTitle!=="?"?preview.inferredTitle:file.name.replace(/\.pgn$/i,"");state.pendingImport={pgn,fileName:file.name,moveCount:preview.moveCount};const form=$("import-form");form.reset();delete form.elements.slug.dataset.edited;form.elements.title.value=title;form.elements.slug.value=slugify(title);$("import-file-name").textContent=`${file.name} · ${Number(preview.moveCount||0)} moves`;$("import-dialog").showModal();}catch(error){showStatus(error.message,true)}}
 function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
 
 $("login-form").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;setBusy(button,true,"Signing in…");$("login-error").textContent="";try{const session=await api.login($("login-email").value,$("login-password").value);setUser(session.user||session);$("login-password").value="";await showApp();}catch(error){$("login-error").textContent=error.message}finally{setBusy(button,false)}});
 $("logout").addEventListener("click",async()=>{try{await api.logout()}finally{state.document=null;state.savedSnapshot="";showLogin()}});
-$("account-button").addEventListener("click",()=>{$("account-menu").hidden=!$("account-menu").hidden});
+function setAccountMenu(open){$("account-menu").hidden=!open;$("account-button").setAttribute("aria-expanded",String(open));if(open)$("logout").focus()}
+$("account-button").addEventListener("click",()=>setAccountMenu($("account-menu").hidden));
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>switchView(item.dataset.view)));
 document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventListener("click",()=>switchView("editor")));
-$("new-course").addEventListener("click",()=>{$("create-form").reset();$("create-dialog").showModal()});
+$("new-course").addEventListener("click",()=>{$("create-form").reset();delete $("create-form").elements.slug.dataset.edited;$("create-dialog").showModal()});
 $("create-form").elements.title.addEventListener("input",event=>{const slug=$("create-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("create-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
 $("create-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const document=newCourseDocument(data);try{const payload=await api.createCourse({...data,document});$("create-dialog").close();await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
 $("dashboard-import").addEventListener("change",event=>{importPGN(event.target.files[0]);event.target.value=""});
-$("editor-import").addEventListener("change",async event=>{const file=event.target.files[0];event.target.value="";if(!file||!confirm("Replace this draft's entire move tree with the imported PGN?"))return;try{const pgn=await file.text(),parsed=await analysisAPI.parsePGN(pgn),document=importParsedPGN(parsed,state.document.metadata);document.sourcePGN=pgn;commit(document,{navigateTo:null});refreshPosition()}catch(error){showStatus(error.message,true)}});
+$("import-form").elements.title.addEventListener("input",event=>{const slug=$("import-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
+$("import-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
+$("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const payload=await api.createCourse(importedCoursePayload({...data,pgn:state.pendingImport.pgn}));$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
+$("editor-import").addEventListener("change",async event=>{const file=event.target.files[0];event.target.value="";if(!file||!confirm("Replace this draft's entire move tree with the imported PGN? Chapter names will be kept and boundaries reconciled."))return;try{const pgn=await file.text();await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),document=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(document,{navigateTo:null});refreshPosition()}catch(error){showStatus(error.message,true)}});
 $("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;commit({...state.document,metadata:{...state.document.metadata,[event.target.name]:value}})});
+$("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("run-analysis").addEventListener("click",runPositionAnalysis);$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
 $("add-chapter").addEventListener("click",()=>{state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
-$("restart-preview").addEventListener("click",()=>{state.previewIndex=0;renderPreview()});$("close-publish").addEventListener("click",()=>$("publish-dialog").close());$("cancel-publish").addEventListener("click",()=>$("publish-dialog").close());$("confirm-publish").addEventListener("click",confirmPublish);
-document.addEventListener("keydown",event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!event.target.matches("input,textarea,select")&&state.view==="editor"){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
-window.addEventListener("beforeunload",event=>{if(dirty()){event.preventDefault();event.returnValue=""}});
+$("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",()=>$("publish-dialog").close());$("cancel-publish").addEventListener("click",()=>$("publish-dialog").close());$("confirm-publish").addEventListener("click",confirmPublish);
+$("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=await exportSource();$("raw-pgn-error").textContent="";$("raw-pgn-dialog").showModal()}catch(error){showStatus(error.message,true)}});
+$("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
+$("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$("conflict-reload").addEventListener("click",async()=>{$("conflict-dialog").close();state.savedSnapshot=JSON.stringify(state.document);clearCrashRecovery();await openCourse(state.courseID)});
+document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
+document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]");if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&state.view==="editor"){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
+window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("hashchange",()=>{const view=location.hash.slice(1);if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
 boot();

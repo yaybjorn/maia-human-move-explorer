@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { StudioAPI, StudioAPIError } from "../app/static/studio-api.mjs";
+import { StudioAPI, StudioAPIError, importedCoursePayload } from "../app/static/studio-api.mjs";
 
 test("uses same-origin cookies and server-issued CSRF for mutations", async () => {
   const calls = [];
@@ -43,4 +43,24 @@ test("surfaces edit conflicts without discarding response details", async () => 
     assert.equal(error.message, "A newer draft exists");
     assert.equal(error.details.currentRevision, 4); return true;
   });
+});
+
+test("import payload preserves the chosen side without duplicating the PGN", () => {
+  const payload = importedCoursePayload({
+    title: "Black course", slug: "black-course", side: "black", pgn: "1. e4 e5 *",
+  });
+  assert.equal(payload.side, "black");
+  assert.equal(payload.sourcePGN, "1. e4 e5 *");
+  assert.equal(payload.document, undefined);
+  assert.equal(JSON.stringify(payload).match(/1\. e4 e5/g)?.length, 1);
+});
+
+test("server-side import preview uses the authenticated Studio route", async () => {
+  const calls = [];
+  const api = new StudioAPI("/studio/api", async (url, options) => {
+    calls.push({ url, options }); return new Response(JSON.stringify({ valid: true }), { status: 200 });
+  });
+  await api.importPGN("1. d4 d5 *");
+  assert.equal(calls[0].url, "/studio/api/import/parse");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { pgn: "1. d4 d5 *" });
 });

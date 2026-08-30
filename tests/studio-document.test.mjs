@@ -3,8 +3,8 @@ import test from "node:test";
 
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
-  promoteVariation, removeBranch, reorderVariation, serializeForPGN, trainingPack,
-  updateNode, validateDocument,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, promoteVariation, removeBranch,
+  reorderVariation, serializeForPGN, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
 
 const parsed = {
@@ -56,4 +56,96 @@ test("validation separates blockers and advisory warnings", () => {
   assert.ok(validateDocument(invalid).blockers.length >= 3);
   const document = importParsedPGN(parsed, { title: "Test", slug: "test", side: "white" });
   assert.ok(validateDocument(document).warnings.some(item => item.area === "Chapters"));
+});
+
+test("training traversal matches compiler semantics for learner wrong lines", () => {
+  const document = normalizeDocument({
+    metadata: { title: "Parity", slug: "parity", side: "white" },
+    nodes: [
+      { id: "correct", parentId: null, uci: "e2e4", san: "e4", ply: 1, comment: "Correct." },
+      { id: "opponent", parentId: "correct", uci: "c7c5", san: "c5", ply: 2 },
+      { id: "next", parentId: "opponent", uci: "g1f3", san: "Nf3", ply: 3, comment: "Develop." },
+      { id: "wrong", parentId: null, uci: "d2d4", san: "d4", ply: 1, comment: "Too soon." },
+      { id: "wrong-reply", parentId: "wrong", uci: "d7d5", san: "d5", ply: 2 },
+      { id: "must-not-train", parentId: "wrong-reply", uci: "c2c4", san: "c4", ply: 3 },
+    ],
+  });
+  const positions = trainingPack(document, "parity").positions;
+  assert.deepEqual(positions.map(position => position.id), ["start", "opponent"]);
+  assert.deepEqual(positions[0].wrongMoves, [{ san: "d4", uci: "d2d4", feedback: "Too soon." }]);
+});
+
+test("training traversal defers opponent branches in compiler sequence order", () => {
+  const document = normalizeDocument({
+    metadata: { title: "Order", slug: "order", side: "white" },
+    nodes: [
+      { id: "e4", parentId: null, uci: "e2e4", san: "e4", ply: 1 },
+      { id: "c5", parentId: "e4", uci: "c7c5", san: "c5", ply: 2 },
+      { id: "e5", parentId: "e4", uci: "e7e5", san: "e5", ply: 2 },
+      { id: "nf3", parentId: "c5", uci: "g1f3", san: "Nf3", ply: 3 },
+      { id: "nc6", parentId: "nf3", uci: "b8c6", san: "Nc6", ply: 4 },
+      { id: "d6", parentId: "nf3", uci: "d7d6", san: "d6", ply: 4 },
+      { id: "bb5", parentId: "nc6", uci: "f1b5", san: "Bb5", ply: 5 },
+      { id: "alt-e5", parentId: "e5", uci: "g1f3", san: "Nf3", ply: 3 },
+      { id: "alt-d6", parentId: "d6", uci: "d2d4", san: "d4", ply: 5 },
+    ],
+  });
+  assert.deepEqual(trainingPack(document, "order").positions.map(position => position.id), [
+    "start", "c5", "nc6", "e5", "d6",
+  ]);
+});
+
+test("structural edits clear compiled chapter ids but preserve authored chapter drafts", () => {
+  const document = importParsedPGN(parsed, { title: "Test", slug: "test", side: "white" });
+  document.chapterDrafts = [{ id: "intro", title: "Introduction", startNodeID: null }];
+  document.chapters = [{ id: "intro", title: "Introduction", positionIDs: ["sha256:old"] }];
+  const result = addMove(document, "4", { uci: "b8c6", san: "Nc6" });
+  assert.deepEqual(result.document.chapters, []);
+  assert.equal(result.document.chapterDrafts[0].title, "Introduction");
+});
+
+test("source-only restores hydrate safely and storage payload does not duplicate move nodes", () => {
+  const saved = normalizeDocument({
+    metadata: { title: "Restored", slug: "restored", side: "white" },
+    sourcePGN: "1. e4 c5 *",
+    chapters: [{ id: "intro", title: "Intro", positionIDs: ["sha256:one"] }],
+    ignoredWords: ["Kilkenny"],
+  });
+  const hydrated = hydrateRestoredDocument(parsed, saved);
+  assert.equal(hydrated.nodes.length, 4);
+  assert.deepEqual(hydrated.ignoredWords, ["Kilkenny"]);
+  const stored = documentForStorage(hydrated, saved.sourcePGN);
+  assert.deepEqual(stored.nodes, []);
+  assert.equal(stored.sourcePGN, "1. e4 c5 *");
+});
+
+test("authored chapter boundaries may start at any training position", () => {
+  const document = normalizeDocument({
+    metadata: { title: "Boundaries", slug: "boundaries", side: "white" },
+    nodes: [
+      { id: "a", parentId: null, uci: "e2e4", san: "e4", ply: 1 },
+      { id: "b", parentId: "a", uci: "e7e5", san: "e5", ply: 2 },
+      { id: "c", parentId: "b", uci: "g1f3", san: "Nf3", ply: 3 },
+      { id: "d", parentId: "c", uci: "b8c6", san: "Nc6", ply: 4 },
+      { id: "e", parentId: "d", uci: "f1b5", san: "Bb5", ply: 5 },
+    ],
+    chapterDrafts: [
+      { id: "one", title: "One", startNodeID: null },
+      { id: "two", title: "Two", startNodeID: "b" },
+      { id: "three", title: "Three", startNodeID: "d" },
+    ],
+  });
+  assert.deepEqual(chapterSlices(document, "boundaries").map(chapter => chapter.positions.length), [1, 1, 1]);
+});
+
+test("learner preview hides answers until evaluating a move and uses authored wrong feedback", () => {
+  const position = {
+    correctMove: { uci: "e2e4", san: "e4", feedback: "Take the centre." },
+    wrongMoves: [{ uci: "d2d4", san: "d4", feedback: "That belongs to another course." }],
+  };
+  assert.deepEqual(evaluatePreviewMove(position, { uci: "d2d4", san: "d4" }, "Play {san}."), {
+    correct: false, move: { uci: "d2d4", san: "d4" }, feedback: "That belongs to another course.",
+  });
+  assert.equal(evaluatePreviewMove(position, { uci: "c2c4", san: "c4" }, "Play {san}.").feedback, "Play e4.");
+  assert.equal(evaluatePreviewMove(position, { uci: "e2e4", san: "e4" }, "Play {san}.").correct, true);
 });
