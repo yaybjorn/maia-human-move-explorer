@@ -9,6 +9,9 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - `/check`: Simon uploads a standard-start PGN and finds probable opponent replies not covered by PGN variations or explicitly named in position comments.
 - `/spellcheck`: Simon checks PGN comments in British English, applies individual suggestions, and downloads a corrected copy.
 - `/chapters`: Simon loads a current GingerGM course, names its learning chapters, and moves contiguous chapter boundaries before downloading a version-controlled manifest.
+- `/studio`: authenticated end-to-end course authoring for superadmins, including PGN import,
+  blank-course creation, board/tree editing, Maia and Stockfish suggestions, writing checks,
+  chapters, validation, publication, and immutable version history.
 - `/portsmouth`: White repertoire trainer built from the approved Portsmouth pack.
 - `/kilkenny`: White repertoire trainer built from Simon’s Kilkenny PGN.
 - `/`: general history-aware Maia move explorer with PGN variations and separate Stockfish analysis.
@@ -41,6 +44,22 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - The editor previews each position and warns when a chapter falls outside the suggested 16–32 move range.
 - A local pack or existing manifest can be imported. The result downloads as `<pack-id>-chapters.json` for review and commit beside the course PGN and metadata.
 - The editor never writes directly to production. Backend compilation validates full coverage, uniqueness, and unchanged learning order before a manifest can ship.
+
+## `/studio` architecture
+
+- The browser never receives backend proxy credentials. FastAPI allowlists Studio routes and
+  injects `X-Studio-Proxy-Secret` from the host environment when proxying to the GingerGM Worker.
+- Login uses an HttpOnly same-origin session cookie. Mutations require the session CSRF token and
+  a validated same-origin `Origin`; auth tokens are never stored in browser storage.
+- Every save first exports the current structured variation tree to PGN locally. Publication is
+  blocked if comments, NAGs, bracket directives, or nested variations cannot be exported.
+- Maia, Stockfish, spellcheck, and coverage results remain suggestions until an author explicitly
+  accepts a change. Results for an older board position cannot be applied.
+- Chapter dividers use temporary authoring node IDs in `chapterDrafts`. Validation returns compiled
+  preview positions, after which the browser resolves boundaries to canonical `sha256:` position
+  IDs before the final save and publication.
+- Published versions are immutable. Restore creates a new working draft and does not alter the live
+  catalogue until the author publishes again.
 
 ## Trainer behavior
 

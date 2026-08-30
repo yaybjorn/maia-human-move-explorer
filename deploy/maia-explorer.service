@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 User=maia
 Group=maia
+EnvironmentFile=-/etc/maia-human-move-explorer.env
 WorkingDirectory=/opt/maia-human-move-explorer/current
 Environment=MAIA_MODEL=maia3-5m
 Environment=STOCKFISH_PATH=/usr/local/bin/stockfish

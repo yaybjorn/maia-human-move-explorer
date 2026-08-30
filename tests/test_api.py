@@ -1,3 +1,5 @@
+from email.message import Message
+
 import chess
 from fastapi.testclient import TestClient
 
@@ -70,6 +72,31 @@ def test_pgn_parse_and_export_contract():
     )
     assert exported.status_code == 200
     assert "( 1. d4 )" in exported.json()["pgn"]
+
+
+def test_pgn_round_trip_preserves_comments_nags_directives_and_nested_variations():
+    source = (
+        '[Event "Course"]\n\n'
+        '1. e4! {Main idea. [%csl Ge4]}'
+        ' (1. d4 {Queen pawn.} d5 (1... Nf6 $5 {Indian. [%cal Gg1f3]}))'
+        ' 1... c5 {Sicilian.} *'
+    )
+    parsed = client.post("/api/parse-pgn", json={"pgn": source})
+    assert parsed.status_code == 200
+    nodes = parsed.json()["nodes"]
+    assert any(node["comment"] == "Main idea. [%csl Ge4]" for node in nodes)
+    assert any(1 in node["nags"] for node in nodes)
+    exported = client.post(
+        "/api/export-pgn", json={"nodes": nodes, "headers": parsed.json()["headers"]}
+    )
+    assert exported.status_code == 200
+    reparsed = client.post("/api/parse-pgn", json={"pgn": exported.json()["pgn"]})
+    assert reparsed.status_code == 200
+    semantics = lambda values: sorted(
+        (node["uci"], node["comment"], node["starting_comment"], node["nags"])
+        for node in values
+    )
+    assert semantics(reparsed.json()["nodes"]) == semantics(nodes)
 
 
 def test_portsmouth_rejects_wrong_move_with_authored_feedback():
@@ -173,6 +200,54 @@ def test_chapter_editor_board_uses_bounded_eight_by_eight_grid():
     assert "grid-template-columns:repeat(8,minmax(0,1fr))" in css.text
     assert "grid-template-rows:repeat(8,minmax(0,1fr))" in css.text
     assert ".square{display:grid;place-items:center;min-width:0;min-height:0;overflow:hidden}" in css.text
+
+
+def test_course_studio_page_and_mobile_safe_board_grid():
+    page = client.get("/studio")
+    css = client.get("/static/studio.css")
+    assert page.status_code == 200
+    assert "GingerGM Course Studio" in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert page.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+    assert "grid-template-columns:repeat(8,minmax(0,1fr))" in css.text
+    assert "grid-template-rows:repeat(8,minmax(0,1fr))" in css.text
+    assert "min-width:0;min-height:0;overflow:hidden" in css.text
+
+
+def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):
+    received = {}
+
+    def fake_upstream(request):
+        received["request"] = request
+        headers = Message()
+        headers["Content-Type"] = "application/json"
+        headers["Set-Cookie"] = "studio_session=abc; Secure; HttpOnly; SameSite=Strict"
+        return b'{"user":{"email":"author@example.com"}}', 200, headers
+
+    monkeypatch.setattr("app.main.STUDIO_PROXY_SECRET", "server-only-secret")
+    monkeypatch.setattr("app.main.studio_upstream_request", fake_upstream)
+    response = client.get(
+        "/studio/api/session",
+        headers={"X-Studio-Proxy-Secret": "attacker-value", "Cookie": "studio_session=old"},
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["set-cookie"].startswith("studio_session=abc")
+    headers = dict(received["request"].header_items())
+    assert headers["X-studio-proxy-secret"] == "server-only-secret"
+    assert headers["Cookie"] == "studio_session=old"
+    assert client.delete("/studio/api/courses/course").status_code == 405
+    assert client.get("/studio/api/not-allowed").status_code == 404
+
+
+def test_studio_proxy_rejects_cross_origin_mutations(monkeypatch):
+    monkeypatch.setattr("app.main.STUDIO_PROXY_SECRET", "server-only-secret")
+    rejected = client.post(
+        "/studio/api/login",
+        headers={"Origin": "https://attacker.example"},
+        json={"email": "author@example.com", "password": "not-a-real-password"},
+    )
+    assert rejected.status_code == 403
 
 
 def test_kilkenny_page_and_first_move(monkeypatch):

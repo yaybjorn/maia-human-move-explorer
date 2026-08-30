@@ -6,9 +6,11 @@ from urllib.request import Request, urlopen
 
 import chess
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Request as FastAPIRequest
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from .chess_state import (
     PositionError,
@@ -28,6 +30,15 @@ START_FEN = chess.STARTING_FEN
 GINGERGM_API_BASE = os.getenv(
     "GINGERGM_API_BASE", "https://gingergm-opening-drill-api.fablelabs.workers.dev"
 ).rstrip("/")
+GINGERGM_STUDIO_API_BASE = os.getenv(
+    "GINGERGM_STUDIO_API_BASE", f"{GINGERGM_API_BASE}/v1/studio"
+).rstrip("/")
+STUDIO_PROXY_SECRET = os.getenv("STUDIO_PROXY_SECRET", "")
+STUDIO_ALLOWED_ORIGINS = {
+    value.strip()
+    for value in os.getenv("STUDIO_ALLOWED_ORIGINS", "https://maia.fablelabs.no").split(",")
+    if value.strip()
+}
 app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None)
 
 
@@ -48,6 +59,9 @@ class PgnNode(BaseModel):
     id: int = Field(ge=1)
     parent_id: int | None = Field(default=None, ge=1)
     uci: str = Field(min_length=4, max_length=5)
+    comment: str = Field(default="", max_length=20_000)
+    starting_comment: str = Field(default="", max_length=20_000)
+    nags: list[int] = Field(default_factory=list, max_length=32)
 
 
 class PgnTreeRequest(BaseModel):
@@ -179,6 +193,82 @@ def chapter_course(pack_id: str):
     return fetch_json(f"{GINGERGM_API_BASE}/{opening['pack_url'].lstrip('/')}")
 
 
+def studio_path_allowed(path: str, method: str) -> bool:
+    parts = path.split("/") if path else []
+    safe = all(part and len(part) <= 160 and all(c.isalnum() or c in "-_." for c in part)
+               for part in parts)
+    if not safe:
+        return False
+    allowed = {
+        ("session",): {"GET"},
+        ("login",): {"POST"},
+        ("logout",): {"POST"},
+        ("courses",): {"GET", "POST"},
+    }
+    if tuple(parts) in allowed:
+        return method in allowed[tuple(parts)]
+    if len(parts) == 2 and parts[0] == "courses":
+        return method == "GET"
+    if len(parts) == 3 and parts[0] == "courses" and parts[2] in {
+        "draft", "validate", "publish", "versions"
+    }:
+        return method in ({"PUT"} if parts[2] == "draft" else {"GET"} if parts[2] == "versions" else {"POST"})
+    return (
+        len(parts) == 5 and parts[0] == "courses" and parts[2] == "versions"
+        and parts[4] == "restore" and method == "POST"
+    )
+
+
+@app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT"])
+async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if not studio_path_allowed(path, request.method):
+        raise HTTPException(404, "Unknown Studio operation")
+    if not STUDIO_PROXY_SECRET:
+        raise HTTPException(503, "The Course Studio backend is not configured")
+    origin = request.headers.get("origin")
+    if request.method not in {"GET", "HEAD"} and origin not in STUDIO_ALLOWED_ORIGINS:
+        raise HTTPException(403, "Cross-origin Studio mutations are forbidden")
+    body = await request.body()
+    if len(body) > 2_000_000:
+        raise HTTPException(413, "The Studio draft is too large")
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": request.headers.get("content-type", "application/json"),
+        "User-Agent": "GingerGMCourseStudioProxy/1",
+        "X-Studio-Proxy-Secret": STUDIO_PROXY_SECRET,
+    }
+    for name in ("cookie", "x-csrf-token"):
+        if value := request.headers.get(name):
+            headers[name.title()] = value
+    if origin in STUDIO_ALLOWED_ORIGINS:
+        headers["Origin"] = origin
+    upstream = Request(
+        f"{GINGERGM_STUDIO_API_BASE}/{path}",
+        data=body if request.method != "GET" else None,
+        headers=headers,
+        method=request.method,
+    )
+    payload, status, response_headers = await run_in_threadpool(studio_upstream_request, upstream)
+    outgoing = {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+    }
+    for name in ("Content-Type", "Set-Cookie", "X-CSRF-Token"):
+        if value := response_headers.get(name):
+            outgoing[name] = value
+    return Response(content=payload, status_code=status, headers=outgoing)
+
+
+def studio_upstream_request(upstream: Request):
+    try:
+        response = urlopen(upstream, timeout=60)
+        return response.read(), response.status, response.headers
+    except HTTPError as exc:
+        return exc.read(), exc.code, exc.headers
+    except (URLError, TimeoutError) as exc:
+        raise HTTPException(502, "The Course Studio backend is temporarily unavailable") from exc
+
+
 def trainer_play(request: TrainerMoveRequest, repertoire, label: str):
     position = replay(START_FEN, request.moves)
     puzzle = repertoire.position(position.board)
@@ -280,4 +370,15 @@ def chapters_index():
     return FileResponse(
         ROOT / "static" / "chapters.html",
         headers={"X-Robots-Tag": "noindex, nofollow, noarchive"},
+    )
+
+
+@app.get("/studio")
+def studio_index():
+    return FileResponse(
+        ROOT / "static" / "studio.html",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+        },
     )

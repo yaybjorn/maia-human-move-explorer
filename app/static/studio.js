@@ -1,0 +1,393 @@
+import { StudioAPI, StudioAPIError, analysisAPI } from "./studio-api.mjs";
+import {
+  addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode,
+  newCourseDocument, nodeByID, normalizeDocument, pathToNode, promoteVariation,
+  removeBranch, reorderVariation, serializeForPGN, trainingPack, updateNode, validateDocument,
+} from "./studio-document.mjs";
+import { checkWriting } from "./writing-check.js";
+
+const api = new StudioAPI();
+const $ = id => document.getElementById(id);
+const state = {
+  user: null, courses: [], courseID: null, revision: null, document: null,
+  savedSnapshot: "", undo: [], redo: [], currentNodeID: null, position: null,
+  flipped: false, selectedSquare: null, dragFrom: null, view: "dashboard",
+  requestToken: 0, analysisToken: 0, validation: null, versions: [],
+  chapterDrag: null, chapterAddMode: false, previewIndex: 0,
+};
+const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
+const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
+const IGNORED_WORDS_KEY = "gingergm-studio-ignored-words-v1";
+
+function escapeHTML(value = "") {
+  const node = document.createElement("span");
+  node.textContent = String(value);
+  return node.innerHTML;
+}
+function slugify(value) { return String(value).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80); }
+function dirty() { return Boolean(state.document) && JSON.stringify(state.document) !== state.savedSnapshot; }
+function showStatus(message, error = false) {
+  const toast = $("global-status");
+  toast.textContent = message; toast.classList.toggle("error", error); toast.hidden = false;
+  clearTimeout(showStatus.timer); showStatus.timer = setTimeout(() => { toast.hidden = true; }, 4500);
+}
+function setBusy(button, busy, busyLabel) {
+  if (!button) return;
+  if (busy) { button.dataset.label = button.textContent; button.textContent = busyLabel; }
+  else if (button.dataset.label) { button.textContent = button.dataset.label; delete button.dataset.label; }
+  button.disabled = busy;
+}
+
+function showLogin(message = "") {
+  state.user = null; $("boot").hidden = true; $("studio").hidden = true; $("login-view").hidden = false;
+  $("login-error").textContent = message;
+}
+async function boot() {
+  api.onUnauthorized = () => showLogin("Your session expired. Sign in again—your unsaved work is still in this tab.");
+  try {
+    const session = await api.session();
+    if (!session?.user && !session?.email) return showLogin();
+    setUser(session.user || session);
+    await showApp();
+  } catch (error) {
+    if (error.status === 401) showLogin();
+    else showLogin(error.message);
+  }
+}
+function setUser(user) {
+  state.user = user;
+  const name = user.name || user.displayName || user.email?.split("@")[0] || "Author";
+  $("account-name").textContent = name;
+  $("account-email").textContent = user.email || "";
+  $("avatar").textContent = name[0]?.toUpperCase() || "A";
+}
+async function showApp() {
+  $("boot").hidden = true; $("login-view").hidden = true; $("studio").hidden = false;
+  await loadCourses();
+}
+
+async function loadCourses() {
+  $("course-list").innerHTML = '<div class="loading-card">Loading courses…</div>';
+  try {
+    const payload = await api.courses();
+    state.courses = payload?.courses || payload || [];
+    renderDashboard();
+  } catch (error) {
+    $("course-list").innerHTML = `<div class="loading-card">${escapeHTML(error.message)}</div>`;
+  }
+}
+function renderDashboard() {
+  const live = state.courses.filter(course => course.publishedVersion || course.status === "published").length;
+  const drafts = state.courses.filter(course => course.hasUnpublishedChanges || course.status === "draft").length;
+  $("course-stats").innerHTML = [
+    [state.courses.length, "Courses"], [live, "Live in app"], [drafts, "Drafts to finish"],
+  ].map(([value,label]) => `<div class="stat"><strong>${value}</strong><span>${escapeHTML(label)}</span></div>`).join("");
+  if (!state.courses.length) {
+    $("course-list").innerHTML = '<div class="loading-card"><strong>No courses yet.</strong><p>Import a PGN or start from scratch.</p></div>';
+    return;
+  }
+  $("course-list").innerHTML = state.courses.map(course => `<article class="course-card" data-course="${escapeHTML(course.id)}" tabindex="0">
+    <header><div><h2>${escapeHTML(course.title || "Untitled course")}</h2><p>${escapeHTML(course.subtitle || course.description || "Opening course")}</p></div><span class="tag ${course.publishedVersion ? "live" : "draft"}">${course.publishedVersion ? `Live · ${escapeHTML(course.publishedVersion)}` : "Draft"}</span></header>
+    <div class="course-meta"><span>${Number(course.positionCount || 0)} positions</span><span>${Number(course.chapterCount || 0)} chapters</span><span>${escapeHTML(course.updatedAt ? formatDate(course.updatedAt) : "Not saved")}</span></div>
+  </article>`).join("");
+  document.querySelectorAll("[data-course]").forEach(card => {
+    const open = () => openCourse(card.dataset.course);
+    card.addEventListener("click", open); card.addEventListener("keydown", event => { if (["Enter"," "].includes(event.key)) open(); });
+  });
+}
+
+async function openCourse(id) {
+  if (dirty() && !confirm("Discard your unsaved changes and open another course?")) return;
+  showStatus("Opening course…");
+  try {
+    const payload = await api.course(id);
+    const draft = payload.draft || payload;
+    state.courseID = payload.course?.id || payload.id || id;
+    state.revision = draft.revision ?? payload.revision ?? 0;
+    state.document = normalizeDocument(draft.document || payload.document || {});
+    state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
+    state.currentNodeID = null; state.previewIndex = 0; state.validation = null;
+    $("course-title").textContent = state.document.metadata.title;
+    $("course-identity").hidden = false; $("course-navigation").hidden = false;
+    $("save").hidden = false; $("publish").hidden = false;
+    renderAll(); await refreshPosition(); switchView("editor");
+  } catch (error) { showStatus(error.message, true); }
+}
+
+function commit(next, { navigateTo } = {}) {
+  const value = typeof next === "function" ? next(structuredClone(state.document)) : next;
+  if (!value || JSON.stringify(value) === JSON.stringify(state.document)) return;
+  state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
+  state.redo = []; state.document = value; state.validation = null;
+  if (navigateTo !== undefined) state.currentNodeID = navigateTo;
+  renderAll(); updateSaveState();
+}
+function undo() {
+  const previous = state.undo.pop(); if (!previous) return;
+  state.redo.push(structuredClone(state.document)); state.document = previous;
+  if (state.currentNodeID && !nodeByID(state.document, state.currentNodeID)) state.currentNodeID = null;
+  renderAll(); refreshPosition();
+}
+function redo() {
+  const next = state.redo.pop(); if (!next) return;
+  state.undo.push(structuredClone(state.document)); state.document = next;
+  renderAll(); refreshPosition();
+}
+function updateSaveState(saving = false) {
+  const changed = dirty();
+  $("save").disabled = !changed || saving;
+  $("save-state").textContent = saving ? "Saving…" : changed ? "Unsaved changes" : "Saved";
+  $("save-state").className = `save-state ${saving ? "saving" : changed ? "dirty" : ""}`;
+  $("undo").disabled = !state.undo.length; $("redo").disabled = !state.redo.length;
+}
+async function exportSource(document = state.document) {
+  const payload = await analysisAPI.exportPGN(serializeForPGN(document), document.headers);
+  if (!payload?.pgn) throw new Error("The course could not be exported safely. Nothing was saved.");
+  return payload.pgn;
+}
+async function saveDraft({ quiet = false } = {}) {
+  if (!state.document || !dirty()) return true;
+  updateSaveState(true);
+  try {
+    const sourcePGN = await exportSource();
+    const toSave = { ...state.document, sourcePGN };
+    const payload = await api.saveDraft(state.courseID, state.revision, toSave);
+    state.document = normalizeDocument(payload.document || toSave);
+    state.revision = payload.revision ?? state.revision + 1;
+    state.savedSnapshot = JSON.stringify(state.document); updateSaveState();
+    if (!quiet) showStatus("Draft saved.");
+    return true;
+  } catch (error) {
+    updateSaveState();
+    if (error.status === 409) showStatus("Someone else saved a newer revision. Your work is preserved here; reload the course before deciding what to keep.", true);
+    else showStatus(error.message, true);
+    return false;
+  }
+}
+
+function switchView(view) {
+  if (view !== "dashboard" && !state.document) view = "dashboard";
+  state.view = view;
+  document.querySelectorAll(".view").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === view));
+  document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === view));
+  location.hash = view;
+  $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
+  if (view === "history") loadHistory();
+  if (view === "quality") renderQuality();
+  if (["chapters","preview"].includes(view)) renderAll();
+}
+function renderAll() {
+  if (!state.document) return;
+  renderDetails(); renderMoveTree(); renderInspector(); renderAnalysisPath(); renderQuality();
+  if (state.view === "chapters") renderChapters();
+  if (state.view === "preview") renderPreview();
+  $("course-title").textContent = state.document.metadata.title || "Untitled course";
+  updateSaveState();
+}
+
+function renderDetails() {
+  const form = $("details-form");
+  if (form.dataset.renderedRevision === String(state.revision) && document.activeElement?.form === form) return;
+  for (const [key, value] of Object.entries(state.document.metadata)) if (form.elements[key]) {
+    if (form.elements[key].type === "checkbox") form.elements[key].checked = Boolean(value);
+    else form.elements[key].value = value ?? "";
+  }
+  form.dataset.renderedRevision = String(state.revision);
+}
+
+function pieceMap(fen) {
+  const output = {};
+  fen.split(" ")[0].split("/").forEach((rank, rankIndex) => {
+    let file = 0;
+    for (const token of rank) {
+      if (/\d/.test(token)) file += Number(token);
+      else { output["abcdefgh"[file] + (8-rankIndex)] = token; file += 1; }
+    }
+  });
+  return output;
+}
+function renderBoard(element, position, { interactive = false, selected = null } = {}) {
+  if (!position?.fen) { element.innerHTML = ""; return; }
+  const map = pieceMap(position.fen), files = state.flipped ? "hgfedcba" : "abcdefgh", ranks = state.flipped ? "12345678" : "87654321";
+  element.innerHTML = "";
+  for (const rank of ranks) for (const file of files) {
+    const square = file + rank, button = document.createElement(interactive ? "button" : "span"), piece = map[square];
+    const legal = position.legal_moves?.filter(move => move.from === selected && move.to === square) || [];
+    button.className = `square ${(files.indexOf(file)+ranks.indexOf(rank))%2 ? "dark" : "light"}${selected===square ? " selected" : ""}${legal.length ? piece ? " capture" : " target" : ""}`;
+    button.dataset.square = square;
+    if (interactive) button.setAttribute("aria-label", `${square}${piece ? ` ${pieceNames[piece]}` : ""}`);
+    button.innerHTML = `${piece ? `<img class="piece" src="/static/pieces/${pieceAssets[piece]}.svg" alt="" draggable="false">` : ""}${file===files[0]?`<span class="coord rank">${rank}</span>`:""}${rank===ranks[7]?`<span class="coord file">${file}</span>`:""}`;
+    if (interactive) {
+      button.addEventListener("click", () => boardSquare(square, map));
+      button.addEventListener("pointerdown", () => { if (piece && position.legal_moves.some(move => move.from === square)) state.dragFrom = square; });
+      button.addEventListener("pointerup", () => { if (state.dragFrom && state.dragFrom !== square) tryBoardMove(state.dragFrom, square); state.dragFrom = null; });
+    }
+    element.append(button);
+  }
+}
+async function refreshPosition() {
+  if (!state.document) return;
+  const token = ++state.requestToken;
+  try {
+    const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
+    if (token !== state.requestToken) return;
+    state.position = position; renderBoard($("studio-board"), position, { interactive: true, selected: state.selectedSquare });
+    $("board-status").textContent = position.game_over ? "This line ends here." : `${position.turn === "white" ? "White" : "Black"} to move · ${position.legal_moves.length} legal moves`;
+  } catch (error) { $("board-status").textContent = error.message; }
+}
+function boardSquare(square, map) {
+  if (!state.position || state.position.game_over) return;
+  const candidates = state.selectedSquare ? state.position.legal_moves.filter(move => move.from === state.selectedSquare && move.to === square) : [];
+  if (candidates.length) { chooseBoardMove(candidates); return; }
+  state.selectedSquare = map[square] && state.position.legal_moves.some(move => move.from === square) ? square : null;
+  renderBoard($("studio-board"), state.position, { interactive: true, selected: state.selectedSquare });
+}
+function tryBoardMove(from, to) {
+  const candidates = state.position?.legal_moves.filter(move => move.from === from && move.to === to) || [];
+  if (candidates.length) chooseBoardMove(candidates);
+}
+function chooseBoardMove(candidates) {
+  let move = candidates[0];
+  if (candidates.length > 1) {
+    const promotion = (prompt("Promote to queen, rook, bishop, or knight", "queen") || "queen")[0].toLowerCase();
+    move = candidates.find(item => item.uci.endsWith({q:"q",r:"r",b:"b",k:"n",n:"n"}[promotion])) || move;
+  }
+  const result = addMove(state.document, state.currentNodeID, move);
+  commit(result.document, { navigateTo: result.node.id }); state.selectedSquare = null; refreshPosition();
+}
+
+function renderMoveTree() {
+  const container = $("move-tree"); container.innerHTML = "";
+  const start = moveButton(null, "Start"); start.classList.add("start"); container.append(start);
+  appendChildren(null, container);
+  function appendChildren(parentID, target) {
+    const children = childrenOf(state.document, parentID); if (!children.length) return;
+    target.append(moveButton(children[0].id, moveLabel(children[0])));
+    for (const alternate of children.slice(1)) {
+      const variation = document.createElement("span"); variation.className = "variation"; variation.append("(");
+      appendBranch(alternate, variation); variation.append(")"); target.append(variation);
+    }
+    appendChildren(children[0].id, target);
+  }
+  function appendBranch(node, target) { target.append(moveButton(node.id, moveLabel(node))); appendChildren(node.id, target); }
+}
+function moveLabel(node) { const number = Math.ceil(node.ply/2); return node.ply%2 ? `${number}. ${node.san}` : `${number}… ${node.san}`; }
+function moveButton(id, label) {
+  const button = document.createElement("button"); button.type = "button"; button.className = `move-chip${state.currentNodeID === id ? " current" : ""}`; button.textContent = label;
+  button.addEventListener("click", () => navigate(id)); return button;
+}
+function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; renderMoveTree(); renderInspector(); renderAnalysisPath(); refreshPosition(); }
+function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
+function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
+
+function renderInspector() {
+  const inspector = $("move-inspector"), node = nodeByID(state.document, state.currentNodeID);
+  if (!node) { inspector.innerHTML = '<div class="empty-state"><strong>Starting position</strong><p>Play a move on the board to begin or extend the repertoire.</p></div>'; return; }
+  const siblings = childrenOf(state.document, node.parentId), siblingIndex = siblings.findIndex(item => item.id === node.id);
+  inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div></div>
+    <label>Explanation after this move<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea></label>
+    <label>Comment before this move<textarea id="node-start-comment" rows="2" placeholder="Optional section or variation introduction">${escapeHTML(node.startingComment)}</textarea></label>
+    <label>PGN annotation glyphs<input id="node-nags" value="${escapeHTML(node.nags.join(", "))}" placeholder="e.g. 1, 5, 14"><small>Numeric NAGs are preserved during PGN import and export.</small></label>
+    <div class="card-heading"><div><h2>Wrong-move feedback</h2><p>Explain likely mistakes at the position before ${escapeHTML(node.san)}.</p></div><button id="add-wrong" class="secondary" type="button">Add response</button></div>
+    <div class="wrong-list">${node.wrongMoveFeedback.map((item,index)=>`<div class="wrong-row" data-wrong="${index}"><input data-field="san" value="${escapeHTML(item.san)}" placeholder="Move (SAN)"><input data-field="feedback" value="${escapeHTML(item.feedback)}" placeholder="Why is this move wrong?"><button data-remove-wrong="${index}" aria-label="Remove feedback">×</button></div>`).join("")}</div>`;
+  const update = patch => commit(updateNode(state.document, node.id, patch));
+  $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
+  $("node-start-comment").addEventListener("change", event => update({ startingComment: event.target.value }));
+  $("node-nags").addEventListener("change", event => update({ nags: event.target.value.split(/[, ]+/).map(Number).filter(value => Number.isInteger(value) && value > 0) }));
+  inspector.querySelector('[data-action="promote"]').addEventListener("click", () => commit(promoteVariation(state.document,node.id)));
+  inspector.querySelector('[data-action="earlier"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,-1)));
+  inspector.querySelector('[data-action="later"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,1)));
+  inspector.querySelector('[data-action="delete"]').addEventListener("click", () => { if(confirm(`Delete ${node.san} and every move after it in this branch?`)){const parent=node.parentId;commit(removeBranch(state.document,node.id),{navigateTo:parent});refreshPosition();} });
+  $("add-wrong").addEventListener("click", () => update({ wrongMoveFeedback: [...node.wrongMoveFeedback,{uci:"",san:"",feedback:""}] }));
+  inspector.querySelectorAll("[data-wrong]").forEach(row => row.querySelectorAll("input").forEach(input => input.addEventListener("change", () => {
+    const items=structuredClone(nodeByID(state.document,node.id).wrongMoveFeedback), index=Number(row.dataset.wrong); items[index][input.dataset.field]=input.value; update({wrongMoveFeedback:items});
+  })));
+  inspector.querySelectorAll("[data-remove-wrong]").forEach(button => button.addEventListener("click", () => update({wrongMoveFeedback:nodeByID(state.document,node.id).wrongMoveFeedback.filter((_,index)=>index!==Number(button.dataset.removeWrong))})));
+}
+
+function renderAnalysisPath() {
+  if (!state.document) return;
+  const sans = pathToNode(state.document, state.currentNodeID).map(moveLabel);
+  $("analysis-path").textContent = sans.join(" ") || "Starting position";
+}
+async function runPositionAnalysis() {
+  const button=$("run-analysis"), token=++state.analysisToken, moves=movesToNode(state.document,state.currentNodeID), positionKey=moves.join(" ");
+  setBusy(button,true,"Analysing…");
+  $("maia-results").innerHTML='<div class="empty-state"><p>Maia is considering likely human choices…</p></div>';
+  $("engine-results").innerHTML='<div class="empty-state"><p>Stockfish is analysing the position…</p></div>';
+  const isCurrent=()=>token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
+  await Promise.allSettled([
+    analysisAPI.maia(moves,Number($("maia-rating").value),Number($("maia-rating").value)).then(data=>{if(isCurrent())renderMaia(data.suggestions,token,positionKey)}).catch(error=>{if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
+    analysisAPI.stockfish(moves).then(data=>{if(isCurrent()){renderEngine(data.lines,token,positionKey);$("engine-depth").textContent=`Depth ${data.depth||"—"}`;}}).catch(error=>{if(isCurrent())$("engine-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
+  ]); setBusy(button,false);
+}
+function renderMaia(items=[],token,positionKey) { $("maia-results").innerHTML=items.map((move,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(move.san)}</span><span class="meter"><i style="width:${Math.max(0,Math.min(100,move.probability*100))}%"></i></span><button data-accept-move="${escapeHTML(move.uci)}" data-san="${escapeHTML(move.san)}">Add line · ${(move.probability*100).toFixed(1)}%</button></div>`).join("")||'<div class="empty-state"><p>No suggestions returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
+function scoreText(e={}) { if(e.type==="mate") return e.value>0?`M${e.value}`:`−M${Math.abs(e.value)}`;const p=(e.value||0)/100;return`${p>=0?"+":""}${p.toFixed(2)}`; }
+function renderEngine(items=[],token,positionKey) { $("engine-results").innerHTML=items.map((line,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(line.san)}</span><span>${escapeHTML(line.pv||scoreText(line.evaluation))}</span><button data-accept-move="${escapeHTML(line.uci)}" data-san="${escapeHTML(line.san)}">Add line · ${escapeHTML(scoreText(line.evaluation))}</button></div>`).join("")||'<div class="empty-state"><p>No engine lines returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
+function bindSuggestedMoves(token,positionKey){document.querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Analyse again before adding it.",true);const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
+async function runGapCheck(){const button=$("run-gap-check");setBusy(button,true,"Checking…");try{const pgn=await exportSource();const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,Number($("maia-rating").value),.15);$("gap-results").innerHTML=(data.findings||[]).map(f=>qualityHTML("warning",`${f.history||"Repertoire position"}`,`${(f.missing||[]).map(move=>`${move.san} ${(move.probability*100).toFixed(0)}%`).join(", ")} may need a line.`)).join("")||qualityHTML("good","Coverage looks good",`No missing responses above the threshold in ${data.positions_analyzed||0} checked positions.`);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+
+function writingSources(){const sources=[];for(const node of state.document.nodes){if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});node.wrongMoveFeedback.forEach((item,index)=>{if(item.feedback.trim())sources.push({sourceId:`wrong:${node.id}:${index}`,history:`${moveLabel(node)} · ${item.san||"Wrong move"}`,comment:item.feedback});});}return sources;}
+function loadIgnoredWords(){try{return JSON.parse(localStorage.getItem(IGNORED_WORDS_KEY)||"[]")}catch{return[]}}
+async function runSpellcheck(){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Explanations checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Ignored words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">Fix: ${escapeHTML(suggestion||"Remove")}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Ignore “${escapeHTML(issue.problem)}”</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} explanations.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",()=>{const words=new Set(loadIgnoredWords().map(word=>word.toLocaleLowerCase("en-GB")));words.add(issue.problem.toLocaleLowerCase("en-GB"));localStorage.setItem(IGNORED_WORDS_KEY,JSON.stringify([...words].sort()));runSpellcheck();});});}
+function highlight(text,start,end){return`${escapeHTML(text.slice(0,start))}<mark>${escapeHTML(text.slice(start,end))}</mark>${escapeHTML(text.slice(end))}`}
+function applyWritingFix(issue,replacement){const [kind,nodeID,index]=String(issue.sourceId).split(":");const node=nodeByID(state.document,nodeID);if(!node)return;const replace=text=>text.slice(0,issue.start)+replacement+text.slice(issue.end);if(kind==="comment")commit(updateNode(state.document,nodeID,{comment:replace(node.comment)}));else{const items=structuredClone(node.wrongMoveFeedback);items[Number(index)].feedback=replace(items[Number(index)].feedback);commit(updateNode(state.document,nodeID,{wrongMoveFeedback:items}));}runSpellcheck();}
+
+function renderChapters(){if(!state.document)return;const id=state.document.metadata.slug||"draft",slices=chapterSlices(state.document,id),container=$("studio-chapters");container.classList.toggle("adding",state.chapterAddMode);container.innerHTML=slices.map((chapter,index)=>`${chapterDrop(chapter.startIndex,index)}<section class="studio-chapter"><div class="studio-chapter-head" draggable="${index>0}" data-chapter-drag="${index}"><span>⠿</span><input data-chapter-title="${index}" value="${escapeHTML(chapter.title)}" maxlength="80" aria-label="Chapter ${index+1} name"><span class="chapter-count ${chapter.positions.length<16||chapter.positions.length>32?"outside":""}">${chapter.positions.length} positions</span>${index?`<button data-delete-chapter="${index}" class="icon-button" aria-label="Delete chapter">×</button>`:"<span></span>"}</div>${chapter.positions.map(position=>`<button class="chapter-position-row" data-chapter-position="${escapeHTML(position.id)}"><span>#${position.learningOrder+1}</span><span>${escapeHTML(position.source.chapter)}</span><strong>${escapeHTML(position.correctMove.san)}</strong></button>`).join("")}</section>`).join("")+chapterDrop(trainingPack(state.document,id).positions.length,slices.length);bindChapters();}
+function chapterDrop(index,chapterIndex){if(index===0)return"";return`<div class="chapter-drop" data-chapter-drop="${index}" data-before-chapter="${chapterIndex}">Start chapter here</div>`}
+function bindChapters(){const pack=trainingPack(state.document,state.document.metadata.slug||"draft");$("studio-chapters").querySelectorAll("[data-chapter-title]").forEach(input=>input.addEventListener("change",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts[Number(input.dataset.chapterTitle)].title=input.value.trim()||`Chapter ${Number(input.dataset.chapterTitle)+1}`;commit({...state.document,chapterDrafts:drafts,chapters:[]});}));$("studio-chapters").querySelectorAll("[data-delete-chapter]").forEach(button=>button.addEventListener("click",()=>{const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");drafts.splice(Number(button.dataset.deleteChapter),1);commit({...state.document,chapterDrafts:drafts,chapters:[]});}));$("studio-chapters").querySelectorAll("[data-chapter-drag]").forEach(header=>{header.addEventListener("dragstart",()=>{state.chapterDrag=Number(header.dataset.chapterDrag)});header.addEventListener("dragend",()=>{state.chapterDrag=null;document.querySelectorAll(".chapter-drop").forEach(zone=>zone.classList.remove("active"));});});$("studio-chapters").querySelectorAll("[data-chapter-drop]").forEach(zone=>{zone.addEventListener("dragover",event=>{if(state.chapterDrag!==null){event.preventDefault();zone.classList.add("active")}});zone.addEventListener("dragleave",()=>zone.classList.remove("active"));zone.addEventListener("drop",event=>{event.preventDefault();moveChapterBoundary(state.chapterDrag,Number(zone.dataset.chapterDrop));});zone.addEventListener("click",()=>{if(!state.chapterAddMode)return;addChapterBoundary(Number(zone.dataset.chapterDrop));});});$("studio-chapters").querySelectorAll("[data-chapter-position]").forEach(button=>button.addEventListener("click",()=>showChapterPosition(pack.positions.find(item=>item.id===button.dataset.chapterPosition))));}
+function moveChapterBoundary(chapterIndex,newIndex){const pack=trainingPack(state.document,state.document.metadata.slug||"draft"),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),starts=drafts.map((draft,index)=>index?pack.positions.findIndex(position=>position.id===draft.startNodeID):0);if(chapterIndex<=0)return;const min=starts[chapterIndex-1]+1,max=(starts[chapterIndex+1]??pack.positions.length)-1;const index=Math.max(min,Math.min(max,newIndex));drafts[chapterIndex].startNodeID=pack.positions[index].id;state.chapterDrag=null;commit({...state.document,chapterDrafts:drafts,chapters:[]});}
+function addChapterBoundary(index){const pack=trainingPack(state.document,state.document.metadata.slug||"draft"),drafts=ensureChapters(state.document,state.document.metadata.slug||"draft");if(index<=0||index>=pack.positions.length)return;const starts=drafts.map((draft,i)=>i?pack.positions.findIndex(position=>position.id===draft.startNodeID):0);if(starts.includes(index))return;const at=starts.findIndex(start=>start>index),insert=at<0?drafts.length:at;drafts.splice(insert,0,{id:`${state.document.metadata.slug||"draft"}-chapter-${Date.now()}`,title:`Chapter ${insert+1}`,startNodeID:pack.positions[index].id});state.chapterAddMode=false;$("add-chapter").textContent="Add chapter";commit({...state.document,chapterDrafts:drafts,chapters:[]});}
+async function showChapterPosition(position){if(!position)return;const data=await analysisAPI.position(position.path);renderBoard($("chapter-board"),data);$("chapter-position").innerHTML=`<h2>${escapeHTML(position.correctMove.san)}</h2><p>${escapeHTML(position.correctMove.feedback||"No teaching note yet.")}</p><p><code>${escapeHTML(data.fen)}</code></p>`;}
+
+async function renderPreview(){if(!state.document)return;const positions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!positions.length){$("preview-card").innerHTML='<div class="empty-state"><p>Add learner moves before previewing the course.</p></div>';return;}state.previewIndex=Math.max(0,Math.min(state.previewIndex,positions.length-1));const position=positions[state.previewIndex];try{const data=await analysisAPI.position(position.path);renderBoard($("preview-board"),data);$("preview-card").innerHTML=`<p class="eyebrow">Position ${state.previewIndex+1} of ${positions.length}</p><h2>Find the best move</h2><p>${escapeHTML(position.source.chapter)}</p><div class="learner-answer"><strong>${escapeHTML(position.correctMove.san)}</strong><span>${escapeHTML(position.correctMove.feedback||"No explanation yet.")}</span></div><div class="dialog-actions"><button id="preview-previous" class="secondary" ${state.previewIndex===0?"disabled":""}>Previous</button><button id="preview-next" class="primary" ${state.previewIndex===positions.length-1?"disabled":""}>Next position</button></div>`;$("preview-previous").addEventListener("click",()=>{state.previewIndex-=1;renderPreview()});$("preview-next").addEventListener("click",()=>{state.previewIndex+=1;renderPreview()});}catch(error){showStatus(error.message,true)}}
+
+function combinedValidation(remote=null){const local=validateDocument(state.document);if(!remote)return local;const source=remote.validation||remote;return{blockers:[...local.blockers,...(source.blockers||source.errors||[])].map(normalizeCheck),warnings:[...local.warnings,...(source.warnings||[])].map(normalizeCheck)};}
+function normalizeCheck(item){return typeof item==="string"?{area:"Validation",message:item}:{area:item.area||item.path||"Validation",message:item.message||item.detail||"Course issue"}}
+function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item.area,item.message)),...checks.warnings.map(item=>qualityHTML("warning",item.area,item.message))].join("")||qualityHTML("good","Ready to publish","No blockers or warnings found.");return checks;}
+function qualityHTML(type,title,message){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(title)}</h3><p>${escapeHTML(message)}</p></div></article>`}
+async function runQuality(){const button=$("refresh-quality");setBusy(button,true,"Checking…");try{const sourcePGN=await exportSource(),draft={...state.document,sourcePGN};state.validation=await api.validateCourse(state.courseID,state.revision,draft);renderQuality();showStatus("Quality checks complete.");return state.validation;}catch(error){showStatus(error.message,true);return null}finally{setBusy(button,false)}}
+function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
+async function beginPublish(){
+  if(!await saveDraft({quiet:true})) return;
+  let validation=await runQuality(); if(!validation) return;
+  const checks=combinedValidation(validation);
+  if(checks.blockers.length){switchView("quality");return showStatus("Fix the publish blockers first.",true);}
+  if(!state.document.chapterDrafts.length) state.document.chapterDrafts=ensureChapters(state.document,state.document.metadata.slug||"draft");
+  if(!resolveCompiledChapters(validation)) return showStatus("The compiled chapter positions could not be matched safely. Publishing is blocked.",true);
+  if(dirty()){if(!await saveDraft({quiet:true}))return;validation=await runQuality();if(!validation)return;}
+  const warnings=combinedValidation(validation).warnings;
+  $("publish-review").innerHTML=`<p><strong>${escapeHTML(state.document.metadata.title)}</strong> will update in the live app after publication.</p><div class="stat-strip"><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug).positions.length}</strong><span>Positions</span></div><div class="stat"><strong>${ensureChapters(state.document,state.document.metadata.slug).length}</strong><span>Chapters</span></div><div class="stat"><strong>${warnings.length}</strong><span>Warnings accepted</span></div></div><p class="muted">Published versions are immutable. You can restore one later without destroying history.</p>`;
+  $("publish-dialog").showModal();
+}
+async function confirmPublish(){const button=$("confirm-publish");setBusy(button,true,"Publishing…");try{const result=await api.publishCourse(state.courseID,state.revision);state.revision=result.revision??state.revision;state.savedSnapshot=JSON.stringify(state.document);$("publish-dialog").close();updateSaveState();showStatus(`Published ${result.version||"successfully"}. The app will receive the update automatically.`);await loadCourses();await loadHistory();}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+async function loadHistory(){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||payload||[];$("history-list").innerHTML=state.versions.map((version,index)=>`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`).join("")||'<div class="loading-card">No published versions yet.</div>';$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`}}
+async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision);state.document=normalizeDocument(payload.document);state.revision=payload.revision;state.savedSnapshot=JSON.stringify(state.document);state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored as a new draft.");}catch(error){showStatus(error.message,true)}}
+
+async function importPGN(file) { if(!file)return;try{const pgn=await file.text(),parsed=await analysisAPI.parsePGN(pgn),title=parsed.headers?.Event&&parsed.headers.Event!=="?"?parsed.headers.Event:file.name.replace(/\.pgn$/i,"");const document=importParsedPGN(parsed,{title,slug:slugify(title),side:"white"});document.sourcePGN=pgn;const payload=await api.createCourse({title,slug:document.metadata.slug,side:"white",sourcePGN:pgn,document});await loadCourses();await openCourse(payload.course?.id||payload.id);}catch(error){showStatus(error.message,true)}}
+function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
+
+$("login-form").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;setBusy(button,true,"Signing in…");$("login-error").textContent="";try{const session=await api.login($("login-email").value,$("login-password").value);setUser(session.user||session);$("login-password").value="";await showApp();}catch(error){$("login-error").textContent=error.message}finally{setBusy(button,false)}});
+$("logout").addEventListener("click",async()=>{try{await api.logout()}finally{state.document=null;state.savedSnapshot="";showLogin()}});
+$("account-button").addEventListener("click",()=>{$("account-menu").hidden=!$("account-menu").hidden});
+document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>switchView(item.dataset.view)));
+document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventListener("click",()=>switchView("editor")));
+$("new-course").addEventListener("click",()=>{$("create-form").reset();$("create-dialog").showModal()});
+$("create-form").elements.title.addEventListener("input",event=>{const slug=$("create-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
+$("create-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
+$("create-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const document=newCourseDocument(data);try{const payload=await api.createCourse({...data,sourcePGN:"",document});$("create-dialog").close();await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
+$("dashboard-import").addEventListener("change",event=>{importPGN(event.target.files[0]);event.target.value=""});
+$("editor-import").addEventListener("change",async event=>{const file=event.target.files[0];event.target.value="";if(!file||!confirm("Replace this draft's entire move tree with the imported PGN?"))return;try{const pgn=await file.text(),parsed=await analysisAPI.parsePGN(pgn),document=importParsedPGN(parsed,state.document.metadata);document.sourcePGN=pgn;commit(document,{navigateTo:null});refreshPosition()}catch(error){showStatus(error.message,true)}});
+$("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;commit({...state.document,metadata:{...state.document.metadata,[event.target.name]:value}})});
+$("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
+$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
+$("run-analysis").addEventListener("click",runPositionAnalysis);$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
+$("add-chapter").addEventListener("click",()=>{state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
+$("restart-preview").addEventListener("click",()=>{state.previewIndex=0;renderPreview()});$("close-publish").addEventListener("click",()=>$("publish-dialog").close());$("cancel-publish").addEventListener("click",()=>$("publish-dialog").close());$("confirm-publish").addEventListener("click",confirmPublish);
+document.addEventListener("keydown",event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!event.target.matches("input,textarea,select")&&state.view==="editor"){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
+window.addEventListener("beforeunload",event=>{if(dirty()){event.preventDefault();event.returnValue=""}});
+window.addEventListener("hashchange",()=>{const view=location.hash.slice(1);if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
+
+boot();

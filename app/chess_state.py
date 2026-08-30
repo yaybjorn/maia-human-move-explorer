@@ -84,6 +84,9 @@ def parse_pgn_tree(pgn_text: str) -> tuple[list[dict], dict[str, str]]:
                 "uci": variation.move.uci(),
                 "san": board.san(variation.move),
                 "ply": variation.ply(),
+                "comment": variation.comment,
+                "starting_comment": variation.starting_comment,
+                "nags": sorted(variation.nags),
             })
             visit(variation, node_id)
 
@@ -113,6 +116,9 @@ def export_pgn_tree(nodes: list[dict], headers: dict[str, str] | None = None) ->
         if move not in parent.board().legal_moves:
             raise PositionError(f"Invalid variation tree: {item.get('uci')} is illegal")
         created[item["id"]] = parent.add_variation(move)
+        created[item["id"]].comment = str(item.get("comment") or "").strip()
+        created[item["id"]].starting_comment = str(item.get("starting_comment") or "").strip()
+        created[item["id"]].nags = {int(nag) for nag in item.get("nags", [])}
 
-    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=False)
+    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
     return game.accept(exporter).strip()
