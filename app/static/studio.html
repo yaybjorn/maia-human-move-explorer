@@ -38,7 +38,7 @@
       <div id="account-menu" class="account-menu" role="menu" hidden><span id="account-email"></span><button id="logout" type="button" role="menuitem">Sign out</button></div>
     </header>
 
-    <aside id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar" tabindex="0" aria-label="Course navigation">
       <nav aria-label="Course Studio">
         <button class="nav-item active" data-view="dashboard"><span>▦</span>Courses</button>
         <div id="course-navigation" hidden>
@@ -88,7 +88,7 @@
         <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Repertoire editor</h1><p>Play moves on the board, then explain what the learner should remember.</p></div><div class="heading-actions"><label class="secondary file-action">Replace from PGN<input id="editor-import" type="file" accept=".pgn,application/x-chess-pgn,text/plain"></label><button id="export-pgn" class="secondary" type="button">Export PGN</button></div></div>
         <div class="editor-layout">
           <section class="board-pane">
-            <div id="studio-board" class="chessboard" aria-label="Interactive course board"></div>
+            <div id="studio-board" class="chessboard" role="group" aria-label="Interactive course board"></div>
             <div class="board-controls"><button id="go-start" aria-label="Start">⇇</button><button id="go-back" aria-label="Previous move">←</button><button id="go-forward" aria-label="Next move">→</button><button id="go-end" aria-label="End">⇉</button><button id="flip-board">⇅ Flip</button><button id="copy-fen" title="Copy FEN" aria-label="Copy FEN">⧉</button></div>
             <p id="board-status" class="muted">Select a piece or drag it to add a move.</p>
           </section>
@@ -117,12 +117,12 @@
 
       <section class="view" data-panel="chapters">
         <div class="page-heading"><div><p class="eyebrow">Structure</p><h1>Chapters</h1><p>Drag a chapter divider, name the lesson and keep each one memorable.</p></div><button id="add-chapter" class="secondary" type="button">Add chapter</button></div>
-        <div class="chapter-layout"><div id="studio-chapters" class="chapter-timeline"></div><aside class="chapter-preview tool-card"><div id="chapter-board" class="chessboard small" aria-label="Chapter position preview"></div><div id="chapter-position"><p>Select a position to preview it.</p></div></aside></div>
+        <div class="chapter-layout"><div id="studio-chapters" class="chapter-timeline"></div><aside class="chapter-preview tool-card"><div id="chapter-board" class="chessboard small" role="group" aria-label="Chapter position preview"></div><div id="chapter-position"><p>Select a position to preview it.</p></div></aside></div>
       </section>
 
       <section class="view" data-panel="preview">
         <div class="page-heading"><div><p class="eyebrow">Learner view</p><h1>Preview the course</h1><p>Play a chapter exactly as a learner would before publishing.</p></div><div class="heading-actions"><label class="inline-control">Chapter<select id="preview-chapter" aria-label="Preview chapter"></select></label><button id="restart-preview" class="secondary">Restart chapter</button></div></div>
-        <div class="preview-layout"><div><div id="preview-board" class="chessboard" aria-label="Interactive learner preview board"></div><p class="muted">Make a move to reveal feedback. Preview attempts never affect learner scores.</p></div><article id="preview-card" class="tool-card learner-card" aria-live="polite"></article></div>
+        <div class="preview-layout"><div><div id="preview-board" class="chessboard" role="group" aria-label="Interactive learner preview board"></div><p class="muted">Make a move to reveal feedback. Preview attempts never affect learner scores.</p></div><article id="preview-card" class="tool-card learner-card" aria-live="polite"></article></div>
       </section>
 
       <section class="view" data-panel="quality">

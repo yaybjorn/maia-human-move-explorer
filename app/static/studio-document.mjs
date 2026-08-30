@@ -350,7 +350,7 @@ export function validateDocument(document) {
       blockers.push({ area: "Chapters", message: "Every training position needs a named chapter." });
     }
     chapterSlices(document, pack.id).filter(chapter => chapter.positions.length < 16 || chapter.positions.length > 32)
-      .forEach(chapter => warnings.push({ area: "Chapters", message: `${chapter.title} has ${chapter.positions.length} positions.` }));
+      .forEach(chapter => { const count=chapter.positions.length;warnings.push({ area: "Chapters", message: `${chapter.title} has ${count} ${count===1?"position":"positions"}.` }); });
   }
   return { blockers: uniqueMessages(blockers), warnings: uniqueMessages(warnings) };
 }
