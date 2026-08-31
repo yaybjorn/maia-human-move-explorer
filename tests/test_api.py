@@ -227,7 +227,9 @@ def test_course_studio_dedicated_host_and_legacy_redirect_config():
     assert "server_name ggm.fablelabs.no;" in dedicated
     assert "proxy_pass http://127.0.0.1:8310/studio;" in dedicated
     assert "location ^~ /studio/api/" in dedicated
+    assert "location ^~ /.well-known/acme-challenge/" in dedicated
     assert "return 308 https://ggm.fablelabs.no/;" in dedicated
+    assert "location ^~ /.well-known/acme-challenge/" in legacy
     assert "location = /studio" in legacy
     assert "return 308 https://ggm.fablelabs.no/;" in legacy
 
