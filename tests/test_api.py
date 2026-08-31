@@ -210,6 +210,12 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
+    assert '/static/studio.js?v=20260831-global-dictionary' in page.text
+    studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
+    assert './studio-api.mjs?v=20260831-global-dictionary' in studio_source
+    assert './studio-document.mjs?v=20260831-global-dictionary' in studio_source
+    assert 'to shared dictionary</button>' in studio_source
+    assert 'runSpellcheck({refreshDictionary:false})' in studio_source
     assert page.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
     assert "grid-template-columns:repeat(8,minmax(0,1fr))" in css.text
     assert "grid-template-rows:repeat(8,minmax(0,1fr))" in css.text
@@ -241,6 +247,9 @@ def test_course_studio_accepts_full_size_course_pgns():
     assert schema["properties"]["pgn"]["maxLength"] == 1_800_000
     assert PgnTreeRequest.model_json_schema()["properties"]["nodes"]["maxItems"] == 20_000
     assert studio_path_allowed("import/parse", "POST") is True
+    assert studio_path_allowed("ignored-words", "GET") is True
+    assert studio_path_allowed("ignored-words", "POST") is True
+    assert studio_path_allowed("ignored-words", "DELETE") is False
 
 
 def test_studio_proxy_is_allowlisted_and_injects_server_secret(monkeypatch):

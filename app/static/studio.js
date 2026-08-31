@@ -1,10 +1,10 @@
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260831-global-dictionary";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs";
+} from "./studio-document.mjs?v=20260831-global-dictionary";
 import { checkWriting } from "./writing-check.js";
 
 const api = new StudioAPI();
@@ -17,6 +17,7 @@ const state = {
   chapterDrag: null, chapterAddMode: false, previewIndex: 0, previewChapter: 0,
   previewAttempt: null, previewPosition: null, previewSelectedSquare: null,
   reconciliationError: null, pendingImport: null,
+  ignoredWords: [],
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
@@ -67,7 +68,16 @@ function setUser(user) {
 }
 async function showApp() {
   $("boot").hidden = true; $("login-view").hidden = true; $("studio").hidden = false;
-  await loadCourses();
+  await Promise.all([
+    loadCourses(),
+    refreshIgnoredWords().catch(error=>showStatus(`Shared dictionary unavailable: ${error.message}`,true)),
+  ]);
+}
+
+async function refreshIgnoredWords() {
+  const payload = await api.ignoredWords();
+  state.ignoredWords = [...(payload?.words || [])];
+  return state.ignoredWords;
 }
 
 async function loadCourses() {
@@ -444,9 +454,10 @@ function writingSources(){
   }
   return sources;
 }
-function loadIgnoredWords(){return [...(state.document?.ignoredWords||[])]}
-async function runSpellcheck(){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{flushActiveEditor();const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
-function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Writing fields checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Ignored words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">Fix: ${escapeHTML(suggestion||"Remove")}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Ignore “${escapeHTML(issue.problem)}”</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} writing fields.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",()=>{const words=new Set(loadIgnoredWords().map(word=>word.toLocaleLowerCase("en-GB")));words.add(issue.problem.toLocaleLowerCase("en-GB"));commit({...state.document,ignoredWords:[...words].sort()});runSpellcheck();});});}
+function loadIgnoredWords(){return [...state.ignoredWords]}
+async function runSpellcheck({refreshDictionary=true}={}){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{flushActiveEditor();if(refreshDictionary)await refreshIgnoredWords();const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
+async function ignoreWritingWord(issue,button){setBusy(button,true,"Adding…");try{const payload=await api.addIgnoredWord(issue.problem);state.ignoredWords=[...(payload?.words||state.ignoredWords)];showStatus(`“${issue.problem}” added to the shared dictionary.`);await runSpellcheck({refreshDictionary:false});}catch(error){showStatus(`Could not add “${issue.problem}” to the shared dictionary: ${error.message}`,true);setBusy(button,false)}}
+function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Writing fields checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Shared words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">Fix: ${escapeHTML(suggestion||"Remove")}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Add “${escapeHTML(issue.problem)}” to shared dictionary</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} writing fields.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",event=>ignoreWritingWord(issue,event.currentTarget));});}
 function highlight(text,start,end){return`${escapeHTML(text.slice(0,start))}<mark>${escapeHTML(text.slice(start,end))}</mark>${escapeHTML(text.slice(end))}`}
 function applyWritingFix(issue,replacement){const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":"comment",current=node[field];const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
 

@@ -21,7 +21,6 @@ export function newCourseDocument(metadata = {}) {
     chapters: [],
     chapterDrafts: [],
     ignoredSuggestionIDs: [],
-    ignoredWords: [],
   };
 }
 
@@ -55,7 +54,6 @@ export function normalizeDocument(input = {}) {
     startPath: Array.isArray(chapter.startPath) ? chapter.startPath.map(String) : null,
   }));
   document.ignoredSuggestionIDs = [...(input.ignoredSuggestionIDs || [])];
-  document.ignoredWords = [...(input.ignoredWords || [])];
   return document;
 }
 
@@ -262,7 +260,6 @@ export function hydrateRestoredDocument(parsed, saved) {
     return { ...chapter, startNodeID: pathID || indexedID || chapter.startNodeID };
   });
   hydrated.ignoredSuggestionIDs = [...(saved.ignoredSuggestionIDs || [])];
-  hydrated.ignoredWords = [...(saved.ignoredWords || [])];
   return hydrated;
 }
 
@@ -271,6 +268,9 @@ export function documentForStorage(document, sourcePGN) {
   // the same large course twice and keeps create/save requests under the proxy
   // ceiling; opening the draft deterministically hydrates the tree again.
   const stored = structuredClone(document);
+  // Writing ignores live in the authenticated Studio-global dictionary. Drop
+  // legacy course-local copies whenever a draft is next saved.
+  delete stored.ignoredWords;
   const positions = trainingPack(document, document.metadata.slug || "draft").positions;
   const chapters = ensureChapters(document, document.metadata.slug || "draft");
   const positionIndex = new Map(positions.map((position, index) => [position.id, index]));

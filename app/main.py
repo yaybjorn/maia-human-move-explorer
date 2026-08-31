@@ -207,6 +207,7 @@ def studio_path_allowed(path: str, method: str) -> bool:
         ("login",): {"POST"},
         ("logout",): {"POST"},
         ("courses",): {"GET", "POST"},
+        ("ignored-words",): {"GET", "POST"},
     }
     if tuple(parts) in allowed:
         return method in allowed[tuple(parts)]

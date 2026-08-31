@@ -64,3 +64,22 @@ test("server-side import preview uses the authenticated Studio route", async () 
   assert.equal(calls[0].url, "/studio/api/import/parse");
   assert.deepEqual(JSON.parse(calls[0].options.body), { pgn: "1. d4 d5 *" });
 });
+
+test("shared ignored words use authenticated GET and CSRF-protected POST routes", async () => {
+  const calls = [];
+  const api = new StudioAPI("/studio/api", async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ csrfToken: "csrf", words: ["Dragon"] }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  });
+  await api.session();
+  assert.deepEqual((await api.ignoredWords()).words, ["Dragon"]);
+  await api.addIgnoredWord("Kilkenny");
+  assert.equal(calls[1].url, "/studio/api/ignored-words");
+  assert.equal(calls[1].options.method, "GET");
+  assert.equal(calls[2].url, "/studio/api/ignored-words");
+  assert.equal(calls[2].options.method, "POST");
+  assert.equal(calls[2].options.headers["X-CSRF-Token"], "csrf");
+  assert.deepEqual(JSON.parse(calls[2].options.body), { word: "Kilkenny" });
+});

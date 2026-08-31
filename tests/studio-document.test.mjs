@@ -123,13 +123,14 @@ test("source-only restores hydrate safely and storage payload does not duplicate
   });
   const hydrated = hydrateRestoredDocument(parsed, saved);
   assert.equal(hydrated.nodes.length, 4);
-  assert.deepEqual(hydrated.ignoredWords, ["Kilkenny"]);
+  assert.equal(hydrated.ignoredWords, undefined);
   assert.equal(hydrated.chapterDrafts[1].startNodeID, "2");
   const stored = documentForStorage(hydrated, saved.sourcePGN);
   assert.deepEqual(stored.nodes, []);
   assert.equal(stored.sourcePGN, "1. e4 c5 *");
   assert.deepEqual(stored.chapterDrafts[1].startPath, ["e2e4", "c7c5"]);
   assert.equal(stored.chapterDrafts[1].startIndex, 1);
+  assert.equal(stored.ignoredWords, undefined);
 });
 
 test("authored chapter boundaries may start at any training position", () => {

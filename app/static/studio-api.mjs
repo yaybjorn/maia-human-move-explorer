@@ -3,6 +3,7 @@ const ROUTES = Object.freeze({
   login: "/login",
   logout: "/logout",
   courses: "/courses",
+  ignoredWords: "/ignored-words",
   import: "/import/parse",
   course: id => `/courses/${encodeURIComponent(id)}`,
   draft: id => `/courses/${encodeURIComponent(id)}/draft`,
@@ -64,6 +65,8 @@ export class StudioAPI {
   login(email, password) { return this.request(ROUTES.login, { method: "POST", body: { email, password } }); }
   logout() { return this.request(ROUTES.logout, { method: "POST" }); }
   courses() { return this.request(ROUTES.courses); }
+  ignoredWords() { return this.request(ROUTES.ignoredWords); }
+  addIgnoredWord(word) { return this.request(ROUTES.ignoredWords, { method: "POST", body: { word } }); }
   course(id) { return this.request(ROUTES.course(id)); }
   createCourse(input) { return this.request(ROUTES.courses, { method: "POST", body: input }); }
   importPGN(pgn) { return this.request(ROUTES.import, { method: "POST", body: { pgn } }); }
