@@ -217,6 +217,8 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'id="raw-pgn-dialog"' in page.text
     assert 'id="preview-chapter"' in page.text
     assert 'aria-expanded="false"' in page.text
+    assert "Suggestions never change a course" not in page.text
+    assert ".course-card-head{display:flex;align-items:flex-start" in css.text
     assert ".sidebar .nav-item[data-view=details],.sidebar .nav-item[data-view=history]{display:grid}" in css.text
 
 

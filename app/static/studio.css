@@ -8,7 +8,7 @@
 button{min-height:44px}
 .course-card{width:100%;color:inherit;font:inherit}
 .course-card:focus-visible{outline:3px solid #a94b2d55;outline-offset:2px}
-.course-card-head{display:flex;justify-content:space-between;gap:15px}.course-card-head>span:first-child{display:grid}.course-card-title{font:700 22px Georgia,serif}.course-card-description{margin-top:4px;color:var(--muted)}
+.course-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:15px}.course-card-head>span:first-child{display:grid}.course-card-title{font:700 22px Georgia,serif}.course-card-description{margin-top:4px;color:var(--muted)}
 .studio-chapter-head{grid-template-columns:auto minmax(120px,1fr) auto auto auto}
 .boundary-controls{display:flex;gap:3px}
 .boundary-controls button{min-width:40px;min-height:40px;border:1px solid var(--line);border-radius:7px;background:var(--card)}
