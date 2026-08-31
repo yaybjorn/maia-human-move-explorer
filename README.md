@@ -64,7 +64,7 @@ Record cold load, warm median/p95/max and peak RSS. Prefer 5M unless 23M remains
 
 The opening trainers are available at `/portsmouth` and `/kilkenny`. Both use the same interactive trainer client and server-side Maia/Stockfish services; their repertoire data remains separate.
 
-The authenticated Course Studio at `/studio` proxies its database and publication API through
+The authenticated Course Studio is served at `https://ggm.fablelabs.no/` and proxies its database and publication API through
 the Maia service. Configure `/etc/maia-human-move-explorer.env` on the host (mode `0600`, readable
 by root) with:
 
@@ -72,7 +72,7 @@ by root) with:
 GINGERGM_STUDIO_API_BASE=https://gingergm-opening-drill-api.fablelabs.workers.dev/v1/studio
 STUDIO_PROXY_SECRET=<the matching Worker proxy secret>
 # Optional for local/staging hosts; production is allowed by default:
-STUDIO_ALLOWED_ORIGINS=https://maia.fablelabs.no
+STUDIO_ALLOWED_ORIGINS=https://ggm.fablelabs.no,https://maia.fablelabs.no
 ```
 
 The proxy secret is injected server-side and must never appear in browser JavaScript, HTML,
@@ -83,7 +83,7 @@ The files under `deploy/` and `scripts/` target Debian/Ubuntu, Python 3.11+, sys
 1. Create an unprivileged `maia` system user and `/opt/maia-human-move-explorer`.
 2. Clone the repository as a timestamped release and point `current` to it.
 3. Run `sudo scripts/install.sh` once and `sudo scripts/update.sh` for atomic updates.
-4. Install `deploy/nginx.bootstrap.conf`, obtain the certificate with Certbot's webroot flow, then install `deploy/nginx.conf` and validate with `nginx -t`.
+4. Install `deploy/nginx.bootstrap.conf` and `deploy/nginx.ggm.bootstrap.conf`, obtain both certificates with Certbot's webroot flow, then install `deploy/nginx.conf` and `deploy/nginx.ggm.conf` and validate with `nginx -t`.
 5. Start the service, verify `/healthz`, then make one authenticated prediction to load the checkpoint before accepting traffic.
 
 The nginx template provides a TLS-only redirect, request limiting, a strict same-origin CSP and `X-Robots-Tag: noindex, nofollow, noarchive`. Keep port 8310 bound to loopback and block it externally. Logs may contain request timing but the app never logs FENs itself.

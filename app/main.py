@@ -36,7 +36,10 @@ GINGERGM_STUDIO_API_BASE = os.getenv(
 STUDIO_PROXY_SECRET = os.getenv("STUDIO_PROXY_SECRET", "")
 STUDIO_ALLOWED_ORIGINS = {
     value.strip()
-    for value in os.getenv("STUDIO_ALLOWED_ORIGINS", "https://maia.fablelabs.no").split(",")
+    for value in os.getenv(
+        "STUDIO_ALLOWED_ORIGINS",
+        "https://ggm.fablelabs.no,https://maia.fablelabs.no",
+    ).split(",")
     if value.strip()
 }
 app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None)

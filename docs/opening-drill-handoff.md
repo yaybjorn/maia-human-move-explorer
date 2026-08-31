@@ -9,7 +9,7 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - `/check`: Simon uploads a standard-start PGN and finds probable opponent replies not covered by PGN variations or explicitly named in position comments.
 - `/spellcheck`: Simon checks PGN comments in British English, applies individual suggestions, and downloads a corrected copy.
 - `/chapters`: Simon loads a current GingerGM course, names its learning chapters, and moves contiguous chapter boundaries before downloading a version-controlled manifest.
-- `/studio`: authenticated end-to-end course authoring for superadmins, including PGN import,
+- `https://ggm.fablelabs.no/`: authenticated end-to-end course authoring for superadmins, including PGN import,
   blank-course creation, board/tree editing, Maia and Stockfish suggestions, writing checks,
   chapters, validation, publication, and immutable version history.
 - `/portsmouth`: White repertoire trainer built from the approved Portsmouth pack.
@@ -46,6 +46,10 @@ The Maia web tools are part of GingerGM Opening Drill product work and are handl
 - The editor never writes directly to production. Backend compilation validates full coverage, uniqueness, and unchanged learning order before a manifest can ship.
 
 ## `/studio` architecture
+
+The public authoring URL is `https://ggm.fablelabs.no/`. The legacy
+`https://maia.fablelabs.no/studio` route redirects there; the internal API prefix remains
+`/studio/api` so existing clients and backend route contracts stay stable.
 
 - The browser never receives backend proxy credentials. FastAPI allowlists Studio routes and
   injects `X-Studio-Proxy-Secret` from the host environment when proxying to the GingerGM Worker.

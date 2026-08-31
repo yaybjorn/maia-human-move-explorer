@@ -1,4 +1,5 @@
 from email.message import Message
+from pathlib import Path
 
 import chess
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from app.main import PgnRequest, PgnTreeRequest, app, studio_path_allowed
 from app.portsmouth import portsmouth
 
 client = TestClient(app)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_health_does_not_load_model():
@@ -216,6 +218,18 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'id="preview-chapter"' in page.text
     assert 'aria-expanded="false"' in page.text
     assert ".sidebar .nav-item[data-view=details],.sidebar .nav-item[data-view=history]{display:grid}" in css.text
+
+
+def test_course_studio_dedicated_host_and_legacy_redirect_config():
+    dedicated = (ROOT / "deploy" / "nginx.ggm.conf").read_text()
+    legacy = (ROOT / "deploy" / "nginx.conf").read_text()
+
+    assert "server_name ggm.fablelabs.no;" in dedicated
+    assert "proxy_pass http://127.0.0.1:8310/studio;" in dedicated
+    assert "location ^~ /studio/api/" in dedicated
+    assert "return 308 https://ggm.fablelabs.no/;" in dedicated
+    assert "location = /studio" in legacy
+    assert "return 308 https://ggm.fablelabs.no/;" in legacy
 
 
 def test_course_studio_accepts_full_size_course_pgns():
