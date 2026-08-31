@@ -2,7 +2,8 @@ import {
   canIgnoreWord,
   ignoredWritingRanges,
   normaliseIgnoredWord,
-  overlapsIgnoredRange
+  overlapsIgnoredRange,
+  writingTextForLint
 } from './writing-rules.mjs';
 
 const CHECKED_KINDS = new Set([
@@ -49,7 +50,7 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
 
   for (const source of sources) {
     const ignoredRanges = ignoredWritingRanges(source.comment);
-    const lints = await linter.lint(source.comment, {
+    const lints = await linter.lint(writingTextForLint(source.comment), {
       language: 'plaintext',
       dedup: true
     });
