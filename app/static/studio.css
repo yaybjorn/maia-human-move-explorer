@@ -48,5 +48,11 @@ button{min-height:44px}
   .chapter-position-row>strong{grid-column:2;grid-row:2;align-self:start}
 }
 
+/* Keep chapter rows compact until the author is actively adding or moving a boundary. */
+.chapter-timeline .chapter-position-row{display:block;padding:9px 12px;text-align:left}
+.chapter-timeline .chapter-drop{display:none;width:100%}
+.chapter-timeline.adding .chapter-drop,.chapter-timeline.dragging .chapter-drop,.chapter-timeline .chapter-drop.active,.chapter-timeline .chapter-drop:focus-visible{display:grid;min-height:40px}
+@media(max-width:760px){.chapter-timeline .chapter-position-row{padding:11px 12px}}
+
 .course-card-head,.course-meta{flex-wrap:wrap}
 .course-card-head>.tag{margin-left:auto}
