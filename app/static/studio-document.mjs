@@ -3,13 +3,14 @@ const DEFAULT_METADATA = Object.freeze({
   subtitle: "",
   description: "",
   side: "white",
-  access: "subscriber",
+  priceTier: "free",
   catalogVisible: true,
-  fallbackFeedback: "The repertoire move is {san}.",
   opponentRating: 1500,
   slug: "",
-  versionNotes: "",
 });
+
+// Course Studio deliberately uses one system-owned fallback across every course.
+export const SYSTEM_FALLBACK_FEEDBACK = "The repertoire move is {san}.";
 
 export const MAX_POSITION_HINT_LENGTH = 240;
 
@@ -64,6 +65,9 @@ export function normalizeDocument(input = {}) {
   if (!metadata.side && metadata.repertoireSide) metadata.side = metadata.repertoireSide;
   delete metadata.repertoireSide;
   const document = newCourseDocument(metadata);
+  // Older saved documents have no price tier. Keep their purchase metadata intact
+  // until an author explicitly selects a new tier.
+  if (!Object.hasOwn(metadata, "priceTier")) delete document.metadata.priceTier;
   document.schemaVersion = Number(input.schemaVersion || 1);
   document.headers = { ...(input.headers || {}) };
   document.sourcePGN = input.sourcePGN || "";
@@ -362,7 +366,7 @@ export function documentForStorage(document, sourcePGN) {
   return { ...stored, sourcePGN, nodes: [] };
 }
 
-export function evaluatePreviewMove(position, move, fallbackFeedback) {
+export function evaluatePreviewMove(position, move) {
   const correct = move.uci === position.correctMove.uci;
   const authored = (position.wrongMoves || []).find(item => item.uci === move.uci);
   return {
@@ -371,7 +375,7 @@ export function evaluatePreviewMove(position, move, fallbackFeedback) {
     ...(!correct && position.hint ? { hint: position.hint } : {}),
     feedback: correct
       ? position.correctMove.feedback || "Correct."
-      : authored?.feedback || String(fallbackFeedback || "The repertoire move is {san}.")
+      : authored?.feedback || SYSTEM_FALLBACK_FEEDBACK
         .replaceAll("{san}", position.correctMove.san),
   };
 }

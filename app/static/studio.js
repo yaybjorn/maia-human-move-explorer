@@ -4,7 +4,7 @@ import {
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260901-position-hints";
+} from "./studio-document.mjs?v=20260901-course-pricing";
 import { checkWriting, writingSuggestionLabel } from "./writing-check.js";
 
 const api = new StudioAPI();
@@ -279,7 +279,14 @@ function renderDetails() {
     if (form.elements[key].type === "checkbox") form.elements[key].checked = Boolean(value);
     else form.elements[key].value = value ?? "";
   }
+  if (form.elements.priceTier) form.elements.priceTier.value = priceTierFor(state.document.metadata);
   form.dataset.renderedRevision = String(state.revision);
+}
+
+function priceTierFor(metadata) {
+  if (["free", "usd-4.99", "usd-9.99", "usd-19.99"].includes(metadata.priceTier)) return metadata.priceTier;
+  if (metadata.access === "free") return "free";
+  return ({ "$4.99": "usd-4.99", "$9.99": "usd-9.99", "$19.99": "usd-19.99" })[metadata.displayPrice] || "usd-4.99";
 }
 
 function pieceMap(fen) {
@@ -444,7 +451,7 @@ function addGapMove(finding,move){if(!move)return;if(finding.nodeID===undefined)
 
 function writingSources(){
   const sources=[];
-  const metadataFields=["title","subtitle","description","fallbackFeedback","versionNotes"];
+  const metadataFields=["title","subtitle","description"];
   for(const field of metadataFields){const value=String(state.document.metadata[field]||"");if(value.trim())sources.push({sourceId:`metadata:${field}`,history:`Course ${field}`,comment:value});}
   for(const node of state.document.nodes){
     if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});
@@ -509,7 +516,7 @@ function previewSquare(square,map){
 function tryPreviewMove(from,to){const candidate=state.previewPosition?.legal_moves.find(move=>move.from===from&&move.to===to);if(candidate)attemptPreviewMove(candidate)}
 function attemptPreviewMove(move){
   const chapter=previewChapters()[state.previewChapter],position=chapter.positions[state.previewIndex];
-  state.previewAttempt=evaluatePreviewMove(position,move,state.document.metadata.fallbackFeedback);
+  state.previewAttempt=evaluatePreviewMove(position,move);
   state.previewSelectedSquare=null;renderPreviewBoard();renderPreviewCard(position,chapter);
 }
 function renderPreviewCard(position,chapter){
@@ -543,7 +550,6 @@ async function beginPublish(){
   const changes=[
     latest?`Training positions: ${liveSummary.positionCount??"unknown"} → ${positions}`:`First publication with ${positions} training positions`,
     latest?`Chapters: ${liveSummary.chapterCount??"unknown"} → ${chapters}`:`${chapters} authored chapters`,
-    state.document.metadata.versionNotes?.trim()?`Release notes: ${state.document.metadata.versionNotes.trim()}`:"No release notes added",
   ];
   $("publish-review").innerHTML=`<p><strong>${escapeHTML(state.document.metadata.title)}</strong> will update in the live app after publication.</p><h3>Changes from ${latest?escapeHTML(latest.version):"no live version"}</h3><ul class="change-list">${changes.map(item=>`<li>${escapeHTML(item)}</li>`).join("")}</ul><h3>Warnings to accept (${warnings.length})</h3>${warnings.length?`<ul class="warning-list">${warnings.map(item=>`<li><strong>${escapeHTML(item.area)}</strong> · ${escapeHTML(item.message)}</li>`).join("")}</ul>`:'<p class="muted">No warnings.</p>'}<p class="muted">Published versions are immutable. You can restore one later without destroying history.</p>`;
   $("publish-dialog").showModal();
@@ -569,7 +575,7 @@ $("dashboard-import").addEventListener("change",event=>{importPGN(event.target.f
 $("import-form").elements.title.addEventListener("input",event=>{const slug=$("import-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("import-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
 $("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const payload=await api.createCourse(importedCoursePayload({...data,pgn:state.pendingImport.pgn}));$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
-$("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;commit({...state.document,metadata:{...state.document.metadata,[event.target.name]:value}})});
+$("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});

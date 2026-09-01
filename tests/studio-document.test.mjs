@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
   commentWithHint,
-  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, nodeByID, pgnHasMoves, promoteVariation, removeBranch,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID, pgnHasMoves, promoteVariation, removeBranch,
   reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
 
@@ -31,7 +31,18 @@ test("normalises imported nested variations and preserves authored semantics", (
   assert.equal(document.nodes[1].startingComment, "The Sicilian");
   assert.equal(document.nodes[1].comment, "[%csl Gd4]");
   assert.deepEqual(serializeForPGN(document)[0].nags, [1]);
-  assert.equal(document.metadata.fallbackFeedback, "The repertoire move is {san}.");
+  assert.equal(document.metadata.priceTier, undefined);
+  assert.equal(document.metadata.fallbackFeedback, undefined);
+});
+
+test("uses the free price tier for new courses but preserves legacy purchase metadata", () => {
+  assert.equal(newCourseDocument().metadata.priceTier, "free");
+  const legacy = normalizeDocument({ metadata: {
+    title: "Legacy", slug: "legacy", access: "subscriber", displayPrice: "$9.99",
+    purchaseProductID: "com.gingergm.openingdrill.legacy",
+  } });
+  assert.equal(legacy.metadata.priceTier, undefined);
+  assert.equal(legacy.metadata.purchaseProductID, "com.gingergm.openingdrill.legacy");
 });
 
 test("supports add, delete, reorder, promote, comments and undo-safe immutable changes", () => {
@@ -166,8 +177,8 @@ test("learner preview hides answers until evaluating a move and uses authored wr
   assert.deepEqual(evaluatePreviewMove(position, { uci: "d2d4", san: "d4" }, "Play {san}."), {
     correct: false, move: { uci: "d2d4", san: "d4" }, feedback: "That belongs to another course.",
   });
-  assert.equal(evaluatePreviewMove(position, { uci: "c2c4", san: "c4" }, "Play {san}.").feedback, "Play e4.");
-  assert.equal(evaluatePreviewMove(position, { uci: "e2e4", san: "e4" }, "Play {san}.").correct, true);
+  assert.equal(evaluatePreviewMove(position, { uci: "c2c4", san: "c4" }).feedback, "The repertoire move is e4.");
+  assert.equal(evaluatePreviewMove(position, { uci: "e2e4", san: "e4" }).correct, true);
 });
 
 test("imports, edits, clears, previews, and exports optional learner hints", () => {
@@ -184,8 +195,8 @@ test("imports, edits, clears, previews, and exports optional learner hints", () 
   assert.equal(trainingPack(hinted, "hints").positions[0].hint, "Try a developing move.");
   assert.equal(serializeForPGN(hinted)[0].comment, "Take the centre. [%hint Try a developing move.]" );
   assert.deepEqual(
-    evaluatePreviewMove(trainingPack(hinted, "hints").positions[0], { uci: "d2d4", san: "d4" }, "Play {san}."),
-    { correct: false, move: { uci: "d2d4", san: "d4" }, hint: "Try a developing move.", feedback: "Play e4." },
+    evaluatePreviewMove(trainingPack(hinted, "hints").positions[0], { uci: "d2d4", san: "d4" }),
+    { correct: false, move: { uci: "d2d4", san: "d4" }, hint: "Try a developing move.", feedback: "The repertoire move is e4." },
   );
 
   const cleared = updateNode(hinted, "1", { hint: "" });
