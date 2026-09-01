@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { checkWriting } from '../app/static/writing-check.js';
+import { checkWriting, writingSuggestionLabel } from '../app/static/writing-check.js';
 
 function source(comment, sourceId = 'comment-1') {
   return [{ sourceId, history: '19. O-O', comment }];
@@ -55,4 +55,40 @@ test('does not ignore placeholders outside fallback feedback or arbitrary braced
   ));
   assert.equal(fallbackIssues.some(issue => issue.problem === 'correctMove'), true);
   assert.equal(fallbackIssues.some(issue => issue.problem === 'misspeled'), true);
+});
+
+test('offers a one-click missing-space correction for initials attached to surnames', async () => {
+  const comment = 'Was played in J.Christiansen vs S.Tifferet.';
+  const issues = await checkWriting(source(comment));
+
+  for (const initial of ['J.', 'S.']) {
+    const issue = issues.find(candidate => candidate.problem === initial);
+    assert.ok(issue);
+    assert.equal(issue.suggestions[0], `${initial} `);
+    const fixed = comment.slice(0, issue.start) + issue.suggestions[0] + comment.slice(issue.end);
+    assert.equal(fixed.includes(`${initial}${initial === 'J.' ? 'Christiansen' : 'Tifferet'}`), false);
+    assert.equal(fixed.includes(`${initial} ${initial === 'J.' ? 'Christiansen' : 'Tifferet'}`), true);
+    assert.equal(writingSuggestionLabel(issue.problem, issue.suggestions[0]), 'Add space');
+  }
+});
+
+test('accepts spaced initials while leaving unknown surnames available for the dictionary', async () => {
+  const issues = await checkWriting(source('Was played in J. Christiansen vs S. Tifferet.'));
+  assert.equal(issues.some(issue => issue.problem === 'J.' || issue.problem === 'S.'), false);
+  assert.equal(issues.some(issue => issue.problem === 'Christiansen'), true);
+  assert.equal(issues.some(issue => issue.problem === 'Tifferet'), true);
+});
+
+test('preserves commas when applying Harper missing-space suggestions', async () => {
+  const comment = 'Yoo,C (2599)-Niemann,H (2688).';
+  const issues = await checkWriting(source(comment));
+  const commaIssues = issues.filter(issue => issue.kind === 'Punctuation' && issue.problem === ',');
+  assert.equal(commaIssues.length, 2);
+
+  for (const issue of commaIssues) {
+    assert.equal(issue.suggestions[0], ', ');
+    assert.equal(writingSuggestionLabel(issue.problem, issue.suggestions[0]), 'Add space');
+    const fixed = comment.slice(0, issue.start) + issue.suggestions[0] + comment.slice(issue.end);
+    assert.equal(fixed.slice(issue.start, issue.start + 2), ', ');
+  }
 });

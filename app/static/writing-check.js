@@ -43,6 +43,44 @@ function looksLikeChessNotation(value) {
   return /^(?:O-O(?:-O)?[+#]?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h][1-8][a-h][1-8][qrbn]?)$/i.test(value);
 }
 
+function initialSurnameContext(comment, start, problem) {
+  if (!/^\p{Lu}\.?$/u.test(problem)) return null;
+  const initial = `${problem[0]}.`;
+  if (comment.slice(start, start + initial.length) !== initial) return null;
+  const following = comment.slice(start + initial.length);
+  if (/^\p{Lu}[\p{L}'’-]+/u.test(following)) {
+    return { initial, end: start + initial.length, missingSpace: true };
+  }
+  if (/^\s+\p{Lu}[\p{L}'’-]+/u.test(following)) {
+    return { initial, end: start + initial.length, missingSpace: false };
+  }
+  return null;
+}
+
+function normaliseSuggestions(problem, suggestions, initialContext) {
+  const replacements = suggestions.map(suggestion => suggestion.get_replacement_text());
+
+  // Harper interprets a missing space after a comma as replacing the comma
+  // with whitespace. Keep the punctuation and add the missing space instead.
+  const corrected = replacements.map(value => (
+    problem === ',' && /^\s+$/u.test(value) ? `,${value}` : value
+  ));
+
+  // Initials attached to surnames are valid names with one missing space, not
+  // misspellings such as "Jo" or "Jr". Put the useful correction first.
+  if (initialContext?.missingSpace) {
+    corrected.unshift(`${initialContext.initial} `);
+  }
+
+  return corrected.filter((value, index, values) => values.indexOf(value) === index).slice(0, 4);
+}
+
+export function writingSuggestionLabel(problem, replacement) {
+  const value = String(replacement);
+  if (value === `${problem} ` || /^\s+$/u.test(value)) return 'Add space';
+  return `Fix: ${value || 'Remove'}`;
+}
+
 export async function checkWriting(sources, { ignoredWords = [] } = {}) {
   const linter = await getLinter();
   const findings = [];
@@ -61,10 +99,12 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
       const kind = lint.lint_kind();
       const problem = lint.get_problem_text();
       const span = lint.span();
+      const initialContext = initialSurnameContext(source.comment, span.start, problem);
       if (
         !CHECKED_KINDS.has(kind) ||
         looksLikeChessNotation(problem) ||
         ignoredWordSet.has(normaliseIgnoredWord(problem)) ||
+        initialContext?.missingSpace === false ||
         overlapsIgnoredRange(span.start, span.end, ignoredRanges)
       ) {
         span.free();
@@ -78,15 +118,18 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
         history: source.history,
         comment: source.comment,
         kind: lint.lint_kind_pretty(),
-        message: lint.message(),
-        problem,
+        message: initialContext?.missingSpace
+          ? 'Add a space between the initial and surname.'
+          : lint.message(),
+        problem: initialContext?.initial || problem,
         start: span.start,
-        end: span.end,
-        canIgnore: canIgnoreWord(problem),
-        suggestions: suggestions
-          .map(suggestion => suggestion.get_replacement_text())
-          .filter((value, index, values) => values.indexOf(value) === index)
-          .slice(0, 4)
+        end: initialContext?.end || span.end,
+        canIgnore: canIgnoreWord(initialContext?.initial || problem),
+        suggestions: normaliseSuggestions(
+          problem,
+          suggestions,
+          initialContext
+        )
       });
       suggestions.forEach(suggestion => suggestion.free());
       span.free();
