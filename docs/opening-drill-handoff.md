@@ -89,12 +89,14 @@ The public authoring URL is `https://ggm.fablelabs.no/`. The legacy
 
 ## Safe change loop
 
-1. Inspect this document, the affected route, and its tests.
+Use the proportional verification tiers in the repo-local `AGENTS.md`.
+
+1. Inspect this document, the affected route, and the complete proposed diff.
 2. Implement in this repository without changing Opening Drill iOS/backend unless the request requires it.
-3. Run Python tests/lint and JavaScript syntax checks.
-4. Commit and push exact source before deployment to preserve AGPL source parity.
-5. Deploy atomically with the existing update script; do not restart the OpenClaw gateway.
-6. Verify live API behavior and the affected desktop/mobile UI.
+3. For a micro presentation-only fix, use the fast lane: cheapest relevant static check, atomic deploy, `/healthz`, and exact live-element verification. Do not validate the catalogue or all course positions.
+4. For scoped behaviour, run directly affected tests and exercise the exact live flow.
+5. For publication, course data, PGN/compiler, auth, shared behaviour or infrastructure, use the full relevant suites, data validation and independent QA.
+6. Commit and push exact source before deployment to preserve AGPL source parity; do not restart the OpenClaw gateway.
 
 ## Likely next work
 
