@@ -3,8 +3,9 @@ import test from "node:test";
 
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
+  commentWithHint,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, pgnHasMoves, promoteVariation, removeBranch,
-  reorderVariation, serializeForPGN, trainingPack, updateNode, validateDocument,
+  reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
 
 test("recognises a header-only PGN as an editable blank course", () => {
@@ -162,4 +163,46 @@ test("learner preview hides answers until evaluating a move and uses authored wr
   });
   assert.equal(evaluatePreviewMove(position, { uci: "c2c4", san: "c4" }, "Play {san}.").feedback, "Play e4.");
   assert.equal(evaluatePreviewMove(position, { uci: "e2e4", san: "e4" }, "Play {san}.").correct, true);
+});
+
+test("imports, edits, clears, previews, and exports optional learner hints", () => {
+  const hinted = importParsedPGN({
+    headers: { Event: "Hints" },
+    nodes: [
+      { id: 1, parent_id: null, uci: "e2e4", san: "e4", ply: 1,
+        comment: "Take the centre. [%hint Try a developing move.]" },
+    ],
+  }, { title: "Hints", slug: "hints", side: "white" });
+
+  assert.equal(hinted.nodes[0].comment, "Take the centre.");
+  assert.equal(hinted.nodes[0].hint, "Try a developing move.");
+  assert.equal(trainingPack(hinted, "hints").positions[0].hint, "Try a developing move.");
+  assert.equal(serializeForPGN(hinted)[0].comment, "Take the centre. [%hint Try a developing move.]" );
+  assert.deepEqual(
+    evaluatePreviewMove(trainingPack(hinted, "hints").positions[0], { uci: "d2d4", san: "d4" }, "Play {san}."),
+    { correct: false, move: { uci: "d2d4", san: "d4" }, hint: "Try a developing move.", feedback: "Play e4." },
+  );
+
+  const cleared = updateNode(hinted, "1", { hint: "" });
+  assert.equal(serializeForPGN(cleared)[0].comment, "Take the centre.");
+  assert.equal(trainingPack(cleared, "hints").positions[0].hint, undefined);
+});
+
+test("validates hint directive syntax, placement, length, and plain-text safety", () => {
+  assert.deepEqual(splitHintDirective("Main. [%hint  Look for checks. ]"), {
+    comment: "Main.", hint: "Look for checks.",
+  });
+  assert.equal(commentWithHint("Main.", "  Develop a piece. "), "Main. [%hint Develop a piece.]");
+  assert.throws(() => splitHintDirective("Main. [%hint Look at [checks]]"), /Malformed/);
+  assert.throws(() => commentWithHint("Main.", "x".repeat(241)), /240/);
+  assert.throws(() => commentWithHint("Main.", "Look [here]"), /square brackets/);
+
+  const misplaced = normalizeDocument({
+    metadata: { title: "Misplaced", slug: "misplaced", side: "white" },
+    nodes: [
+      { id: "main", parentId: null, uci: "e2e4", san: "e4", ply: 1, comment: "Main." },
+      { id: "wrong", parentId: null, uci: "d2d4", san: "d4", ply: 1, comment: "Wrong.", hint: "Not here." },
+    ],
+  });
+  assert.ok(validateDocument(misplaced).blockers.some(item => /correct learner move/.test(item.message)));
 });

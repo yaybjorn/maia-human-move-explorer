@@ -57,6 +57,9 @@ The public authoring URL is `https://ggm.fablelabs.no/`. The legacy
   a validated same-origin `Origin`; auth tokens are never stored in browser storage.
 - Every save first exports the current structured variation tree to PGN locally. Publication is
   blocked if comments, NAGs, bracket directives, or nested variations cannot be exported.
+- Each correct learner move may have one optional Hint field. It round-trips as a
+  `[%hint ...]` PGN comment directive and publishes as the optional position-level `hint` field;
+  clearing the field removes the directive and keeps older packs unchanged.
 - Imported and saved drafts send the PGN once; hydrated editor nodes are rebuilt from that source
   when opened. The author chooses White or Black before an import creates a course. A browser-local
   recovery snapshot protects unsaved edits without becoming a publication authority.

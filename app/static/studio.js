@@ -4,7 +4,7 @@ import {
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260831-global-dictionary";
+} from "./studio-document.mjs?v=20260901-position-hints";
 import { checkWriting, writingSuggestionLabel } from "./writing-check.js";
 
 const api = new StudioAPI();
@@ -247,7 +247,7 @@ async function saveDraft({ quiet = false } = {}) {
 function flushActiveEditor() {
   const active = document.activeElement;
   if (!active || !active.matches("input,textarea,select")) return;
-  if (active.id === "node-comment" || active.id === "node-start-comment" || active.id === "node-nags"
+  if (active.id === "node-comment" || active.id === "node-hint" || active.id === "node-start-comment" || active.id === "node-nags"
       || active.dataset.chapterTitle !== undefined || active.form === $("details-form")) active.blur();
 }
 function markPendingInput(){if(!state.document)return;$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
@@ -382,10 +382,12 @@ function renderInspector() {
     : "Alternative moves here are opponent repertoire branches.";
   inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div></div>
     <label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea><small>${variationHelp}</small></label>
+    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}
     <label>Comment before this move<textarea id="node-start-comment" rows="2" placeholder="Optional section or variation introduction">${escapeHTML(node.startingComment)}</textarea></label>
     <label>PGN annotation glyphs<input id="node-nags" value="${escapeHTML(node.nags.join(", "))}" placeholder="e.g. 1, 5, 14"><small>Numeric NAGs are preserved during PGN import and export.</small></label>`;
   const update = patch => commit(updateNode(state.document, node.id, patch));
   $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
+  $("node-hint")?.addEventListener("change", event => update({ hint: event.target.value.trim().replace(/\s+/g," ") }));
   $("node-start-comment").addEventListener("change", event => update({ startingComment: event.target.value }));
   $("node-nags").addEventListener("change", event => update({ nags: event.target.value.split(/[, ]+/).map(Number).filter(value => Number.isInteger(value) && value > 0) }));
   inspector.querySelectorAll("textarea,input").forEach(control=>control.addEventListener("input",markPendingInput));
@@ -450,6 +452,7 @@ function writingSources(){
   for(const field of metadataFields){const value=String(state.document.metadata[field]||"");if(value.trim())sources.push({sourceId:`metadata:${field}`,history:`Course ${field}`,comment:value});}
   for(const node of state.document.nodes){
     if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});
+    if(node.hint?.trim())sources.push({sourceId:`hint:${node.id}`,history:`Hint after ${moveLabel(node)}`,comment:node.hint});
     if(node.startingComment.trim())sources.push({sourceId:`starting:${node.id}`,history:`Before ${moveLabel(node)}`,comment:node.startingComment});
   }
   return sources;
@@ -459,7 +462,7 @@ async function runSpellcheck({refreshDictionary=true}={}){const button=$("run-sp
 async function ignoreWritingWord(issue,button){setBusy(button,true,"Adding…");try{const payload=await api.addIgnoredWord(issue.problem);state.ignoredWords=[...(payload?.words||state.ignoredWords)];showStatus(`“${issue.problem}” added to the shared dictionary.`);await runSpellcheck({refreshDictionary:false});}catch(error){showStatus(`Could not add “${issue.problem}” to the shared dictionary: ${error.message}`,true);setBusy(button,false)}}
 function renderWriting(issues,count){$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Writing fields checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Shared words</span></div>`;$("writing-results").innerHTML=issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">${escapeHTML(writingSuggestionLabel(issue.problem,suggestion))}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Add “${escapeHTML(issue.problem)}” to shared dictionary</button>`:""}</div></div></article>`).join("")||qualityHTML("good","Writing looks clean",`No issues found in ${count} writing fields.`);$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",event=>ignoreWritingWord(issue,event.currentTarget));});}
 function highlight(text,start,end){return`${escapeHTML(text.slice(0,start))}<mark>${escapeHTML(text.slice(start,end))}</mark>${escapeHTML(text.slice(end))}`}
-function applyWritingFix(issue,replacement){const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":"comment",current=node[field];const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
+function applyWritingFix(issue,replacement){const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":kind==="hint"?"hint":"comment",current=node[field]||"";const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
 
 function renderChapters(){
   if(!state.document)return;
@@ -515,7 +518,7 @@ function attemptPreviewMove(move){
 }
 function renderPreviewCard(position,chapter){
   const attempt=state.previewAttempt;
-  const answer=attempt?`<div class="learner-answer ${attempt.correct?"":"wrong"}"><strong>${attempt.correct?"Correct":escapeHTML(attempt.move.san)}</strong><span>${escapeHTML(attempt.feedback)}</span></div>`:'<div class="learner-answer pending"><strong>Answer hidden</strong><span>Make a move on the board to test this position.</span></div>';
+  const answer=attempt?`<div class="learner-answer ${attempt.correct?"":"wrong"}"><strong>${attempt.correct?"Correct":escapeHTML(attempt.move.san)}</strong><span>${escapeHTML(attempt.feedback)}${attempt.hint?`<small class="learner-hint"><b>Hint</b> ${escapeHTML(attempt.hint)}</small>`:""}</span></div>`:'<div class="learner-answer pending"><strong>Answer hidden</strong><span>Make a move on the board to test this position.</span></div>';
   $("preview-card").innerHTML=`<p class="eyebrow">${escapeHTML(chapter.title)} · ${state.previewIndex+1} of ${chapter.positions.length}</p><h2>Find the best move</h2><p>${escapeHTML(position.source.chapter)}</p>${answer}<div class="dialog-actions"><button id="preview-previous" class="secondary" ${state.previewIndex===0?"disabled":""}>Previous</button><button id="preview-next" class="primary" ${!attempt?.correct||state.previewIndex===chapter.positions.length-1?"disabled":""}>Next position</button></div>`;
   $("preview-previous").addEventListener("click",()=>{state.previewIndex-=1;state.previewAttempt=null;renderPreview()});
   $("preview-next").addEventListener("click",()=>{state.previewIndex+=1;state.previewAttempt=null;renderPreview()});

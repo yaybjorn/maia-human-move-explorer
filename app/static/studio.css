@@ -18,6 +18,7 @@ button{min-height:44px}
 .learner-answer{align-items:flex-start}
 .learner-answer.wrong{background:#f4dfda}
 .learner-answer.pending{background:var(--soft);color:var(--muted)}
+.learner-hint{display:block;margin-top:8px;color:var(--ink);font-size:13px}.learner-hint b{color:var(--accent);margin-right:4px}
 .wide-dialog{width:min(900px,calc(100vw - 32px))}
 .wide-dialog textarea{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre}
 .inline-control{display:flex;align-items:center;gap:8px}

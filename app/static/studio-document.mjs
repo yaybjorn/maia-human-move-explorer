@@ -11,6 +11,41 @@ const DEFAULT_METADATA = Object.freeze({
   versionNotes: "",
 });
 
+export const MAX_POSITION_HINT_LENGTH = 240;
+
+export function splitHintDirective(rawComment = "") {
+  const comment = String(rawComment);
+  const hintStart = /\[%\s*hint\b/i;
+  if (!hintStart.test(comment)) return { comment, hint: "" };
+  const directive = /\[%hint(?:\s+([^\[\]]*))?\]/gi;
+  const matches = [...comment.matchAll(directive)];
+  if (!matches.length || hintStart.test(comment.replace(directive, ""))) {
+    throw new Error("Malformed [%hint ...] directive. Hints cannot contain square brackets.");
+  }
+  if (matches.length > 1) throw new Error("A learner position can only have one [%hint ...] directive.");
+  const hint = normalizeHint(matches[0]?.[1] || "");
+  return {
+    comment: comment.replace(directive, " ").replace(/\s+/g, " ").trim(),
+    hint,
+  };
+}
+
+export function normalizeHint(value = "") {
+  const hint = String(value).normalize("NFKC").replace(/\s+/g, " ").trim();
+  if (/[\u0000-\u001F\u007F]/.test(String(value))) throw new Error("Hints cannot contain control characters.");
+  if (/[\[\]]/.test(hint)) throw new Error("Hints cannot contain square brackets.");
+  if (hint.length > MAX_POSITION_HINT_LENGTH) {
+    throw new Error(`Hints cannot exceed ${MAX_POSITION_HINT_LENGTH} characters.`);
+  }
+  return hint;
+}
+
+export function commentWithHint(comment = "", hint = "") {
+  const prose = String(comment).trim();
+  const normalizedHint = normalizeHint(hint);
+  return [prose, normalizedHint ? `[%hint ${normalizedHint}]` : ""].filter(Boolean).join(" ");
+}
+
 export function newCourseDocument(metadata = {}) {
   return {
     schemaVersion: 1,
@@ -32,17 +67,22 @@ export function normalizeDocument(input = {}) {
   document.schemaVersion = Number(input.schemaVersion || 1);
   document.headers = { ...(input.headers || {}) };
   document.sourcePGN = input.sourcePGN || "";
-  document.nodes = (input.nodes || []).map((node, index) => ({
-    id: String(node.id ?? `move-${index + 1}`),
-    parentId: node.parentId === null || node.parent_id === null || node.parentId === undefined && node.parent_id === undefined
-      ? null : String(node.parentId ?? node.parent_id),
-    uci: node.uci,
-    san: node.san || node.uci,
-    ply: Number(node.ply || 1),
-    comment: node.comment || "",
-    startingComment: node.startingComment || node.starting_comment || "",
-    nags: [...(node.nags || [])].map(Number).filter(Number.isInteger),
-  }));
+  document.nodes = (input.nodes || []).map((node, index) => {
+    const parsedComment = splitHintDirective(node.comment || "");
+    const hint = node.hint === undefined ? parsedComment.hint : normalizeHint(node.hint);
+    return {
+      id: String(node.id ?? `move-${index + 1}`),
+      parentId: node.parentId === null || node.parent_id === null || node.parentId === undefined && node.parent_id === undefined
+        ? null : String(node.parentId ?? node.parent_id),
+      uci: node.uci,
+      san: node.san || node.uci,
+      ply: Number(node.ply || 1),
+      comment: parsedComment.comment,
+      hint,
+      startingComment: node.startingComment || node.starting_comment || "",
+      nags: [...(node.nags || [])].map(Number).filter(Number.isInteger),
+    };
+  });
   document.chapters = structuredClone((input.chapters || []).filter(chapter => chapter.positionIDs));
   // Draft boundaries use editor node IDs. They are never sent as positionIDs.
   const drafts = input.chapterDrafts || (input.chapters || []).filter(chapter => !chapter.positionIDs);
@@ -119,6 +159,7 @@ export function addMove(document, parentID, move) {
     san: move.san || move.uci,
     ply: parent ? parent.ply + 1 : 1,
     comment: "",
+    hint: "",
     startingComment: "",
     nags: [],
   };
@@ -197,6 +238,7 @@ export function trainingPack(document, packID = "draft") {
           ply: main.ply,
           moveNumber: Math.ceil(main.ply / 2),
           correctMove: { san: main.san, uci: main.uci, feedback: main.comment },
+          ...(main.hint ? { hint: normalizeHint(main.hint) } : {}),
           wrongMoves: children.slice(1).map(child => ({
             san: child.san, uci: child.uci, feedback: child.comment,
           })),
@@ -291,6 +333,7 @@ export function evaluatePreviewMove(position, move, fallbackFeedback) {
   return {
     correct,
     move,
+    ...(!correct && position.hint ? { hint: position.hint } : {}),
     feedback: correct
       ? position.correctMove.feedback || "Correct."
       : authored?.feedback || String(fallbackFeedback || "The repertoire move is {san}.")
@@ -342,6 +385,18 @@ export function validateDocument(document) {
     if (!node.comment.trim() && node.ply % 2 === (document.metadata.side === "white" ? 1 : 0)) {
       warnings.push({ area: "Writing", message: `${node.san} has no teaching note.` });
     }
+    try {
+      normalizeHint(node.hint || "");
+    } catch (error) {
+      blockers.push({ area: "Repertoire", message: `${node.san}: ${error.message}` });
+    }
+    if (node.hint) {
+      const siblings = childrenOf(document, node.parentId);
+      const learnerMove = node.ply % 2 === (document.metadata.side === "white" ? 1 : 0);
+      if (!learnerMove || siblings[0]?.id !== node.id) {
+        blockers.push({ area: "Repertoire", message: `${node.san} has a hint, but hints belong on the correct learner move.` });
+      }
+    }
   }
   const pack = trainingPack(document, document.metadata.slug || "draft");
   if (pack.positions.length) {
@@ -360,7 +415,7 @@ export function serializeForPGN(document) {
     id: numericID(node.id, document.nodes),
     parent_id: node.parentId === null ? null : numericID(node.parentId, document.nodes),
     uci: node.uci,
-    comment: node.comment,
+    comment: commentWithHint(node.comment, node.hint),
     starting_comment: node.startingComment,
     nags: node.nags,
   }));
