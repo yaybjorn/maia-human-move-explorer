@@ -247,7 +247,7 @@ async function saveDraft({ quiet = false } = {}) {
 function flushActiveEditor() {
   const active = document.activeElement;
   if (!active || !active.matches("input,textarea,select")) return;
-  if (active.id === "node-comment" || active.id === "node-hint" || active.id === "node-start-comment" || active.id === "node-nags"
+  if (active.id === "node-comment" || active.id === "node-hint"
       || active.dataset.chapterTitle !== undefined || active.form === $("details-form")) active.blur();
 }
 function markPendingInput(){if(!state.document)return;$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
@@ -382,14 +382,10 @@ function renderInspector() {
     : "Alternative moves here are opponent repertoire branches.";
   inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div></div>
     <label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea><small>${variationHelp}</small></label>
-    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}
-    <label>Comment before this move<textarea id="node-start-comment" rows="2" placeholder="Optional section or variation introduction">${escapeHTML(node.startingComment)}</textarea></label>
-    <label>PGN annotation glyphs<input id="node-nags" value="${escapeHTML(node.nags.join(", "))}" placeholder="e.g. 1, 5, 14"><small>Numeric NAGs are preserved during PGN import and export.</small></label>`;
+    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}`;
   const update = patch => commit(updateNode(state.document, node.id, patch));
   $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
   $("node-hint")?.addEventListener("change", event => update({ hint: event.target.value.trim().replace(/\s+/g," ") }));
-  $("node-start-comment").addEventListener("change", event => update({ startingComment: event.target.value }));
-  $("node-nags").addEventListener("change", event => update({ nags: event.target.value.split(/[, ]+/).map(Number).filter(value => Number.isInteger(value) && value > 0) }));
   inspector.querySelectorAll("textarea,input").forEach(control=>control.addEventListener("input",markPendingInput));
   inspector.querySelector('[data-action="promote"]').addEventListener("click", () => commit(promoteVariation(state.document,node.id)));
   inspector.querySelector('[data-action="earlier"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,-1)));
