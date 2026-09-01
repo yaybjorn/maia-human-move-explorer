@@ -422,7 +422,7 @@ export function validateDocument(document) {
   for (const node of document.nodes) {
     if (node.parentId !== null && !ids.has(node.parentId)) blockers.push({ area: "Repertoire", message: `${node.san} has a missing parent move.` });
     if (!node.comment.trim() && node.ply % 2 === (document.metadata.side === "white" ? 1 : 0)) {
-      warnings.push({ area: "Writing", message: `${node.san} has no teaching note.` });
+      warnings.push({ area: "Teaching note", message: `${node.san} has no teaching note.`, nodeID: node.id });
     }
     try {
       normalizeHint(node.hint || "");

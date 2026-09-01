@@ -79,6 +79,10 @@ test("validation separates blockers and advisory warnings", () => {
   assert.ok(validateDocument(invalid).blockers.length >= 3);
   const document = importParsedPGN(parsed, { title: "Test", slug: "test", side: "white" });
   assert.ok(validateDocument(document).warnings.some(item => item.area === "Chapters"));
+  assert.deepEqual(
+    validateDocument(document).warnings.find(item => item.message === "Nf3 has no teaching note."),
+    { area: "Teaching note", message: "Nf3 has no teaching note.", nodeID: "4" },
+  );
 });
 
 test("training traversal matches compiler semantics for learner wrong lines", () => {
