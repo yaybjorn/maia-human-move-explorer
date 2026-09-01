@@ -49,7 +49,9 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
   const ignoredWordSet = new Set(ignoredWords.map(normaliseIgnoredWord));
 
   for (const source of sources) {
-    const ignoredRanges = ignoredWritingRanges(source.comment);
+    const ignoredRanges = ignoredWritingRanges(source.comment, {
+      allowSanPlaceholder: source.sourceId === 'metadata:fallbackFeedback'
+    });
     const lints = await linter.lint(writingTextForLint(source.comment), {
       language: 'plaintext',
       dedup: true

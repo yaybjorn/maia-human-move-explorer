@@ -38,13 +38,21 @@ export function writingTextForLint(value) {
   return characters.join('');
 }
 
-export function ignoredWritingRanges(value) {
+export function ignoredWritingRanges(value, { allowSanPlaceholder = false } = {}) {
   const ranges = [];
 
   // Square-bracketed PGN directives such as [%csl ...] and [%cal ...] are
   // machine annotations, not prose. Ignore any bracketed block so future PGN
   // directives do not need their own special case.
   addMatches(ranges, value, /\[[\s\S]*?\]/g);
+  if (allowSanPlaceholder) {
+    const token = '{san}';
+    let start = value.indexOf(token);
+    while (start !== -1) {
+      ranges.push({ start, end: start + token.length });
+      start = value.indexOf(token, start + token.length);
+    }
+  }
   addMatches(ranges, value, BLACK_MOVE_NOTATION);
   sanMatches(value).forEach(({ start, end }) => ranges.push({ start, end }));
   ACCEPTED_PHRASES.forEach(pattern => addMatches(ranges, value, pattern));

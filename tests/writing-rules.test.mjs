@@ -18,6 +18,24 @@ test('ignores bracketed PGN directives', () => {
   assert.equal(overlapsIgnoredRange(comma, comma + 1, ranges), true);
 });
 
+test('ignores explicitly allowed placeholders but not surrounding prose', () => {
+  const comment = 'The repertoire move is {san}, then misspeled prose.';
+  const ranges = ignoredWritingRanges(comment, { allowSanPlaceholder: true });
+  const placeholder = comment.indexOf('{san}');
+  const prose = comment.indexOf('misspeled');
+
+  assert.equal(overlapsIgnoredRange(placeholder, placeholder + 5, ranges), true);
+  assert.equal(overlapsIgnoredRange(prose, prose + 9, ranges), false);
+});
+
+test('does not ignore arbitrary braces or unapproved placeholder names', () => {
+  for (const comment of ['Use {this is misspeled}.', 'Use {correctMove}.']) {
+    const ranges = ignoredWritingRanges(comment, { allowSanPlaceholder: true });
+    const contentStart = comment.indexOf('{') + 1;
+    assert.equal(overlapsIgnoredRange(contentStart, comment.indexOf('}'), ranges), false);
+  }
+});
+
 test('ignores black-move ellipsis notation but not surrounding prose', () => {
   const comment = 'forces ...Be7. After ...Be7 Black is passive.';
   const ranges = ignoredWritingRanges(comment);
