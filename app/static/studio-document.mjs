@@ -33,7 +33,7 @@ export function splitHintDirective(rawComment = "") {
 export function normalizeHint(value = "") {
   const hint = String(value).normalize("NFKC").replace(/\s+/g, " ").trim();
   if (/[\u0000-\u001F\u007F]/.test(String(value))) throw new Error("Hints cannot contain control characters.");
-  if (/[\[\]]/.test(hint)) throw new Error("Hints cannot contain square brackets.");
+  if (/[\[\]{}]/.test(hint)) throw new Error("Hints cannot contain PGN brackets or comment braces.");
   if (hint.length > MAX_POSITION_HINT_LENGTH) {
     throw new Error(`Hints cannot exceed ${MAX_POSITION_HINT_LENGTH} characters.`);
   }
@@ -83,6 +83,7 @@ export function normalizeDocument(input = {}) {
       nags: [...(node.nags || [])].map(Number).filter(Number.isInteger),
     };
   });
+  reconcileImportedPositionHints(document);
   document.chapters = structuredClone((input.chapters || []).filter(chapter => chapter.positionIDs));
   // Draft boundaries use editor node IDs. They are never sent as positionIDs.
   const drafts = input.chapterDrafts || (input.chapters || []).filter(chapter => !chapter.positionIDs);
@@ -189,11 +190,13 @@ export function promoteVariation(document, id) {
   const node = nodeByID(next, id);
   if (!node) return next;
   const siblings = childrenOf(next, node.parentId);
+  const oldMainID = siblings[0]?.id;
   const firstIndex = next.nodes.findIndex(item => item.id === siblings[0]?.id);
   const nodeIndex = next.nodes.findIndex(item => item.id === node.id);
   if (firstIndex < 0 || nodeIndex < 0 || firstIndex === nodeIndex) return next;
   next.nodes.splice(nodeIndex, 1);
   next.nodes.splice(firstIndex, 0, node);
+  transferPositionHint(next, node.parentId, oldMainID, node.id);
   return structuralDocument(document, next);
 }
 
@@ -202,13 +205,45 @@ export function reorderVariation(document, id, direction) {
   const node = nodeByID(next, id);
   if (!node) return next;
   const siblings = childrenOf(next, node.parentId);
+  const oldMainID = siblings[0]?.id;
   const siblingIndex = siblings.findIndex(item => item.id === node.id);
   const targetSibling = siblings[siblingIndex + direction];
   if (!targetSibling) return next;
   const nodeIndex = next.nodes.findIndex(item => item.id === node.id);
   const targetIndex = next.nodes.findIndex(item => item.id === targetSibling.id);
   [next.nodes[nodeIndex], next.nodes[targetIndex]] = [next.nodes[targetIndex], next.nodes[nodeIndex]];
+  const newMainID = childrenOf(next, node.parentId)[0]?.id;
+  if (newMainID !== oldMainID) transferPositionHint(next, node.parentId, oldMainID, newMainID);
   return structuralDocument(document, next);
+}
+
+function transferPositionHint(document, parentID, oldMainID, newMainID) {
+  if (!oldMainID || !newMainID || oldMainID === newMainID) return;
+  const siblings = childrenOf(document, parentID);
+  const oldMain = siblings.find(node => node.id === oldMainID);
+  const newMain = siblings.find(node => node.id === newMainID);
+  if (!newMain) return;
+  const hint = normalizeHint(oldMain?.hint || newMain.hint || "");
+  for (const sibling of siblings) sibling.hint = "";
+  newMain.hint = hint;
+}
+
+function reconcileImportedPositionHints(document) {
+  const learnerPlyParity = document.metadata.side === "black" ? 0 : 1;
+  const parentIDs = new Set(document.nodes.map(node => node.parentId));
+  for (const parentID of parentIDs) {
+    const siblings = childrenOf(document, parentID);
+    if (!siblings.length) continue;
+    const hinted = siblings.filter(node => node.hint);
+    if (!hinted.length) continue;
+    if (siblings[0].ply % 2 !== learnerPlyParity) {
+      throw new Error(`[%hint ...] is only valid on a correct learner move, not ${siblings[0].san}.`);
+    }
+    if (hinted.length > 1) throw new Error("A learner position can only have one [%hint ...] directive.");
+    const hint = hinted[0].hint;
+    for (const sibling of siblings) sibling.hint = "";
+    siblings[0].hint = hint;
+  }
 }
 
 export function updateNode(document, id, patch) {

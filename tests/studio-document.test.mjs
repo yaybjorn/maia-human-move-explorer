@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
   commentWithHint,
-  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, pgnHasMoves, promoteVariation, removeBranch,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, nodeByID, pgnHasMoves, promoteVariation, removeBranch,
   reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
 
@@ -35,10 +35,15 @@ test("normalises imported nested variations and preserves authored semantics", (
 });
 
 test("supports add, delete, reorder, promote, comments and undo-safe immutable changes", () => {
-  const original = importParsedPGN(parsed, { title: "Test", slug: "test", side: "white" });
+  const original = updateNode(importParsedPGN(parsed, { title: "Test", slug: "test", side: "white" }), "2", { hint: "Look for a developing move." });
   const promoted = promoteVariation(original, "3");
   assert.deepEqual(childrenOf(promoted, "1").map(node => node.san), ["e5", "c5"]);
-  assert.deepEqual(childrenOf(reorderVariation(promoted, "3", 1), "1").map(node => node.san), ["c5", "e5"]);
+  assert.equal(nodeByID(promoted, "3").hint, "Look for a developing move.");
+  assert.equal(nodeByID(promoted, "2").hint, "");
+  const reordered = reorderVariation(promoted, "3", 1);
+  assert.deepEqual(childrenOf(reordered, "1").map(node => node.san), ["c5", "e5"]);
+  assert.equal(nodeByID(reordered, "2").hint, "Look for a developing move.");
+  assert.equal(nodeByID(reordered, "3").hint, "");
   const edited = updateNode(original, "1", { comment: "Changed." });
   assert.equal(original.nodes[0].comment, "Main idea.");
   assert.equal(edited.nodes[0].comment, "Changed.");
@@ -195,7 +200,8 @@ test("validates hint directive syntax, placement, length, and plain-text safety"
   assert.equal(commentWithHint("Main.", "  Develop a piece. "), "Main. [%hint Develop a piece.]");
   assert.throws(() => splitHintDirective("Main. [%hint Look at [checks]]"), /Malformed/);
   assert.throws(() => commentWithHint("Main.", "x".repeat(241)), /240/);
-  assert.throws(() => commentWithHint("Main.", "Look [here]"), /square brackets/);
+  assert.throws(() => commentWithHint("Main.", "Look [here]"), /PGN brackets/);
+  assert.throws(() => commentWithHint("Main.", "Look {here}"), /comment braces/);
 
   const misplaced = normalizeDocument({
     metadata: { title: "Misplaced", slug: "misplaced", side: "white" },
@@ -204,5 +210,23 @@ test("validates hint directive syntax, placement, length, and plain-text safety"
       { id: "wrong", parentId: null, uci: "d2d4", san: "d4", ply: 1, comment: "Wrong.", hint: "Not here." },
     ],
   });
-  assert.ok(validateDocument(misplaced).blockers.some(item => /correct learner move/.test(item.message)));
+  assert.equal(nodeByID(misplaced, "main").hint, "Not here.");
+  assert.equal(nodeByID(misplaced, "wrong").hint, "");
+  assert.equal(validateDocument(misplaced).blockers.some(item => /correct learner move/.test(item.message)), false);
+});
+
+test("moves an imported position hint from a wrong sibling to the correct main move", () => {
+  const imported = importParsedPGN({
+    headers: { Event: "Imported hint" },
+    nodes: [
+      { id: 1, parent_id: null, uci: "e2e4", san: "e4", ply: 1, comment: "Main." },
+      { id: 2, parent_id: null, uci: "d2d4", san: "d4", ply: 1,
+        comment: "Wrong. [%hint Look for a developing move.]" },
+    ],
+  }, { title: "Imported", slug: "imported", side: "white" });
+  assert.equal(nodeByID(imported, "1").hint, "Look for a developing move.");
+  assert.equal(nodeByID(imported, "2").hint, "");
+  assert.match(serializeForPGN(imported)[0].comment, /\[%hint Look for a developing move\.\]/);
+  assert.doesNotMatch(serializeForPGN(imported)[1].comment, /\[%hint/);
+  assert.equal(validateDocument(imported).blockers.some(item => /hint/.test(item.message)), false);
 });
