@@ -319,8 +319,8 @@ function renderVideos() {
   const container = $("video-list"); if (!container || !state.document) return;
   const videos = videoItems();
   if (!videos.length) { container.innerHTML = '<div class="empty-state"><p>No videos added.</p></div>'; return; }
-  container.innerHTML = videos.map((video,index)=>`<article class="video-row" draggable="true" data-video-row="${index}">
-    <span class="video-handle" aria-hidden="true">⠿</span>
+  container.innerHTML = videos.map((video,index)=>`<article class="video-row" data-video-row="${index}">
+    <button class="video-handle" type="button" draggable="true" aria-label="Drag ${escapeHTML(video.title || `video ${index+1}`)} to reorder">⠿</button>
     <div class="video-fields"><label>Title<input data-video-title="${index}" maxlength="120" value="${escapeHTML(video.title)}" required></label><label>YouTube link<input data-video-url="${index}" type="url" value="${escapeHTML(video.youtubeURL)}" placeholder="https://youtu.be/…?t=…" required></label></div>
     <div class="video-actions"><button type="button" data-video-move="-1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} up" ${index===0?"disabled":""}>↑</button><button type="button" data-video-move="1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} down" ${index===videos.length-1?"disabled":""}>↓</button><button type="button" class="danger" data-video-delete="${index}" aria-label="Delete ${escapeHTML(video.title || `video ${index+1}`)}">×</button></div>
   </article>`).join("");
