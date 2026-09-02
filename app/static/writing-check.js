@@ -81,6 +81,13 @@ export function writingSuggestionLabel(problem, replacement) {
   return `Fix: ${value || 'Remove'}`;
 }
 
+export function writingBulkFix(issue) {
+  if (issue?.problem === '...' && issue?.suggestions?.includes('…')) {
+    return { key: 'unicode-ellipsis', label: 'Fix all ellipses', replacement: '…' };
+  }
+  return null;
+}
+
 export async function checkWriting(sources, { ignoredWords = [] } = {}) {
   const linter = await getLinter();
   const findings = [];

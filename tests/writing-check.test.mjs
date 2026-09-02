@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { checkWriting, writingSuggestionLabel } from '../app/static/writing-check.js';
+import { checkWriting, writingBulkFix, writingSuggestionLabel } from '../app/static/writing-check.js';
 
 function source(comment, sourceId = 'comment-1') {
   return [{ sourceId, history: '19. O-O', comment }];
@@ -91,4 +91,20 @@ test('preserves commas when applying Harper missing-space suggestions', async ()
     const fixed = comment.slice(0, issue.start) + issue.suggestions[0] + comment.slice(issue.end);
     assert.equal(fixed.slice(issue.start, issue.start + 2), ', ');
   }
+});
+
+test('offers one targeted bulk action for repeated Unicode ellipsis fixes', async () => {
+  const issues = await checkWriting([
+    ...source('First... second...'),
+    { sourceId: 'comment-2', history: '20. Nf3', comment: 'Third...' }
+  ]);
+  const ellipsisIssues = issues.filter(issue => writingBulkFix(issue));
+
+  assert.equal(ellipsisIssues.length, 3);
+  assert.deepEqual(writingBulkFix(ellipsisIssues[0]), {
+    key: 'unicode-ellipsis',
+    label: 'Fix all ellipses',
+    replacement: '…'
+  });
+  assert.equal(writingBulkFix({ problem: ',', suggestions: [', '] }), null);
 });
