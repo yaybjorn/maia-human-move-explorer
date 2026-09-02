@@ -48,6 +48,7 @@
           <button class="nav-item" data-view="analysis"><span>✦</span>Maia &amp; engine</button>
           <button class="nav-item" data-view="writing"><span>✓</span>Writing</button>
           <button class="nav-item" data-view="chapters"><span>☷</span>Chapters</button>
+          <button class="nav-item" data-view="videos"><span>▶</span>Videos</button>
           <button class="nav-item" data-view="preview"><span>▷</span>Learner preview</button>
           <p class="nav-label">Release</p>
           <button class="nav-item" data-view="quality"><span>◇</span>Quality checks <i id="quality-count"></i></button>
@@ -77,8 +78,12 @@
           <label>Default opponent rating<input name="opponentRating" type="number" min="500" max="3000" step="50"></label>
           <label class="span-two">Description<textarea name="description" rows="5" maxlength="2000"></textarea></label>
         </form>
+      </section>
+
+      <section class="view" data-panel="videos">
+        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p>Add, preview and arrange the YouTube videos learners will see.</p></div><button id="add-video" class="primary" type="button">Add video</button></div>
         <section class="tool-card video-editor-card" aria-labelledby="videos-title">
-          <div class="card-heading"><div><h2 id="videos-title">Course videos</h2><p>Add YouTube videos in the order learners should see them. Timestamped links can point to individual games in one video.</p></div><button id="add-video" class="secondary" type="button">Add video</button></div>
+          <div class="card-heading"><div><h2 id="videos-title">Course videos</h2><p>Timestamped links can point to individual games in one video.</p></div></div>
           <div id="video-list" class="video-list" aria-live="polite"></div>
         </section>
       </section>
@@ -181,6 +186,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260902-course-videos"></script>
+  <script type="module" src="/static/studio.js?v=20260902-video-page-preview"></script>
 </body>
 </html>

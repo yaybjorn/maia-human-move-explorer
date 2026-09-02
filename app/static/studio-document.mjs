@@ -43,6 +43,32 @@ export function normalizeCourseVideos(value = []) {
   });
 }
 
+function youtubeVideoID(url) {
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+  return host === "youtu.be" ? parts[0]
+    : url.pathname === "/watch" ? url.searchParams.get("v")
+      : ["shorts", "embed", "live"].includes(parts[0] || "") ? parts[1] : null;
+}
+
+function youtubeStartSeconds(url) {
+  const raw = url.searchParams.get("start") || url.searchParams.get("t")
+    || new URLSearchParams(url.hash.replace(/^#/, "")).get("t") || "";
+  if (/^\d+$/.test(raw)) return Number(raw);
+  const match = String(raw).toLowerCase().match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  return match && raw ? Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0) : 0;
+}
+
+export function youtubeEmbedURL(youtubeURL) {
+  const [video] = normalizeCourseVideos([{ id: "preview", title: "Preview", youtubeURL }]);
+  const url = new URL(video.youtubeURL);
+  const embed = new URL(`https://www.youtube-nocookie.com/embed/${youtubeVideoID(url)}`);
+  const start = youtubeStartSeconds(url);
+  if (start > 0) embed.searchParams.set("start", String(start));
+  embed.searchParams.set("rel", "0");
+  return embed.toString();
+}
+
 // Course Studio deliberately uses one system-owned fallback across every course.
 export const SYSTEM_FALLBACK_FEEDBACK = "The repertoire move is {san}.";
 

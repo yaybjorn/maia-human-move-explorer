@@ -6,6 +6,7 @@ import {
   commentWithHint,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID, normalizeCourseVideos, pgnHasMoves, promoteVariation, removeBranch,
   reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
+  youtubeEmbedURL,
 } from "../app/static/studio-document.mjs";
 
 test("recognises a header-only PGN as an editable blank course", () => {
@@ -67,6 +68,18 @@ test("accepts YouTube watch, short, embed and live links but rejects deceptive h
   for (const youtubeURL of ["https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ", "https://example.com/video", "https://youtube.com/"]) {
     assert.throws(() => normalizeCourseVideos([{ id: "bad", title: "Bad", youtubeURL }]), /YouTube|youtube/);
   }
+});
+
+test("builds privacy-enhanced timestamped YouTube preview links", () => {
+  assert.equal(
+    youtubeEmbedURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m12s"),
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?start=72&rel=0",
+  );
+  assert.equal(
+    youtubeEmbedURL("https://youtu.be/dQw4w9WgXcQ#t=8m12s"),
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?start=492&rel=0",
+  );
+  assert.throws(() => youtubeEmbedURL("https://example.com/video"), /YouTube|youtube/);
 });
 
 test("supports add, delete, reorder, promote, comments and undo-safe immutable changes", () => {

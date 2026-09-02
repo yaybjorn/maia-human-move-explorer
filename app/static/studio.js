@@ -4,9 +4,9 @@ import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
-  normalizeCourseVideos,
+  normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260902-course-videos";
+} from "./studio-document.mjs?v=20260902-video-page-preview";
 import { checkWriting, writingSuggestionLabel } from "./writing-check.js";
 
 const api = new StudioAPI();
@@ -21,7 +21,7 @@ const state = {
   reconciliationError: null, pendingImport: null,
   ignoredWords: [],
   editorEngineEnabled: false, editorEngineEvaluation: null,
-  videoDrag: null,
+  videoDrag: null, videoPreviewID: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
@@ -59,6 +59,7 @@ function setBusy(button, busy, busyLabel) {
 }
 
 function showLogin(message = "") {
+  unmountVideoPreview();
   state.user = null; $("boot").hidden = true; $("studio").hidden = true; $("login-view").hidden = false;
   $("login-error").textContent = message;
 }
@@ -141,6 +142,7 @@ async function openCourse(id) {
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
     state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0;
     state.previewAttempt = null; state.previewPosition = null; state.previewSelectedSquare = null;
+    state.videoPreviewID = null;
     state.validation = null;
     restoreCrashRecovery();
     $("course-title").textContent = state.document.metadata.title;
@@ -270,6 +272,9 @@ function markPendingInput(){if(!state.document)return;$("save").disabled=false;$
 
 function switchView(view) {
   if (view !== "dashboard" && !state.document) view = "dashboard";
+  if (view !== "videos" && unmountVideoPreview()) {
+    renderVideos();
+  }
   state.view = view;
   document.querySelectorAll(".view").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === view));
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === view));
@@ -277,7 +282,7 @@ function switchView(view) {
   $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
-  if (["chapters","preview"].includes(view)) renderAll();
+  if (["chapters","videos","preview"].includes(view)) renderAll();
   if (view === "editor") queueEditorEngineAnalysis();
   else editorEngine.cancel();
 }
@@ -322,13 +327,15 @@ function renderVideos() {
   container.innerHTML = videos.map((video,index)=>`<article class="video-row" data-video-row="${index}">
     <button class="video-handle" type="button" draggable="true" aria-label="Drag ${escapeHTML(video.title || `video ${index+1}`)} to reorder">⠿</button>
     <div class="video-fields"><label>Title<input data-video-title="${index}" maxlength="120" value="${escapeHTML(video.title)}" required></label><label>YouTube link<input data-video-url="${index}" type="url" value="${escapeHTML(video.youtubeURL)}" placeholder="https://youtu.be/…?t=…" required></label></div>
-    <div class="video-actions"><button type="button" data-video-move="-1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} up" ${index===0?"disabled":""}>↑</button><button type="button" data-video-move="1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} down" ${index===videos.length-1?"disabled":""}>↓</button><button type="button" class="danger" data-video-delete="${index}" aria-label="Delete ${escapeHTML(video.title || `video ${index+1}`)}">×</button></div>
+    <div class="video-actions"><button type="button" class="video-preview-button" data-video-preview="${index}" aria-expanded="${state.videoPreviewID===video.id}"${state.videoPreviewID===video.id?` aria-controls="video-preview-${escapeHTML(video.id)}"`:""} aria-label="${state.videoPreviewID===video.id?"Close preview for":"Preview"} ${escapeHTML(video.title || `video ${index+1}`)}">${state.videoPreviewID===video.id?"Close preview":"Preview"}</button><button type="button" data-video-move="-1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} up" ${index===0?"disabled":""}>↑</button><button type="button" data-video-move="1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} down" ${index===videos.length-1?"disabled":""}>↓</button><button type="button" class="danger" data-video-delete="${index}" aria-label="Delete ${escapeHTML(video.title || `video ${index+1}`)}">×</button></div>
+    ${state.videoPreviewID===video.id?videoPreviewHTML(video):""}
   </article>`).join("");
   container.querySelectorAll("[data-video-title],[data-video-url]").forEach(input=>{
     input.addEventListener("input",()=>{const index=Number(input.dataset.videoTitle??input.dataset.videoUrl),key=input.dataset.videoTitle!==undefined?"title":"youtubeURL";state.document.metadata.videos[index]={...state.document.metadata.videos[index],[key]:input.value};markPendingInput();});
     input.addEventListener("change",()=>{saveCrashRecovery();updateSaveState();});
   });
-  container.querySelectorAll("[data-video-delete]").forEach(button=>button.addEventListener("click",()=>{const videos=[...videoItems()];videos.splice(Number(button.dataset.videoDelete),1);replaceVideos(videos);}));
+  container.querySelectorAll("[data-video-preview]").forEach(button=>button.addEventListener("click",()=>toggleVideoPreview(Number(button.dataset.videoPreview))));
+  container.querySelectorAll("[data-video-delete]").forEach(button=>button.addEventListener("click",()=>{const videos=[...videoItems()],removed=videos.splice(Number(button.dataset.videoDelete),1)[0];if(state.videoPreviewID===removed?.id)state.videoPreviewID=null;replaceVideos(videos);}));
   container.querySelectorAll("[data-video-move]").forEach(button=>button.addEventListener("click",()=>moveVideo(Number(button.dataset.videoIndex),Number(button.dataset.videoIndex)+Number(button.dataset.videoMove))));
   container.querySelectorAll("[data-video-row]").forEach(row=>{
     row.addEventListener("dragstart",()=>{state.videoDrag=Number(row.dataset.videoRow);row.classList.add("dragging")});
@@ -337,6 +344,29 @@ function renderVideos() {
     row.addEventListener("dragleave",()=>row.classList.remove("drag-over"));
     row.addEventListener("drop",event=>{event.preventDefault();const target=Number(row.dataset.videoRow);row.classList.remove("drag-over");moveVideo(state.videoDrag,target);state.videoDrag=null;});
   });
+}
+
+function videoPreviewHTML(video) {
+  try {
+    return `<div id="video-preview-${escapeHTML(video.id)}" class="video-preview" role="region" aria-label="Video preview"><iframe src="${escapeHTML(youtubeEmbedURL(video.youtubeURL))}" title="Preview: ${escapeHTML(video.title || "Course video")}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`;
+  } catch (error) {
+    return `<p id="video-preview-${escapeHTML(video.id)}" class="video-preview-error" role="alert">${escapeHTML(error.message)}</p>`;
+  }
+}
+
+function toggleVideoPreview(index) {
+  const video = videoItems()[index];
+  if (!video) return;
+  state.videoPreviewID = state.videoPreviewID === video.id ? null : video.id;
+  renderVideos();
+  document.querySelector(`[data-video-preview="${index}"]`)?.focus();
+}
+
+function unmountVideoPreview() {
+  const mounted = state.videoPreviewID !== null || Boolean(document.querySelector(".video-preview,.video-preview-error"));
+  state.videoPreviewID = null;
+  document.querySelectorAll(".video-preview,.video-preview-error").forEach(element => element.remove());
+  return mounted;
 }
 
 function pieceMap(fen) {
@@ -640,7 +670,7 @@ function uniqueChecks(items){const seen=new Set();return items.map(normalizeChec
 function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item,true)),...checks.warnings.map(item=>qualityHTML("warning",item,true))].join("")||qualityHTML("good",{area:"Ready to publish",message:"No blockers or warnings found."});$("quality-results").querySelectorAll("[data-quality-area]").forEach(button=>button.addEventListener("click",()=>reviewQualityItem(button)));return checks;}
 function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
 function reviewQualityItem(button){switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
-function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("detail")||value.includes("metadata")||value.includes("video"))return"details";return"editor"}
+function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("video"))return"videos";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
 async function runQuality(){const button=$("refresh-quality");setBusy(button,true,"Checking…");try{if(dirty()&&!await saveDraft({quiet:true}))return null;state.validation=await api.validateCourse(state.courseID,state.revision);renderQuality();showStatus("Quality checks complete.");return state.validation;}catch(error){showStatus(error.message,true);return null}finally{setBusy(button,false)}}
 function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 async function beginPublish(){
