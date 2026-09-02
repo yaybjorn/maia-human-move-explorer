@@ -91,11 +91,12 @@ export function importedCoursePayload({ title, slug, side, pgn }) {
   return { title, slug, side, sourcePGN: pgn };
 }
 
-async function localRequest(path, body) {
+async function localRequest(path, body, { signal } = {}) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "same-origin",
+    signal,
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => null);
@@ -110,7 +111,7 @@ export const analysisAPI = Object.freeze({
   maia: (moves, rating, opponentRating) => localRequest("/api/predict", {
     moves, rating, opponent_rating: opponentRating,
   }),
-  stockfish: moves => localRequest("/api/stockfish", { moves }),
+  stockfish: (moves, options) => localRequest("/api/stockfish", { moves }, options),
   repertoireGaps: (pgn, repertoireSide, rating, threshold) => localRequest("/api/check-repertoire", {
     pgn, repertoire_side: repertoireSide, rating, threshold,
   }),

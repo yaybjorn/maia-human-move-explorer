@@ -83,8 +83,15 @@
         <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Repertoire editor</h1><p>Play moves on the board, then explain what the learner should remember.</p></div><div class="heading-actions"><button id="export-pgn" class="secondary" type="button">Export PGN</button></div></div>
         <div class="editor-layout">
           <section class="board-pane">
-            <div id="studio-board" class="chessboard" role="group" aria-label="Interactive course board"></div>
+            <div id="editor-board-stage" class="editor-board-stage">
+              <div id="editor-eval-bar" class="editor-eval-bar" role="meter" aria-label="Engine evaluation" aria-valuemin="-30" aria-valuemax="30" aria-valuenow="0" hidden>
+                <span id="editor-eval-white" class="editor-eval-white"></span>
+                <strong id="editor-eval-score" class="editor-eval-score">0.00</strong>
+              </div>
+              <div id="studio-board" class="chessboard" role="group" aria-label="Interactive course board"></div>
+            </div>
             <div class="board-controls"><button id="go-start" aria-label="Start">⇇</button><button id="go-back" aria-label="Previous move">←</button><button id="go-forward" aria-label="Next move">→</button><button id="go-end" aria-label="End">⇉</button><button id="flip-board">⇅ Flip</button><button id="copy-fen" title="Copy FEN" aria-label="Copy FEN">⧉</button></div>
+            <div class="editor-engine-control"><button id="toggle-editor-engine" class="secondary" type="button" aria-pressed="false">Engine off</button><span id="editor-engine-status" class="muted" role="status" aria-live="polite"></span></div>
             <p id="board-status" class="muted" hidden></p>
           </section>
           <section class="author-pane">
@@ -171,6 +178,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260901-teaching-note-links"></script>
+  <script type="module" src="/static/studio.js?v=20260902-editor-engine"></script>
 </body>
 </html>

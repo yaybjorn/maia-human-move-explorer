@@ -1,4 +1,5 @@
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260831-global-dictionary";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-editor-engine";
+import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-editor-engine";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
@@ -18,10 +19,22 @@ const state = {
   previewAttempt: null, previewPosition: null, previewSelectedSquare: null,
   reconciliationError: null, pendingImport: null,
   ignoredWords: [],
+  editorEngineEnabled: false, editorEngineEvaluation: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
 const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
+
+const editorEngine = new EngineAnalysisController({
+  analyze: (moves, options) => analysisAPI.stockfish(moves, options),
+  onResult: data => {
+    const evaluation = data?.lines?.[0]?.evaluation;
+    if (!state.editorEngineEnabled || !evaluation) return showEditorEngineError("No evaluation available");
+    state.editorEngineEvaluation = evaluation;
+    renderEditorEngine();
+  },
+  onError: () => showEditorEngineError("Engine unavailable"),
+});
 
 function escapeHTML(value = "") {
   const node = document.createElement("span");
@@ -262,6 +275,8 @@ function switchView(view) {
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
   if (["chapters","preview"].includes(view)) renderAll();
+  if (view === "editor") queueEditorEngineAnalysis();
+  else editorEngine.cancel();
 }
 function renderAll() {
   if (!state.document) return;
@@ -322,6 +337,11 @@ function renderBoard(element, position, { interactive = false, selected = null, 
 async function refreshPosition() {
   if (!state.document) return;
   const token = ++state.requestToken;
+  if (state.editorEngineEnabled) {
+    editorEngine.cancel();
+    state.editorEngineEvaluation = null;
+    renderEditorEngine("Analysing…");
+  }
   try {
     const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
     if (token !== state.requestToken) return;
@@ -329,7 +349,55 @@ async function refreshPosition() {
     const status = $("board-status");
     status.textContent = position.game_over ? "This line ends here." : "";
     status.hidden = !position.game_over;
+    queueEditorEngineAnalysis();
   } catch (error) { const status = $("board-status"); status.textContent = error.message; status.hidden = false; }
+}
+
+function queueEditorEngineAnalysis() {
+  if (!state.editorEngineEnabled || state.view !== "editor" || !state.position) return;
+  if (state.position.game_over) {
+    editorEngine.cancel();
+    state.editorEngineEvaluation = null;
+    renderEditorEngine("Game over");
+    return;
+  }
+  renderEditorEngine("Analysing…");
+  editorEngine.schedule(movesToNode(state.document, state.currentNodeID));
+}
+
+function renderEditorEngine(statusText = "") {
+  const stage = $("editor-board-stage"), bar = $("editor-eval-bar"), button = $("toggle-editor-engine");
+  stage.classList.toggle("engine-active", state.editorEngineEnabled);
+  bar.hidden = !state.editorEngineEnabled;
+  button.setAttribute("aria-pressed", String(state.editorEngineEnabled));
+  button.textContent = state.editorEngineEnabled ? "Engine on" : "Engine off";
+  $("editor-engine-status").textContent = state.editorEngineEnabled ? statusText : "";
+  if (!state.editorEngineEnabled) return;
+  const evaluation = state.editorEngineEvaluation;
+  const percent = evaluation ? whiteEvaluationPercent(evaluation) : 50;
+  const text = evaluation ? engineEvaluationText(evaluation) : "…";
+  $("editor-eval-white").style.height = `${percent}%`;
+  $("editor-eval-score").textContent = text;
+  bar.classList.toggle("flipped", state.flipped);
+  bar.classList.toggle("white-ahead", Number(evaluation?.value || 0) >= 0);
+  const pawns = evaluation?.type === "cp" ? Number(evaluation.value || 0) / 100 : Number(evaluation?.value || 0) > 0 ? 30 : Number(evaluation?.value || 0) < 0 ? -30 : 0;
+  bar.setAttribute("aria-valuenow", String(Math.max(-30, Math.min(30, pawns))));
+  bar.setAttribute("aria-valuetext", evaluation ? `White perspective ${text}` : statusText || "Analysis pending");
+  if (evaluation) $("editor-engine-status").textContent = `Evaluation ${text}`;
+}
+
+function showEditorEngineError(message) {
+  if (!state.editorEngineEnabled) return;
+  state.editorEngineEvaluation = null;
+  renderEditorEngine(message);
+}
+
+function toggleEditorEngine() {
+  state.editorEngineEnabled = !state.editorEngineEnabled;
+  state.editorEngineEvaluation = null;
+  editorEngine.cancel();
+  renderEditorEngine(state.editorEngineEnabled ? "Analysing…" : "");
+  if (state.editorEngineEnabled) queueEditorEngineAnalysis();
 }
 function boardSquare(square, map) {
   if (!state.position || state.position.game_over) return;
@@ -565,7 +633,7 @@ async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),
 function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
 
 $("login-form").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;setBusy(button,true,"Signing in…");$("login-error").textContent="";try{const session=await api.login($("login-email").value,$("login-password").value);setUser(session.user||session);$("login-password").value="";await showApp();}catch(error){$("login-error").textContent=error.message}finally{setBusy(button,false)}});
-$("logout").addEventListener("click",async()=>{try{await api.logout()}finally{state.document=null;state.savedSnapshot="";showLogin()}});
+$("logout").addEventListener("click",async()=>{try{await api.logout()}finally{editorEngine.cancel();state.editorEngineEnabled=false;state.document=null;state.savedSnapshot="";showLogin()}});
 function setAccountMenu(open){$("account-menu").hidden=!open;$("account-button").setAttribute("aria-expanded",String(open));if(open)$("logout").focus()}
 $("account-button").addEventListener("click",()=>setAccountMenu($("account-menu").hidden));
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>switchView(item.dataset.view)));
@@ -581,7 +649,8 @@ $("import-form").addEventListener("submit",async event=>{if(event.submitter?.val
 $("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
-$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("run-analysis").addEventListener("click",runPositionAnalysis);$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
 $("add-chapter").addEventListener("click",()=>{state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});

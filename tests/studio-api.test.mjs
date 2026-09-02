@@ -65,6 +65,24 @@ test("server-side import preview uses the authenticated Studio route", async () 
   assert.deepEqual(JSON.parse(calls[0].options.body), { pgn: "1. d4 d5 *" });
 });
 
+test("Stockfish analysis forwards an abort signal", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ lines: [] }), { status: 200 });
+  };
+  try {
+    const controller = new AbortController();
+    const { analysisAPI } = await import(`../app/static/studio-api.mjs?signal=${Date.now()}`);
+    await analysisAPI.stockfish(["e2e4"], { signal: controller.signal });
+    assert.equal(calls[0].url, "/api/stockfish");
+    assert.equal(calls[0].options.signal, controller.signal);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("shared ignored words use authenticated GET and CSRF-protected POST routes", async () => {
   const calls = [];
   const api = new StudioAPI("/studio/api", async (url, options) => {
