@@ -487,7 +487,16 @@ export function validateDocument(document) {
   if (ids.size !== document.nodes.length) blockers.push({ area: "Repertoire", message: "Move IDs are not unique." });
   for (const node of document.nodes) {
     if (node.parentId !== null && !ids.has(node.parentId)) blockers.push({ area: "Repertoire", message: `${node.san} has a missing parent move.` });
-    if (!node.comment.trim() && node.ply % 2 === (document.metadata.side === "white" ? 1 : 0)) {
+    const siblings = childrenOf(document, node.parentId);
+    const learnerMove = node.ply % 2 === (document.metadata.side === "white" ? 1 : 0);
+    if (learnerMove && siblings.findIndex(sibling => sibling.id === node.id) > 0 && !node.comment.trim()) {
+      blockers.push({
+        area: "Validation",
+        message: `Missing feedback for wrong move ${node.san} at ply ${node.ply - 1}`,
+        nodeID: node.id,
+      });
+    }
+    if (!node.comment.trim() && learnerMove && siblings[0]?.id === node.id) {
       warnings.push({ area: "Teaching note", message: `${node.san} has no teaching note.`, nodeID: node.id });
     }
     try {
@@ -496,8 +505,6 @@ export function validateDocument(document) {
       blockers.push({ area: "Repertoire", message: `${node.san}: ${error.message}` });
     }
     if (node.hint) {
-      const siblings = childrenOf(document, node.parentId);
-      const learnerMove = node.ply % 2 === (document.metadata.side === "white" ? 1 : 0);
       if (!learnerMove || siblings[0]?.id !== node.id) {
         blockers.push({ area: "Repertoire", message: `${node.san} has a hint, but hints belong on the correct learner move.` });
       }

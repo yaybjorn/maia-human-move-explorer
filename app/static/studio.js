@@ -6,7 +6,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260902-video-page-preview";
+} from "./studio-document.mjs?v=20260902-validation-position-link";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 
