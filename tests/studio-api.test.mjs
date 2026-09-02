@@ -86,6 +86,27 @@ test("Stockfish analysis forwards progressive options and an abort signal", asyn
   }
 });
 
+test("Maia analysis forwards its abort signal", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ suggestions: [] }), { status: 200 });
+  };
+  try {
+    const controller = new AbortController();
+    const { analysisAPI } = await import(`../app/static/studio-api.mjs?maia-signal=${Date.now()}`);
+    await analysisAPI.maia(["e2e4"], 1500, 2000, { signal: controller.signal });
+    assert.equal(calls[0].url, "/api/predict");
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {
+      moves: ["e2e4"], rating: 1500, opponent_rating: 2000,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("shared ignored words use authenticated GET and CSRF-protected POST routes", async () => {
   const calls = [];
   const api = new StudioAPI("/studio/api", async (url, options) => {

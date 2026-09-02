@@ -39,20 +39,20 @@
     </header>
 
     <aside id="sidebar" class="sidebar" tabindex="0" aria-label="Course navigation">
+      <button id="toggle-sidebar" class="sidebar-toggle" type="button" title="Collapse menu" aria-label="Collapse menu" aria-pressed="false"><span aria-hidden="true">«</span></button>
       <nav aria-label="Course Studio">
-        <button class="nav-item active" data-view="dashboard"><span>▦</span>Courses</button>
+        <button class="nav-item active" data-view="dashboard" title="Courses"><span aria-hidden="true">▦</span><span class="nav-text">Courses</span></button>
         <div id="course-navigation" hidden>
           <p class="nav-label">Author</p>
-          <button class="nav-item" data-view="details"><span>◫</span>Course details</button>
-          <button class="nav-item" data-view="editor"><span>♟</span>Repertoire editor</button>
-          <button class="nav-item" data-view="analysis"><span>✦</span>Maia &amp; engine</button>
-          <button class="nav-item" data-view="writing"><span>✓</span>Writing</button>
-          <button class="nav-item" data-view="chapters"><span>☷</span>Chapters</button>
-          <button class="nav-item" data-view="videos"><span>▶</span>Videos</button>
-          <button class="nav-item" data-view="preview"><span>▷</span>Learner preview</button>
+          <button class="nav-item" data-view="details" title="Course details"><span aria-hidden="true">◫</span><span class="nav-text">Course details</span></button>
+          <button class="nav-item" data-view="editor" title="Repertoire editor"><span aria-hidden="true">♟</span><span class="nav-text">Repertoire editor</span></button>
+          <button class="nav-item" data-view="writing" title="Writing"><span aria-hidden="true">✓</span><span class="nav-text">Writing</span></button>
+          <button class="nav-item" data-view="chapters" title="Chapters"><span aria-hidden="true">☷</span><span class="nav-text">Chapters</span></button>
+          <button class="nav-item" data-view="videos" title="Videos"><span aria-hidden="true">▶</span><span class="nav-text">Videos</span></button>
+          <button class="nav-item" data-view="preview" title="Learner preview"><span aria-hidden="true">▷</span><span class="nav-text">Learner preview</span></button>
           <p class="nav-label">Release</p>
-          <button class="nav-item" data-view="quality"><span>◇</span>Quality checks <i id="quality-count"></i></button>
-          <button class="nav-item" data-view="history"><span>↺</span>History</button>
+          <button class="nav-item" data-view="quality" title="Quality checks"><span aria-hidden="true">◇</span><span class="nav-text">Quality checks</span><i id="quality-count"></i></button>
+          <button class="nav-item" data-view="history" title="History"><span aria-hidden="true">↺</span><span class="nav-text">History</span></button>
         </div>
       </nav>
     </aside>
@@ -103,21 +103,12 @@
             <p id="board-status" class="muted" hidden></p>
           </section>
           <section class="author-pane">
-            <article class="tool-card move-tree-card"><div class="card-heading"><div><h2>Variation tree</h2><p>The first move at each position is the main line.</p></div></div><div id="move-tree" class="move-tree"></div></article>
+            <article class="tool-card move-tree-card collapsible-card"><div class="card-heading"><div><h2>Variation tree</h2><p>The first move at each position is the main line.</p></div><button class="collapse-button" type="button" data-editor-panel-toggle="tree" aria-expanded="true" aria-controls="move-tree" aria-label="Collapse Variation tree" title="Collapse Variation tree"><span aria-hidden="true">⌃</span></button></div><div id="move-tree" class="move-tree"></div></article>
             <article id="move-inspector" class="tool-card"><div class="empty-state"><strong>Select a move</strong><p>Its explanation and feedback will appear here.</p></div></article>
+            <article id="editor-maia-card" class="tool-card accent-maia collapsible-card"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia moves</h2></div><div class="card-heading-actions"><label>Rating <select id="maia-rating"><option>1000</option><option>1500</option><option>2000</option><option>2500</option></select></label><button class="collapse-button" type="button" data-editor-panel-toggle="maia" aria-expanded="false" aria-controls="maia-results" aria-label="Expand Maia moves" title="Expand Maia moves"><span aria-hidden="true">⌄</span></button></div></div><div id="maia-results" class="suggestion-list" hidden><div class="empty-state"><p>Expand to see likely human moves.</p></div></div></article>
             <button id="raw-pgn" class="secondary" type="button">View or edit raw PGN</button>
           </section>
         </div>
-      </section>
-
-      <section class="view" data-panel="analysis">
-        <div class="page-heading"><div><p class="eyebrow">Suggestions</p><h1>Maia &amp; Stockfish</h1><p>Human-likelihood and objective chess analysis, kept deliberately separate.</p></div><button id="run-analysis" class="primary" type="button">Analyse this position</button></div>
-        <div class="analysis-position"><div id="analysis-path" class="move-path">Starting position</div><button class="link-button" data-jump-editor>Change position</button></div>
-        <div class="analysis-grid" aria-live="polite">
-          <article class="tool-card accent-maia"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia suggestions</h2></div><label>Rating <select id="maia-rating"><option>1000</option><option>1500</option><option>2000</option><option>2500</option></select></label></div><div id="maia-results" class="suggestion-list"><div class="empty-state"><p>Run analysis to see likely human moves.</p></div></div></article>
-          <article class="tool-card accent-engine"><div class="card-heading"><div><p class="eyebrow">Objective</p><h2>Stockfish 18</h2></div><span id="engine-depth" class="tag">Engine lines</span></div><div id="engine-results" class="suggestion-list"><div class="empty-state"><p>Run analysis to see the strongest continuations.</p></div></div></article>
-        </div>
-        <article class="tool-card gap-card"><div class="card-heading"><div><h2>Whole-course coverage</h2><p>Find likely opponent responses that are missing from the repertoire.</p></div><button id="run-gap-check" class="secondary">Check coverage</button></div><div id="gap-results" class="quality-list"></div></article>
       </section>
 
       <section class="view" data-panel="writing">
@@ -138,6 +129,7 @@
       <section class="view" data-panel="quality">
         <div class="page-heading"><div><p class="eyebrow">Release</p><h1>Quality checks</h1><p>Blockers must be fixed. Warnings are yours to judge.</p></div><button id="refresh-quality" class="primary">Run all checks</button></div>
         <div id="quality-summary" class="stat-strip"></div><div id="quality-results" class="quality-list"></div>
+        <article class="tool-card gap-card"><div class="card-heading"><div><h2>Whole-course coverage</h2><p>Find likely opponent responses that are missing from the repertoire.</p></div><button id="run-gap-check" class="secondary">Check coverage</button></div><div id="gap-results" class="quality-list"></div></article>
       </section>
 
       <section class="view" data-panel="history">
@@ -186,6 +178,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260902-progressive-engine"></script>
+  <script type="module" src="/static/studio.js?v=20260902-editor-maia"></script>
 </body>
 </html>

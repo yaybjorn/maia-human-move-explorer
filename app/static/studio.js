@@ -1,4 +1,4 @@
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-progressive-engine";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-editor-maia";
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
@@ -21,11 +21,14 @@ const state = {
   reconciliationError: null, pendingImport: null,
   ignoredWords: [],
   editorEngineEnabled: false, editorEngineEvaluation: null,
+  editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
+  sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
 const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
+const SIDEBAR_KEY = "gingergm-studio-sidebar-collapsed";
 
 const editorEngine = new EngineAnalysisController({
   analyze: (moves, options) => analysisAPI.stockfish(moves, options),
@@ -84,6 +87,7 @@ function setUser(user) {
 }
 async function showApp() {
   $("boot").hidden = true; $("login-view").hidden = true; $("studio").hidden = false;
+  restoreSidebarPreference();
   await Promise.all([
     loadCourses(),
     refreshIgnoredWords().catch(error=>showStatus(`Shared dictionary unavailable: ${error.message}`,true)),
@@ -128,6 +132,7 @@ function renderDashboard() {
 
 async function openCourse(id) {
   if (dirty() && !confirm("Discard your unsaved changes and open another course?")) return;
+  stopEditorMaia(); state.analysisToken += 1;
   showStatus("Opening course…");
   try {
     const payload = await api.course(id);
@@ -271,6 +276,7 @@ function flushActiveEditor() {
 function markPendingInput(){if(!state.document)return;$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
 function switchView(view) {
+  if (view === "analysis") view = "editor";
   if (view !== "dashboard" && !state.document) view = "dashboard";
   if (view !== "videos" && unmountVideoPreview()) {
     renderVideos();
@@ -283,12 +289,12 @@ function switchView(view) {
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
   if (["chapters","videos","preview"].includes(view)) renderAll();
-  if (view === "editor") queueEditorEngineAnalysis();
-  else editorEngine.cancel();
+  if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
+  else { editorEngine.cancel(); stopEditorMaia(); }
 }
 function renderAll() {
   if (!state.document) return;
-  renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderAnalysisPath(); renderQuality();
+  renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
@@ -407,6 +413,10 @@ async function refreshPosition() {
     state.editorEngineEvaluation = null;
     renderEditorEngine("Analysing…");
   }
+  if (state.editorPanels.maia) {
+    stopEditorMaia();
+    $("maia-results").innerHTML='<div class="empty-state"><p>Maia is considering likely human choices…</p></div>';
+  }
   try {
     const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
     if (token !== state.requestToken) return;
@@ -414,7 +424,7 @@ async function refreshPosition() {
     const status = $("board-status");
     status.textContent = position.game_over ? "This line ends here." : "";
     status.hidden = !position.game_over;
-    queueEditorEngineAnalysis();
+    queueEditorEngineAnalysis(); queueEditorMaiaAnalysis();
   } catch (error) { const status = $("board-status"); status.textContent = error.message; status.hidden = false; }
 }
 
@@ -506,13 +516,19 @@ function moveButton(id, label) {
   const button = document.createElement("button"); button.type = "button"; button.className = `move-chip${state.currentNodeID === id ? " current" : ""}`; button.textContent = label;
   button.addEventListener("click", () => navigate(id)); return button;
 }
-function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; renderMoveTree(); renderInspector(); renderAnalysisPath(); refreshPosition(); }
+function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderInspector(); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
 function renderInspector() {
   const inspector = $("move-inspector"), node = nodeByID(state.document, state.currentNodeID);
-  if (!node) { inspector.innerHTML = '<div class="empty-state"><strong>Starting position</strong><p>Play a move on the board to begin or extend the repertoire.</p></div>'; return; }
+  const expanded = state.editorPanels.inspector;
+  if (!node) {
+    inspector.className = "tool-card collapsible-card";
+    inspector.innerHTML = `<div class="card-heading"><div><p class="eyebrow">Selected move</p><h2>Starting position</h2></div>${editorPanelButton("inspector", "Selected move")}</div><div id="move-inspector-content" class="empty-state" ${expanded?"":"hidden"}><p>Play a move on the board to begin or extend the repertoire.</p></div>`;
+    bindEditorPanelButtons(inspector);
+    return;
+  }
   const siblings = childrenOf(state.document, node.parentId), siblingIndex = siblings.findIndex(item => item.id === node.id);
   const learnerMove = node.ply % 2 === (state.document.metadata.side === "white" ? 1 : 0);
   const commentLabel = learnerMove
@@ -523,9 +539,11 @@ function renderInspector() {
       ? "Play another legal move from the previous position to add a wrong answer, then write its feedback on that variation."
       : "This variation is a wrong learner answer. Its explanation is shown after the mistake."
     : "Alternative moves here are opponent repertoire branches.";
-  inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div></div>
-    <label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea><small>${variationHelp}</small></label>
-    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}`;
+  inspector.className = "tool-card collapsible-card";
+  inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-head-actions"><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div>${editorPanelButton("inspector", "Selected move")}</div></div>
+    <div id="move-inspector-content" class="collapsible-content" ${expanded?"":"hidden"}><label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea><small>${variationHelp}</small></label>
+    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}</div>`;
+  bindEditorPanelButtons(inspector);
   const update = patch => commit(updateNode(state.document, node.id, patch));
   $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
   $("node-hint")?.addEventListener("change", event => update({ hint: event.target.value.trim().replace(/\s+/g," ") }));
@@ -536,26 +554,68 @@ function renderInspector() {
   inspector.querySelector('[data-action="delete"]').addEventListener("click", () => { if(confirm(`Delete ${node.san} and every move after it in this branch?`)){const parent=node.parentId;commit(removeBranch(state.document,node.id),{navigateTo:parent});refreshPosition();} });
 }
 
-function renderAnalysisPath() {
-  if (!state.document) return;
-  const sans = pathToNode(state.document, state.currentNodeID).map(moveLabel);
-  $("analysis-path").textContent = sans.join(" ") || "Starting position";
+function editorPanelButton(name, label) {
+  const expanded = state.editorPanels[name];
+  const action = `${expanded?"Collapse":"Expand"} ${label}`;
+  return `<button class="collapse-button" type="button" data-editor-panel-toggle="${name}" aria-expanded="${expanded}" aria-label="${action}" title="${action}"><span aria-hidden="true">${expanded?"⌃":"⌄"}</span></button>`;
 }
-async function runPositionAnalysis() {
-  const button=$("run-analysis"), token=++state.analysisToken, moves=movesToNode(state.document,state.currentNodeID), positionKey=moves.join(" ");
-  setBusy(button,true,"Analysing…");
+function bindEditorPanelButtons(root=document) {
+  root.querySelectorAll("[data-editor-panel-toggle]").forEach(button=>{
+    if(button.dataset.panelBound)return;
+    button.dataset.panelBound="true";
+    button.addEventListener("click",()=>toggleEditorPanel(button.dataset.editorPanelToggle));
+  });
+}
+function renderEditorPanels() {
+  const controls = {
+    tree: { content: $("move-tree"), label: "Variation tree" },
+    inspector: { content: $("move-inspector-content"), label: "Selected move" },
+    maia: { content: $("maia-results"), label: "Maia moves" },
+  };
+  for(const [name,{content,label}] of Object.entries(controls)){
+    if(!content)continue;
+    const expanded=state.editorPanels[name];
+    content.hidden=!expanded;
+    content.closest(".collapsible-card")?.classList.toggle("is-collapsed",!expanded);
+    const button=document.querySelector(`[data-editor-panel-toggle="${name}"]`);
+    if(button){const action=`${expanded?"Collapse":"Expand"} ${label}`;button.setAttribute("aria-expanded",String(expanded));button.setAttribute("aria-label",action);button.title=action;button.querySelector("span").textContent=expanded?"⌃":"⌄";}
+  }
+  bindEditorPanelButtons();
+}
+function toggleEditorPanel(name) {
+  if(!(name in state.editorPanels))return;
+  if(name==="inspector"&&!state.editorPanels.inspector)renderInspector();
+  state.editorPanels[name]=!state.editorPanels[name];
+  renderEditorPanels();
+  if(name!=="maia")return;
+  state.analysisToken+=1;
+  if(state.editorPanels.maia)queueEditorMaiaAnalysis();
+  else {stopEditorMaia();$("maia-results").innerHTML='<div class="empty-state"><p>Expand to see likely human moves.</p></div>';}
+}
+
+function stopEditorMaia() {
+  state.editorMaiaAbort?.abort();
+  state.editorMaiaAbort = null;
+}
+async function queueEditorMaiaAnalysis() {
+  if (!state.editorPanels.maia || state.view !== "editor" || !state.document) return;
+  stopEditorMaia();
+  const abort = new AbortController(); state.editorMaiaAbort = abort;
+  const token=++state.analysisToken, moves=movesToNode(state.document,state.currentNodeID), positionKey=moves.join(" ");
   $("maia-results").innerHTML='<div class="empty-state"><p>Maia is considering likely human choices…</p></div>';
-  $("engine-results").innerHTML='<div class="empty-state"><p>Stockfish is analysing the position…</p></div>';
-  const isCurrent=()=>token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
-  await Promise.allSettled([
-    analysisAPI.maia(moves,Number($("maia-rating").value),Number(state.document.metadata.opponentRating||$("maia-rating").value)).then(data=>{if(isCurrent())renderMaia(data.suggestions,token,positionKey)}).catch(error=>{if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
-    analysisAPI.stockfish(moves).then(data=>{if(isCurrent()){renderEngine(data.lines,token,positionKey);$("engine-depth").textContent=`Depth ${data.depth||"—"}`;}}).catch(error=>{if(isCurrent())$("engine-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;}),
-  ]); setBusy(button,false);
+  const isCurrent=()=>!abort.signal.aborted&&state.editorPanels.maia&&state.view==="editor"&&token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
+  try {
+    const rating=Number($("maia-rating").value);
+    const data=await analysisAPI.maia(moves,rating,Number(state.document.metadata.opponentRating||rating),{signal:abort.signal});
+    if(isCurrent())renderMaia(data.suggestions,token,positionKey);
+  } catch(error) {
+    if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;
+  } finally {
+    if(state.editorMaiaAbort===abort)state.editorMaiaAbort=null;
+  }
 }
 function renderMaia(items=[],token,positionKey) { $("maia-results").innerHTML=items.map((move,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(move.san)}</span><span class="meter"><i style="width:${Math.max(0,Math.min(100,move.probability*100))}%"></i></span><button data-accept-move="${escapeHTML(move.uci)}" data-san="${escapeHTML(move.san)}">Add line · ${(move.probability*100).toFixed(1)}%</button></div>`).join("")||'<div class="empty-state"><p>No suggestions returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
-function scoreText(e={}) { if(e.type==="mate") return e.value>0?`M${e.value}`:`−M${Math.abs(e.value)}`;const p=(e.value||0)/100;return`${p>=0?"+":""}${p.toFixed(2)}`; }
-function renderEngine(items=[],token,positionKey) { $("engine-results").innerHTML=items.map((line,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(line.san)}</span><span>${escapeHTML(line.pv||scoreText(line.evaluation))}</span><button data-accept-move="${escapeHTML(line.uci)}" data-san="${escapeHTML(line.san)}">Add line · ${escapeHTML(scoreText(line.evaluation))}</button></div>`).join("")||'<div class="empty-state"><p>No engine lines returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
-function bindSuggestedMoves(token,positionKey){document.querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Analyse again before adding it.",true);const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
+function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
 async function runGapCheck(){
   const button=$("run-gap-check"); setBusy(button,true,"Checking…");
   try {
@@ -584,6 +644,16 @@ function nodeIDForHistory(history){
 function pgnHistory(nodes){const chunks=[];for(let index=0;index<nodes.length;index+=2){let chunk=`${index/2+1}. ${nodes[index].san}`;if(nodes[index+1])chunk+=` ${nodes[index+1].san}`;chunks.push(chunk)}return chunks.join(" ")||"Starting position"}
 function jumpToFinding(finding){if(finding.nodeID===undefined)return showStatus("This finding no longer matches the edited tree. Run coverage again.",true);navigate(finding.nodeID);switchView("editor")}
 function addGapMove(finding,move){if(!move)return;if(finding.nodeID===undefined)return showStatus("Run coverage again after the latest edits.",true);const result=addMove(state.document,finding.nodeID,move);commit(result.document,{navigateTo:result.node.id});refreshPosition();switchView("editor");showStatus(`${move.san} added. Add the author explanation before publishing.`)}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed=Boolean(collapsed);
+  $("studio").classList.toggle("sidebar-collapsed",state.sidebarCollapsed);
+  const button=$("toggle-sidebar"),label=state.sidebarCollapsed?"Expand menu":"Collapse menu";
+  button.setAttribute("aria-pressed",String(state.sidebarCollapsed));button.setAttribute("aria-label",label);button.title=label;
+  button.querySelector("span").textContent=state.sidebarCollapsed?"»":"«";
+  try{localStorage.setItem(SIDEBAR_KEY,state.sidebarCollapsed?"1":"0")}catch{/* unavailable */}
+}
+function restoreSidebarPreference(){let collapsed=false;try{collapsed=localStorage.getItem(SIDEBAR_KEY)==="1"}catch{/* unavailable */}setSidebarCollapsed(collapsed)}
 
 function writingSources(){
   const sources=[];
@@ -699,10 +769,11 @@ async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),
 function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
 
 $("login-form").addEventListener("submit",async event=>{event.preventDefault();const button=event.submitter;setBusy(button,true,"Signing in…");$("login-error").textContent="";try{const session=await api.login($("login-email").value,$("login-password").value);setUser(session.user||session);$("login-password").value="";await showApp();}catch(error){$("login-error").textContent=error.message}finally{setBusy(button,false)}});
-$("logout").addEventListener("click",async()=>{try{await api.logout()}finally{editorEngine.cancel();state.editorEngineEnabled=false;state.document=null;state.savedSnapshot="";showLogin()}});
+$("logout").addEventListener("click",async()=>{try{await api.logout()}finally{editorEngine.cancel();stopEditorMaia();state.editorEngineEnabled=false;state.document=null;state.savedSnapshot="";showLogin()}});
 function setAccountMenu(open){$("account-menu").hidden=!open;$("account-button").setAttribute("aria-expanded",String(open));if(open)$("logout").focus()}
 $("account-button").addEventListener("click",()=>setAccountMenu($("account-menu").hidden));
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>switchView(item.dataset.view)));
+$("toggle-sidebar").addEventListener("click",()=>setSidebarCollapsed(!state.sidebarCollapsed));
 document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventListener("click",()=>switchView("editor")));
 $("new-course").addEventListener("click",()=>{$("create-form").reset();delete $("create-form").elements.slug.dataset.edited;$("create-dialog").showModal()});
 $("create-form").elements.title.addEventListener("input",event=>{const slug=$("create-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
@@ -719,7 +790,7 @@ $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListene
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
-$("run-analysis").addEventListener("click",runPositionAnalysis);$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
+$("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
 $("add-chapter").addEventListener("click",()=>{state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
 $("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",()=>$("publish-dialog").close());$("cancel-publish").addEventListener("click",()=>$("publish-dialog").close());$("confirm-publish").addEventListener("click",confirmPublish);
 $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=await exportSource();$("raw-pgn-error").textContent="";$("raw-pgn-dialog").showModal()}catch(error){showStatus(error.message,true)}});

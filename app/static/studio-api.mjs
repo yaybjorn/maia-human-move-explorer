@@ -108,9 +108,9 @@ export const analysisAPI = Object.freeze({
   parsePGN: pgn => localRequest("/api/parse-pgn", { pgn }),
   exportPGN: (nodes, headers) => localRequest("/api/export-pgn", { nodes, headers }),
   position: moves => localRequest("/api/state", { moves }),
-  maia: (moves, rating, opponentRating) => localRequest("/api/predict", {
+  maia: (moves, rating, opponentRating, { signal } = {}) => localRequest("/api/predict", {
     moves, rating, opponent_rating: opponentRating,
-  }),
+  }, { signal }),
   stockfish: (moves, { signal, timeMs, lines } = {}) => localRequest("/api/stockfish", {
     moves,
     ...(timeMs === undefined ? {} : { time_ms: timeMs }),

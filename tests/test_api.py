@@ -224,9 +224,9 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20260902-progressive-engine' in page.text
+    assert '/static/studio.js?v=20260902-editor-maia' in page.text
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
-    assert './studio-api.mjs?v=20260902-progressive-engine' in studio_source
+    assert './studio-api.mjs?v=20260902-editor-maia' in studio_source
     assert './studio-document.mjs?v=20260902-video-page-preview' in studio_source
     assert './studio-engine.mjs?v=20260902-progressive-engine' in studio_source
     assert 'to shared dictionary</button>' in studio_source
