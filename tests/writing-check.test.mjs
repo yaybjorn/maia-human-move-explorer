@@ -33,6 +33,26 @@ test('still treats an ordinary prose exclamation mark as sentence punctuation', 
   assert.equal(issues.some(issue => issue.kind === 'Capitalization' && issue.problem === 'to'), true);
 });
 
+test('allows a lowercase comment to continue the move it follows', async () => {
+  const comment = ' was also interesting, but not as tricky as the main move.';
+  const moveCommentIssues = await checkWriting([{
+    sourceId: 'comment:42',
+    history: 'move 7 · h4',
+    comment,
+    allowLowercaseOpening: true
+  }]);
+  assert.equal(
+    moveCommentIssues.some(issue => issue.kind === 'Capitalization' && issue.problem === 'was'),
+    false
+  );
+
+  const standaloneIssues = await checkWriting(source(comment, 'metadata:description'));
+  assert.equal(
+    standaloneIssues.some(issue => issue.kind === 'Capitalization' && issue.problem === 'was'),
+    true
+  );
+});
+
 test('ignores template placeholders while linting surrounding prose at original offsets', async () => {
   const fallbackIssues = await checkWriting(source(
     'The repertoire move is {san}.',

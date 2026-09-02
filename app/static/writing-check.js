@@ -125,9 +125,13 @@ export async function checkWriting(sources, { ignoredWords = [] } = {}) {
       const problem = lint.get_problem_text();
       const span = lint.span();
       const initialContext = initialSurnameContext(source.comment, span.start, problem);
+      const lowercaseMoveContinuation = source.allowLowercaseOpening === true &&
+        kind === 'Capitalization' &&
+        /^\s*$/u.test(source.comment.slice(0, span.start));
       if (
         !CHECKED_KINDS.has(kind) ||
         looksLikeChessNotation(problem) ||
+        lowercaseMoveContinuation ||
         ignoredWordSet.has(normaliseIgnoredWord(problem)) ||
         initialContext?.missingSpace === false ||
         overlapsIgnoredRange(span.start, span.end, ignoredRanges)

@@ -702,7 +702,7 @@ function writingSources(){
   const metadataFields=["title","subtitle","description"];
   for(const field of metadataFields){const value=String(state.document.metadata[field]||"");if(value.trim())sources.push({sourceId:`metadata:${field}`,history:`Course ${field}`,comment:value});}
   for(const node of state.document.nodes){
-    if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment});
+    if(node.comment.trim())sources.push({sourceId:`comment:${node.id}`,history:moveLabel(node),comment:node.comment,allowLowercaseOpening:true});
     if(node.hint?.trim())sources.push({sourceId:`hint:${node.id}`,history:`Hint after ${moveLabel(node)}`,comment:node.hint});
     if(node.startingComment.trim())sources.push({sourceId:`starting:${node.id}`,history:`Before ${moveLabel(node)}`,comment:node.startingComment});
   }
