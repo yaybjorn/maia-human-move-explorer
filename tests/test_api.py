@@ -210,7 +210,7 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20260902-editor-engine' in page.text
+    assert '/static/studio.js?v=20260902-editor-engine-bar' in page.text
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
     assert './studio-api.mjs?v=20260902-editor-engine' in studio_source
     assert './studio-document.mjs?v=20260901-teaching-note-links' in studio_source
@@ -225,6 +225,10 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'id="preview-chapter"' in page.text
     assert 'id="editor-eval-bar"' in page.text
     assert 'id="toggle-editor-engine"' in page.text
+    assert 'id="flip-board" title="Flip board" aria-label="Flip board">⇅</button>' in page.text
+    assert 'id="toggle-editor-engine" type="button" title="Turn engine on" aria-label="Turn engine on" aria-pressed="false"><span aria-hidden="true">⚙</span></button>' in page.text
+    assert 'class="editor-engine-control"' not in page.text
+    assert ".editor-board-stage.engine-active{grid-template-columns:44px minmax(0,1fr);gap:0}" in css.text
     assert 'aria-expanded="false"' in page.text
     assert "Suggestions never change a course" not in page.text
     assert ".course-card-head{display:flex;align-items:flex-start" in css.text

@@ -90,8 +90,7 @@
               </div>
               <div id="studio-board" class="chessboard" role="group" aria-label="Interactive course board"></div>
             </div>
-            <div class="board-controls"><button id="go-start" aria-label="Start">⇇</button><button id="go-back" aria-label="Previous move">←</button><button id="go-forward" aria-label="Next move">→</button><button id="go-end" aria-label="End">⇉</button><button id="flip-board">⇅ Flip</button><button id="copy-fen" title="Copy FEN" aria-label="Copy FEN">⧉</button></div>
-            <div class="editor-engine-control"><button id="toggle-editor-engine" class="secondary" type="button" aria-pressed="false">Engine off</button><span id="editor-engine-status" class="muted" role="status" aria-live="polite"></span></div>
+            <div class="board-controls"><button id="go-start" title="Start" aria-label="Start">⇇</button><button id="go-back" title="Previous move" aria-label="Previous move">←</button><button id="go-forward" title="Next move" aria-label="Next move">→</button><button id="go-end" title="End" aria-label="End">⇉</button><button id="flip-board" title="Flip board" aria-label="Flip board">⇅</button><button id="copy-fen" title="Copy FEN" aria-label="Copy FEN">⧉</button><button id="toggle-editor-engine" type="button" title="Turn engine on" aria-label="Turn engine on" aria-pressed="false"><span aria-hidden="true">⚙</span></button><span id="editor-engine-status" class="visually-hidden" role="status" aria-live="polite"></span></div>
             <p id="board-status" class="muted" hidden></p>
           </section>
           <section class="author-pane">
@@ -178,6 +177,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260902-editor-engine"></script>
+  <script type="module" src="/static/studio.js?v=20260902-editor-engine-bar"></script>
 </body>
 </html>

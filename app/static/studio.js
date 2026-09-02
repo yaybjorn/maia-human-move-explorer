@@ -370,7 +370,9 @@ function renderEditorEngine(statusText = "") {
   stage.classList.toggle("engine-active", state.editorEngineEnabled);
   bar.hidden = !state.editorEngineEnabled;
   button.setAttribute("aria-pressed", String(state.editorEngineEnabled));
-  button.textContent = state.editorEngineEnabled ? "Engine on" : "Engine off";
+  const buttonLabel = state.editorEngineEnabled ? "Turn engine off" : "Turn engine on";
+  button.setAttribute("aria-label", buttonLabel);
+  button.title = buttonLabel;
   $("editor-engine-status").textContent = state.editorEngineEnabled ? statusText : "";
   if (!state.editorEngineEnabled) return;
   const evaluation = state.editorEngineEvaluation;
@@ -379,7 +381,6 @@ function renderEditorEngine(statusText = "") {
   $("editor-eval-white").style.height = `${percent}%`;
   $("editor-eval-score").textContent = text;
   bar.classList.toggle("flipped", state.flipped);
-  bar.classList.toggle("white-ahead", Number(evaluation?.value || 0) >= 0);
   const pawns = evaluation?.type === "cp" ? Number(evaluation.value || 0) / 100 : Number(evaluation?.value || 0) > 0 ? 30 : Number(evaluation?.value || 0) < 0 ? -30 : 0;
   bar.setAttribute("aria-valuenow", String(Math.max(-30, Math.min(30, pawns))));
   bar.setAttribute("aria-valuetext", evaluation ? `White perspective ${text}` : statusText || "Analysis pending");
