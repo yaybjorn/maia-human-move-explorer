@@ -111,7 +111,11 @@ export const analysisAPI = Object.freeze({
   maia: (moves, rating, opponentRating) => localRequest("/api/predict", {
     moves, rating, opponent_rating: opponentRating,
   }),
-  stockfish: (moves, options) => localRequest("/api/stockfish", { moves }, options),
+  stockfish: (moves, { signal, timeMs, lines } = {}) => localRequest("/api/stockfish", {
+    moves,
+    ...(timeMs === undefined ? {} : { time_ms: timeMs }),
+    ...(lines === undefined ? {} : { lines }),
+  }, { signal }),
   repertoireGaps: (pgn, repertoireSide, rating, threshold) => localRequest("/api/check-repertoire", {
     pgn, repertoire_side: repertoireSide, rating, threshold,
   }),

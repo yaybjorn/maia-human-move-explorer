@@ -13,11 +13,12 @@ export function whiteEvaluationPercent(evaluation = {}) {
 }
 
 export class EngineAnalysisController {
-  constructor({ analyze, onResult, onError, delay = 250 }) {
+  constructor({ analyze, onResult, onError, delay = 250, stages = [250, 750, 1500, 2500] }) {
     this.analyze = analyze;
     this.onResult = onResult;
     this.onError = onError;
     this.delay = delay;
+    this.stages = stages;
     this.timer = null;
     this.abortController = null;
     this.token = 0;
@@ -32,8 +33,11 @@ export class EngineAnalysisController {
       const controller = new AbortController();
       this.abortController = controller;
       try {
-        const result = await this.analyze(input, { signal: controller.signal });
-        if (token === this.token) this.onResult(result);
+        for (const timeMs of this.stages) {
+          const result = await this.analyze(input, { signal: controller.signal, timeMs, lines: 1 });
+          if (token !== this.token) return;
+          this.onResult(result);
+        }
       } catch (error) {
         if (error?.name !== "AbortError" && token === this.token) this.onError(error);
       } finally {

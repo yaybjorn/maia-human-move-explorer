@@ -49,6 +49,11 @@ class PositionRequest(BaseModel):
     moves: list[str] = Field(default_factory=list, max_length=512)
 
 
+class StockfishRequest(PositionRequest):
+    time_ms: int | None = Field(default=None, ge=100, le=5_000)
+    lines: int | None = Field(default=None, ge=1, le=5)
+
+
 class PredictRequest(PositionRequest):
     rating: int = Field(default=1500, ge=0, le=5000)
     opponent_rating: int | None = Field(default=None, ge=0, le=5000)
@@ -140,11 +145,11 @@ def predict(request: PredictRequest):
 
 
 @app.post("/api/stockfish")
-def stockfish_analysis(request: PositionRequest):
+def stockfish_analysis(request: StockfishRequest):
     position = replay(START_FEN, request.moves)
     if position.board.is_game_over(claim_draw=True):
         raise HTTPException(409, "The game is over; there are no moves to analyze")
-    return stockfish.analyze(position.board)
+    return stockfish.analyze(position.board, time_ms=request.time_ms, lines=request.lines)
 
 
 @app.post("/api/check-repertoire")

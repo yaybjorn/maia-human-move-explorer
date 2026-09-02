@@ -43,7 +43,7 @@ def test_predict_contract_without_loading_weights(monkeypatch):
 def test_stockfish_contract_without_starting_process(monkeypatch):
     monkeypatch.setattr(
         "app.main.stockfish.analyze",
-        lambda *_: {
+        lambda *_, **__: {
             "engine": "Stockfish 18",
             "depth": 16,
             "lines": [
@@ -59,6 +59,20 @@ def test_stockfish_contract_without_starting_process(monkeypatch):
     response = client.post("/api/stockfish", json={"moves": []})
     assert response.status_code == 200
     assert response.json()["lines"][0]["evaluation"]["value"] == 31
+
+
+def test_stockfish_accepts_bounded_editor_analysis_options(monkeypatch):
+    calls = []
+
+    def analyze(*_, **options):
+        calls.append(options)
+        return {"engine": "Stockfish 18", "depth": 20, "lines": []}
+
+    monkeypatch.setattr("app.main.stockfish.analyze", analyze)
+    response = client.post("/api/stockfish", json={"moves": [], "time_ms": 2500, "lines": 1})
+    assert response.status_code == 200
+    assert calls == [{"time_ms": 2500, "lines": 1}]
+    assert client.post("/api/stockfish", json={"time_ms": 5001}).status_code == 422
 
 
 def test_pgn_parse_and_export_contract():
@@ -210,11 +224,11 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20260902-video-page-preview' in page.text
+    assert '/static/studio.js?v=20260902-progressive-engine' in page.text
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
-    assert './studio-api.mjs?v=20260902-editor-engine' in studio_source
+    assert './studio-api.mjs?v=20260902-progressive-engine' in studio_source
     assert './studio-document.mjs?v=20260902-video-page-preview' in studio_source
-    assert './studio-engine.mjs?v=20260902-editor-engine' in studio_source
+    assert './studio-engine.mjs?v=20260902-progressive-engine' in studio_source
     assert 'to shared dictionary</button>' in studio_source
     assert 'runSpellcheck({refreshDictionary:false})' in studio_source
     assert page.headers["x-robots-tag"] == "noindex, nofollow, noarchive"

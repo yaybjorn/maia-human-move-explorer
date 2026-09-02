@@ -65,7 +65,7 @@ test("server-side import preview uses the authenticated Studio route", async () 
   assert.deepEqual(JSON.parse(calls[0].options.body), { pgn: "1. d4 d5 *" });
 });
 
-test("Stockfish analysis forwards an abort signal", async () => {
+test("Stockfish analysis forwards progressive options and an abort signal", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options) => {
@@ -75,9 +75,12 @@ test("Stockfish analysis forwards an abort signal", async () => {
   try {
     const controller = new AbortController();
     const { analysisAPI } = await import(`../app/static/studio-api.mjs?signal=${Date.now()}`);
-    await analysisAPI.stockfish(["e2e4"], { signal: controller.signal });
+    await analysisAPI.stockfish(["e2e4"], { signal: controller.signal, timeMs: 750, lines: 1 });
     assert.equal(calls[0].url, "/api/stockfish");
     assert.equal(calls[0].options.signal, controller.signal);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {
+      moves: ["e2e4"], time_ms: 750, lines: 1,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -1,5 +1,5 @@
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-editor-engine";
-import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-editor-engine";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-progressive-engine";
+import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,

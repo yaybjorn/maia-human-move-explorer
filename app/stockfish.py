@@ -25,15 +25,21 @@ class StockfishEngine:
             self._engine.configure({"Threads": 1, "Hash": 128})
         return self._engine
 
-    def analyze(self, board: chess.Board) -> dict:
-        key = board.fen(en_passant="fen")
+    def analyze(
+        self, board: chess.Board, time_ms: int | None = None, lines: int | None = None
+    ) -> dict:
+        requested_time_ms = self.time_ms if time_ms is None else max(100, min(5_000, time_ms))
+        requested_lines = self.lines if lines is None else max(1, min(5, lines))
+        key = f'{board.fen(en_passant="fen")}|{requested_time_ms}|{requested_lines}'
         with self._lock:
             cached = self._cache.get(key)
             if cached is not None:
                 self._cache.move_to_end(key)
                 return {**cached, "lines": [dict(line) for line in cached["lines"]]}
             analyses = self._load().analyse(
-                board, chess.engine.Limit(time=self.time_ms / 1000), multipv=self.lines
+                board,
+                chess.engine.Limit(time=requested_time_ms / 1000),
+                multipv=requested_lines,
             )
             lines = [self._line(board, item) for item in analyses]
             result = {

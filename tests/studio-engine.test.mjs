@@ -29,6 +29,7 @@ test("debounces rapid positions and ignores stale results", async () => {
   const results = [];
   const controller = new EngineAnalysisController({
     delay: 1,
+    stages: [100],
     analyze: moves => new Promise(resolve => pending.set(moves.join(" "), resolve)),
     onResult: value => results.push(value),
     onError: error => assert.fail(error),
@@ -48,6 +49,7 @@ test("cancel prevents queued analysis", async () => {
   let calls = 0;
   const controller = new EngineAnalysisController({
     delay: 10,
+    stages: [100],
     analyze: async () => { calls += 1; },
     onResult: () => {},
     onError: error => assert.fail(error),
@@ -56,4 +58,25 @@ test("cancel prevents queued analysis", async () => {
   controller.cancel();
   await wait(15);
   assert.equal(calls, 0);
+});
+
+test("publishes progressively deeper evaluations over five seconds of engine time", async () => {
+  const calls = [];
+  const results = [];
+  const controller = new EngineAnalysisController({
+    delay: 1,
+    stages: [250, 750, 1500, 2500],
+    analyze: async (moves, options) => {
+      calls.push({ moves, options });
+      return { depth: calls.length, lines: [{ evaluation: { type: "cp", value: calls.length } }] };
+    },
+    onResult: result => results.push(result.depth),
+    onError: error => assert.fail(error),
+  });
+  controller.schedule(["e2e4"]);
+  await wait(15);
+  assert.deepEqual(calls.map(call => call.options.timeMs), [250, 750, 1500, 2500]);
+  assert.deepEqual(calls.map(call => call.options.lines), [1, 1, 1, 1]);
+  assert.deepEqual(results, [1, 2, 3, 4]);
+  assert.equal(calls.reduce((total, call) => total + call.options.timeMs, 0), 5000);
 });
