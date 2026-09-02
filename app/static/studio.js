@@ -326,8 +326,10 @@ async function refreshPosition() {
     const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
     if (token !== state.requestToken) return;
     state.position = position; renderBoard($("studio-board"), position, { interactive: true, selected: state.selectedSquare });
-    $("board-status").textContent = position.game_over ? "This line ends here." : `${position.turn === "white" ? "White" : "Black"} to move · ${position.legal_moves.length} legal moves`;
-  } catch (error) { $("board-status").textContent = error.message; }
+    const status = $("board-status");
+    status.textContent = position.game_over ? "This line ends here." : "";
+    status.hidden = !position.game_over;
+  } catch (error) { const status = $("board-status"); status.textContent = error.message; status.hidden = false; }
 }
 function boardSquare(square, map) {
   if (!state.position || state.position.game_over) return;
