@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
   commentWithHint,
-  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID, pgnHasMoves, promoteVariation, removeBranch,
+  documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID, normalizeCourseVideos, pgnHasMoves, promoteVariation, removeBranch,
   reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
 } from "../app/static/studio-document.mjs";
 
@@ -43,6 +43,30 @@ test("uses the free price tier for new courses but preserves legacy purchase met
   } });
   assert.equal(legacy.metadata.priceTier, undefined);
   assert.equal(legacy.metadata.purchaseProductID, "com.gingergm.openingdrill.legacy");
+});
+
+test("preserves ordered timestamped YouTube course videos", () => {
+  const videos = [
+    { id: "intro", title: "Introduction", youtubeURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s" },
+    { id: "game-two", title: "Game two", youtubeURL: "https://youtu.be/dQw4w9WgXcQ#t=8m12s" },
+  ];
+  const document = normalizeDocument({ metadata: { title: "Videos", slug: "videos", videos } });
+  assert.deepEqual(document.metadata.videos, videos);
+  assert.deepEqual(documentForStorage(document, "*").metadata.videos, videos);
+});
+
+test("accepts YouTube watch, short, embed and live links but rejects deceptive hosts", () => {
+  const accepted = [
+    "https://youtube.com/watch?v=dQw4w9WgXcQ&t=30",
+    "https://youtu.be/dQw4w9WgXcQ?t=30s",
+    "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube.com/embed/dQw4w9WgXcQ?start=30",
+    "https://www.youtube.com/live/dQw4w9WgXcQ?t=30",
+  ];
+  assert.equal(normalizeCourseVideos(accepted.map((youtubeURL,index)=>({ id:`v-${index}`, title:`Video ${index}`, youtubeURL }))).length, 5);
+  for (const youtubeURL of ["https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ", "https://example.com/video", "https://youtube.com/"]) {
+    assert.throws(() => normalizeCourseVideos([{ id: "bad", title: "Bad", youtubeURL }]), /YouTube|youtube/);
+  }
 });
 
 test("supports add, delete, reorder, promote, comments and undo-safe immutable changes", () => {

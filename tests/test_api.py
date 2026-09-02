@@ -210,10 +210,10 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20260902-editor-engine-bar' in page.text
+    assert '/static/studio.js?v=20260902-course-videos' in page.text
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
     assert './studio-api.mjs?v=20260902-editor-engine' in studio_source
-    assert './studio-document.mjs?v=20260901-teaching-note-links' in studio_source
+    assert './studio-document.mjs?v=20260902-course-videos' in studio_source
     assert './studio-engine.mjs?v=20260902-editor-engine' in studio_source
     assert 'to shared dictionary</button>' in studio_source
     assert 'runSpellcheck({refreshDictionary:false})' in studio_source
@@ -223,6 +223,8 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert "min-width:0;min-height:0;overflow:hidden" in css.text
     assert 'id="raw-pgn-dialog"' in page.text
     assert 'id="preview-chapter"' in page.text
+    assert 'id="video-list"' in page.text
+    assert 'id="add-video"' in page.text
     assert 'id="editor-eval-bar"' in page.text
     assert 'id="toggle-editor-engine"' in page.text
     assert 'id="flip-board" title="Flip board" aria-label="Flip board">⇅</button>' in page.text

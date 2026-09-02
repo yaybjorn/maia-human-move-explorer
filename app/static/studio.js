@@ -4,8 +4,9 @@ import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
+  normalizeCourseVideos,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260901-teaching-note-links";
+} from "./studio-document.mjs?v=20260902-course-videos";
 import { checkWriting, writingSuggestionLabel } from "./writing-check.js";
 
 const api = new StudioAPI();
@@ -20,6 +21,7 @@ const state = {
   reconciliationError: null, pendingImport: null,
   ignoredWords: [],
   editorEngineEnabled: false, editorEngineEvaluation: null,
+  videoDrag: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
@@ -237,6 +239,7 @@ async function saveDraft({ quiet = false } = {}) {
   if (!state.document || !dirty()) return true;
   updateSaveState(true);
   try {
+    state.document.metadata.videos = normalizeCourseVideos(state.document.metadata.videos || []);
     const sourcePGN = await exportSource();
     const localDocument = normalizeDocument({ ...state.document, sourcePGN });
     const payload = await api.saveDraft(state.courseID, state.revision, documentForStorage(localDocument, sourcePGN));
@@ -280,7 +283,7 @@ function switchView(view) {
 }
 function renderAll() {
   if (!state.document) return;
-  renderDetails(); renderMoveTree(); renderInspector(); renderAnalysisPath(); renderQuality();
+  renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderAnalysisPath(); renderQuality();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
@@ -302,6 +305,38 @@ function priceTierFor(metadata) {
   if (["free", "usd-4.99", "usd-9.99", "usd-19.99"].includes(metadata.priceTier)) return metadata.priceTier;
   if (metadata.access === "free") return "free";
   return ({ "$4.99": "usd-4.99", "$9.99": "usd-9.99", "$19.99": "usd-19.99" })[metadata.displayPrice] || "usd-4.99";
+}
+
+function videoID() { return `video-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`; }
+function videoItems() { return state.document?.metadata?.videos || []; }
+function replaceVideos(videos) { commit({ ...state.document, metadata: { ...state.document.metadata, videos } }); }
+function moveVideo(from, to) {
+  const videos = [...videoItems()];
+  if (from === to || from < 0 || to < 0 || from >= videos.length || to >= videos.length) return;
+  const [video] = videos.splice(from, 1); videos.splice(to, 0, video); replaceVideos(videos);
+}
+function renderVideos() {
+  const container = $("video-list"); if (!container || !state.document) return;
+  const videos = videoItems();
+  if (!videos.length) { container.innerHTML = '<div class="empty-state"><p>No videos added.</p></div>'; return; }
+  container.innerHTML = videos.map((video,index)=>`<article class="video-row" draggable="true" data-video-row="${index}">
+    <span class="video-handle" aria-hidden="true">⠿</span>
+    <div class="video-fields"><label>Title<input data-video-title="${index}" maxlength="120" value="${escapeHTML(video.title)}" required></label><label>YouTube link<input data-video-url="${index}" type="url" value="${escapeHTML(video.youtubeURL)}" placeholder="https://youtu.be/…?t=…" required></label></div>
+    <div class="video-actions"><button type="button" data-video-move="-1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} up" ${index===0?"disabled":""}>↑</button><button type="button" data-video-move="1" data-video-index="${index}" aria-label="Move ${escapeHTML(video.title || `video ${index+1}`)} down" ${index===videos.length-1?"disabled":""}>↓</button><button type="button" class="danger" data-video-delete="${index}" aria-label="Delete ${escapeHTML(video.title || `video ${index+1}`)}">×</button></div>
+  </article>`).join("");
+  container.querySelectorAll("[data-video-title],[data-video-url]").forEach(input=>{
+    input.addEventListener("input",()=>{const index=Number(input.dataset.videoTitle??input.dataset.videoUrl),key=input.dataset.videoTitle!==undefined?"title":"youtubeURL";state.document.metadata.videos[index]={...state.document.metadata.videos[index],[key]:input.value};markPendingInput();});
+    input.addEventListener("change",()=>{saveCrashRecovery();updateSaveState();});
+  });
+  container.querySelectorAll("[data-video-delete]").forEach(button=>button.addEventListener("click",()=>{const videos=[...videoItems()];videos.splice(Number(button.dataset.videoDelete),1);replaceVideos(videos);}));
+  container.querySelectorAll("[data-video-move]").forEach(button=>button.addEventListener("click",()=>moveVideo(Number(button.dataset.videoIndex),Number(button.dataset.videoIndex)+Number(button.dataset.videoMove))));
+  container.querySelectorAll("[data-video-row]").forEach(row=>{
+    row.addEventListener("dragstart",()=>{state.videoDrag=Number(row.dataset.videoRow);row.classList.add("dragging")});
+    row.addEventListener("dragend",()=>{state.videoDrag=null;row.classList.remove("dragging")});
+    row.addEventListener("dragover",event=>{if(state.videoDrag!==null){event.preventDefault();row.classList.add("drag-over")}});
+    row.addEventListener("dragleave",()=>row.classList.remove("drag-over"));
+    row.addEventListener("drop",event=>{event.preventDefault();const target=Number(row.dataset.videoRow);row.classList.remove("drag-over");moveVideo(state.videoDrag,target);state.videoDrag=null;});
+  });
 }
 
 function pieceMap(fen) {
@@ -605,7 +640,7 @@ function uniqueChecks(items){const seen=new Set();return items.map(normalizeChec
 function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item,true)),...checks.warnings.map(item=>qualityHTML("warning",item,true))].join("")||qualityHTML("good",{area:"Ready to publish",message:"No blockers or warnings found."});$("quality-results").querySelectorAll("[data-quality-area]").forEach(button=>button.addEventListener("click",()=>reviewQualityItem(button)));return checks;}
 function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
 function reviewQualityItem(button){switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
-function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
+function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("detail")||value.includes("metadata")||value.includes("video"))return"details";return"editor"}
 async function runQuality(){const button=$("refresh-quality");setBusy(button,true,"Checking…");try{if(dirty()&&!await saveDraft({quiet:true}))return null;state.validation=await api.validateCourse(state.courseID,state.revision);renderQuality();showStatus("Quality checks complete.");return state.validation;}catch(error){showStatus(error.message,true);return null}finally{setBusy(button,false)}}
 function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 async function beginPublish(){
@@ -649,6 +684,7 @@ $("import-form").elements.slug.addEventListener("input",event=>{event.target.dat
 $("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const payload=await api.createCourse(importedCoursePayload({...data,pgn:state.pendingImport.pgn}));$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
 $("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
+$("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);

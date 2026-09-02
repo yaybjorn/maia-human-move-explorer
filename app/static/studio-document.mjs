@@ -7,7 +7,41 @@ const DEFAULT_METADATA = Object.freeze({
   catalogVisible: true,
   opponentRating: 1500,
   slug: "",
+  videos: [],
 });
+
+export const MAX_COURSE_VIDEOS = 100;
+export const MAX_VIDEO_TITLE_LENGTH = 120;
+
+export function normalizeCourseVideos(value = []) {
+  if (!Array.isArray(value) || value.length > MAX_COURSE_VIDEOS) {
+    throw new Error(`A course can have at most ${MAX_COURSE_VIDEOS} videos.`);
+  }
+  const ids = new Set();
+  return value.map((item, index) => {
+    const title = String(item?.title || "").trim();
+    const youtubeURL = String(item?.youtubeURL || "").trim();
+    if (!title || title.length > MAX_VIDEO_TITLE_LENGTH) {
+      throw new Error(`Video ${index + 1} needs a title of at most ${MAX_VIDEO_TITLE_LENGTH} characters.`);
+    }
+    let url;
+    try { url = new URL(youtubeURL); } catch { throw new Error(`Video ${index + 1} needs a valid YouTube link.`); }
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const parts = url.pathname.split("/").filter(Boolean);
+    const videoID = host === "youtu.be" ? parts[0]
+      : url.pathname === "/watch" ? url.searchParams.get("v")
+        : ["shorts", "embed", "live"].includes(parts[0] || "") ? parts[1] : null;
+    if (!["youtube.com", "m.youtube.com", "youtu.be"].includes(host)
+        || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port
+        || !videoID || !/^[A-Za-z0-9_-]{6,20}$/.test(videoID)) {
+      throw new Error(`Video ${index + 1} needs a specific youtube.com or youtu.be video link.`);
+    }
+    const id = String(item?.id || "");
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || ids.has(id)) throw new Error(`Video ${index + 1} has an invalid ID.`);
+    ids.add(id);
+    return { id, title, youtubeURL };
+  });
+}
 
 // Course Studio deliberately uses one system-owned fallback across every course.
 export const SYSTEM_FALLBACK_FEEDBACK = "The repertoire move is {san}.";
@@ -65,6 +99,7 @@ export function normalizeDocument(input = {}) {
   if (!metadata.side && metadata.repertoireSide) metadata.side = metadata.repertoireSide;
   delete metadata.repertoireSide;
   const document = newCourseDocument(metadata);
+  document.metadata.videos = normalizeCourseVideos(metadata.videos || []);
   // Older saved documents have no price tier. Keep their purchase metadata intact
   // until an author explicitly selects a new tier.
   if (!Object.hasOwn(metadata, "priceTier")) delete document.metadata.priceTier;
@@ -418,6 +453,11 @@ export function validateDocument(document) {
     blockers.push({ area: "Course details", message: "The course ID must use lowercase words and hyphens." });
   }
   if (!document.nodes.length) blockers.push({ area: "Repertoire", message: "Add at least one move." });
+  try {
+    normalizeCourseVideos(document.metadata.videos || []);
+  } catch (error) {
+    blockers.push({ area: "Course videos", message: error.message });
+  }
   if (ids.size !== document.nodes.length) blockers.push({ area: "Repertoire", message: "Move IDs are not unique." });
   for (const node of document.nodes) {
     if (node.parentId !== null && !ids.has(node.parentId)) blockers.push({ area: "Repertoire", message: `${node.san} has a missing parent move.` });
