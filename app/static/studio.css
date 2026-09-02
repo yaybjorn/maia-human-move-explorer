@@ -61,8 +61,8 @@ button{min-height:44px}
 .editor-board-stage{display:grid;grid-template-columns:minmax(0,1fr);width:100%;max-width:610px;align-items:stretch}
 .editor-board-stage.engine-active{grid-template-columns:44px minmax(0,1fr);gap:0}
 .editor-board-stage .chessboard{max-width:none}
-.editor-board-stage.engine-active .chessboard{border-top-left-radius:0;border-bottom-left-radius:0}
-.editor-eval-bar{position:relative;min-width:0;overflow:hidden;border:1px solid #20231f;border-right:0;border-radius:8px 0 0 8px;background:#252724;color:#fff;box-shadow:var(--shadow)}
+.editor-board-stage.engine-active .chessboard{border-left:0;border-top-left-radius:0;border-bottom-left-radius:0}
+.editor-eval-bar{position:relative;min-width:0;overflow:hidden;border:0;border-radius:8px 0 0 8px;background:#252724;color:#fff;box-shadow:var(--shadow)}
 .editor-eval-white{position:absolute;right:0;bottom:0;left:0;height:50%;background:#f1eee5;transition:height .22s ease}
 .editor-eval-bar.flipped .editor-eval-white{top:0;bottom:auto}
 .editor-eval-score{position:absolute;z-index:1;top:7px;left:4px;right:4px;display:grid;place-items:center;min-height:25px;padding:3px 2px;border-radius:4px;background:#f8f7f3;color:#252724;font:800 11px/1 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px #0002}
