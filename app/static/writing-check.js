@@ -82,10 +82,28 @@ export function writingSuggestionLabel(problem, replacement) {
 }
 
 export function writingBulkFix(issue) {
-  if (issue?.problem === '...' && issue?.suggestions?.includes('…')) {
-    return { key: 'unicode-ellipsis', label: 'Fix all ellipses', replacement: '…' };
+  const problem = String(issue?.problem ?? '');
+  const replacement = issue?.suggestions?.[0];
+  if (!problem || typeof replacement !== 'string') return null;
+  return {
+    key: JSON.stringify([problem, replacement]),
+    label: problem === '...' && replacement === '…'
+      ? 'Fix all ellipses'
+      : `Fix all “${problem}”`,
+    replacement
+  };
+}
+
+export function groupWritingBulkFixes(issues) {
+  const grouped = new Map();
+  for (const issue of issues) {
+    const fix = writingBulkFix(issue);
+    if (!fix) continue;
+    const current = grouped.get(fix.key) || { ...fix, issues: [] };
+    current.issues.push(issue);
+    grouped.set(fix.key, current);
   }
-  return null;
+  return [...grouped.values()].filter(fix => fix.issues.length > 1);
 }
 
 export async function checkWriting(sources, { ignoredWords = [] } = {}) {

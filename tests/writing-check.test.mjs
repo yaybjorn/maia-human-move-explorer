@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { checkWriting, writingBulkFix, writingSuggestionLabel } from '../app/static/writing-check.js';
+import {
+  checkWriting,
+  groupWritingBulkFixes,
+  writingBulkFix,
+  writingSuggestionLabel
+} from '../app/static/writing-check.js';
 
 function source(comment, sourceId = 'comment-1') {
   return [{ sourceId, history: '19. O-O', comment }];
@@ -102,9 +107,29 @@ test('offers one targeted bulk action for repeated Unicode ellipsis fixes', asyn
 
   assert.equal(ellipsisIssues.length, 3);
   assert.deepEqual(writingBulkFix(ellipsisIssues[0]), {
-    key: 'unicode-ellipsis',
+    key: JSON.stringify(['...', '…']),
     label: 'Fix all ellipses',
     replacement: '…'
   });
-  assert.equal(writingBulkFix({ problem: ',', suggestions: [', '] }), null);
+  assert.deepEqual(groupWritingBulkFixes(ellipsisIssues).map(fix => ({
+    label: fix.label,
+    replacement: fix.replacement,
+    count: fix.issues.length
+  })), [{ label: 'Fix all ellipses', replacement: '…', count: 3 }]);
+});
+
+test('groups every repeated matching correction without mixing replacements', () => {
+  const issues = [
+    { problem: 'teh', suggestions: ['the'], sourceId: 'comment-1' },
+    { problem: 'teh', suggestions: ['the'], sourceId: 'comment-2' },
+    { problem: 'teh', suggestions: ['tech'], sourceId: 'comment-3' },
+    { problem: ',', suggestions: [', '], sourceId: 'comment-4' }
+  ];
+
+  assert.deepEqual(groupWritingBulkFixes(issues).map(fix => ({
+    label: fix.label,
+    replacement: fix.replacement,
+    count: fix.issues.length
+  })), [{ label: 'Fix all “teh”', replacement: 'the', count: 2 }]);
+  assert.equal(writingBulkFix({ problem: 'word', suggestions: [] }), null);
 });
