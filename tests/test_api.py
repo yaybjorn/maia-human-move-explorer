@@ -230,6 +230,7 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'view !== "videos" && unmountVideoPreview()' in studio_source
     assert 'function unmountVideoPreview()' in studio_source
     assert 'aria-controls="video-preview-' in studio_source
+    assert 'referrerpolicy="strict-origin-when-cross-origin"' in studio_source
     assert 'id="editor-eval-bar"' in page.text
     assert 'id="toggle-editor-engine"' in page.text
     assert 'id="flip-board" title="Flip board" aria-label="Flip board">⇅</button>' in page.text

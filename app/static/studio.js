@@ -348,7 +348,7 @@ function renderVideos() {
 
 function videoPreviewHTML(video) {
   try {
-    return `<div id="video-preview-${escapeHTML(video.id)}" class="video-preview" role="region" aria-label="Video preview"><iframe src="${escapeHTML(youtubeEmbedURL(video.youtubeURL))}" title="Preview: ${escapeHTML(video.title || "Course video")}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`;
+    return `<div id="video-preview-${escapeHTML(video.id)}" class="video-preview" role="region" aria-label="Video preview"><iframe src="${escapeHTML(youtubeEmbedURL(video.youtubeURL))}" title="Preview: ${escapeHTML(video.title || "Course video")}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`;
   } catch (error) {
     return `<p id="video-preview-${escapeHTML(video.id)}" class="video-preview-error" role="alert">${escapeHTML(error.message)}</p>`;
   }
