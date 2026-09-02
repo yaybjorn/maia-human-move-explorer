@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const html = await readFile(new URL("../app/static/studio.html", import.meta.url), "utf8");
+const javascript = await readFile(new URL("../app/static/studio.js", import.meta.url), "utf8");
 
 test("places collapsible Maia beneath the selected move inspector", () => {
   const inspector = html.indexOf('id="move-inspector"');
@@ -24,4 +25,10 @@ test("removes the analysis page and moves coverage into Quality checks", () => {
 test("offers a desktop icon-only sidebar mode", () => {
   assert.match(html, /id="toggle-sidebar"/);
   assert.match(html, /class="nav-text">Repertoire editor</);
+});
+
+test("distinguishes Maia moves already present in the repertoire", () => {
+  assert.match(javascript, /existing\?"Show line":"Add line"/);
+  assert.match(javascript, /data-existing-node/);
+  assert.match(javascript, /navigate\(button\.dataset\.existingNode\)/);
 });

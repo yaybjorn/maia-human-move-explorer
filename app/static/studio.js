@@ -656,8 +656,15 @@ async function queueEditorMaiaAnalysis() {
     if(state.editorMaiaAbort===abort)state.editorMaiaAbort=null;
   }
 }
-function renderMaia(items=[],token,positionKey) { $("maia-results").innerHTML=items.map((move,index)=>`<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(move.san)}</span><span class="meter"><i style="width:${Math.max(0,Math.min(100,move.probability*100))}%"></i></span><button data-accept-move="${escapeHTML(move.uci)}" data-san="${escapeHTML(move.san)}">Add line · ${(move.probability*100).toFixed(1)}%</button></div>`).join("")||'<div class="empty-state"><p>No suggestions returned.</p></div>'; bindSuggestedMoves(token,positionKey); }
-function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
+function renderMaia(items=[],token,positionKey) {
+  const existingByUCI=new Map(childrenOf(state.document,state.currentNodeID).map(node=>[node.uci,node]));
+  $("maia-results").innerHTML=items.map((move,index)=>{
+    const existing=existingByUCI.get(move.uci),action=existing?"Show line":"Add line";
+    return `<div class="suggestion-row"><span>${index+1}</span><span class="move">${escapeHTML(move.san)}</span><span class="meter"><i style="width:${Math.max(0,Math.min(100,move.probability*100))}%"></i></span><button data-accept-move="${escapeHTML(move.uci)}" data-san="${escapeHTML(move.san)}"${existing?` data-existing-node="${escapeHTML(existing.id)}"`:""}>${action} · ${(move.probability*100).toFixed(1)}%</button></div>`;
+  }).join("")||'<div class="empty-state"><p>No suggestions returned.</p></div>';
+  bindSuggestedMoves(token,positionKey);
+}
+function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);if(button.dataset.existingNode){navigate(button.dataset.existingNode);showStatus(`${button.dataset.san} is already in the repertoire.`);return}const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
 async function runGapCheck(){
   const button=$("run-gap-check"); setBusy(button,true,"Checking…");
   try {
