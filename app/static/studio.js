@@ -273,6 +273,7 @@ async function performSaveDraft() {
         videos: normalizeCourseVideos(state.document.metadata.videos || []),
       },
     });
+    saveCrashRecovery();
     const sourcePGN = await exportSource(documentToSave);
     const localDocument = normalizeDocument({ ...documentToSave, sourcePGN });
     const payload = await api.saveDraft(startingCourseID, startingRevision, documentForStorage(localDocument, sourcePGN));
@@ -304,7 +305,10 @@ async function performSaveDraft() {
   } catch (error) {
     updateSaveState();
     if (error.status === 409) { showStatus("Another tab or browser saved a newer version. Your work is safe here.", true); $("conflict-dialog").showModal(); }
-    else showStatus(error.message, true);
+    else {
+      saveCrashRecovery();
+      showStatus(`Save not confirmed. Keep this tab open and try Save draft again. ${error.message}`, true);
+    }
     return false;
   }
 }

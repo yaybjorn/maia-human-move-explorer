@@ -70,8 +70,13 @@ export class StudioAPI {
   course(id) { return this.request(ROUTES.course(id)); }
   createCourse(input) { return this.request(ROUTES.courses, { method: "POST", body: input }); }
   importPGN(pgn) { return this.request(ROUTES.import, { method: "POST", body: { pgn } }); }
-  saveDraft(id, revision, document) {
-    return this.request(ROUTES.draft(id), { method: "PUT", body: { revision, document } });
+  async saveDraft(id, revision, document) {
+    const result = await this.request(ROUTES.draft(id), { method: "PUT", body: { revision, document } });
+    // A proxy can return an HTML error with status 200. Never mark that saved.
+    if (!Number.isInteger(result?.draft?.revision) || result.draft.revision <= revision) {
+      throw new StudioAPIError("The server did not confirm the saved draft.", { code: "invalid_save_response" });
+    }
+    return result;
   }
   validateCourse(id, revision, document) {
     return this.request(ROUTES.validate(id), { method: "POST", body: { revision, document } });

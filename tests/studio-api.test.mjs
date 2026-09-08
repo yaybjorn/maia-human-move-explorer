@@ -7,7 +7,7 @@ test("uses same-origin cookies and server-issued CSRF for mutations", async () =
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });
-    return new Response(JSON.stringify({ csrfToken: "csrf-value", revision: 2 }), {
+    return new Response(JSON.stringify({ csrfToken: "csrf-value", draft: { revision: 2 } }), {
       status: 200, headers: { "Content-Type": "application/json" },
     });
   };
@@ -124,4 +124,19 @@ test("shared ignored words use authenticated GET and CSRF-protected POST routes"
   assert.equal(calls[2].options.method, "POST");
   assert.equal(calls[2].options.headers["X-CSRF-Token"], "csrf");
   assert.deepEqual(JSON.parse(calls[2].options.body), { word: "Kilkenny" });
+});
+
+
+test("save never accepts HTML success or a missing/stale revision as acknowledgement", async () => {
+  for (const body of ["<html>Worker exceeded limits</html>", "null", "{}", JSON.stringify({ draft: { revision: 3 } })]) {
+    const api = new StudioAPI("/studio/api", async () => new Response(body, { status: 200 }));
+    await assert.rejects(api.saveDraft("course", 3, {}), error => error.code === "invalid_save_response");
+  }
+});
+
+test("worker failure and network loss never acknowledge a save", async () => {
+  for (const fetcher of [async () => new Response("CPU limit", {status: 503}), async () => {throw new Error("lost response")}]) {
+    const api = new StudioAPI("/studio/api", fetcher);
+    await assert.rejects(api.saveDraft("course", 3, {}), StudioAPIError);
+  }
 });
