@@ -55,7 +55,10 @@ export class StagedUpload {
     if (!record.uploadID) return record; // Lost reservation ack: never create a replacement automatically.
     const remote = await this.request(`${this.path}/${encodeURIComponent(record.uploadID)}/operations`);
     this.validateRemote(record, remote);
-    record.progress = this.progress(remote); record.state = remote.blocked ? "blocked" : KINDS.every(k => remote.files[k].stored) ? "staged" : "paused";
+    record.progress = this.progress(remote);
+    // Read-only completion evidence survives expiry of permission to write.
+    // run() still denies blocked recovery before preparing/executing any effect.
+    record.state = KINDS.every(k => remote.files[k].stored) ? "staged" : remote.blocked ? "blocked" : "paused";
     this.save(record); return record;
   }
   progress(remote) { return Object.fromEntries(KINDS.map(kind => [kind, { offset: remote.files[kind].offset, byteLength: remote.files[kind].byteLength, stored: remote.files[kind].stored }])); }

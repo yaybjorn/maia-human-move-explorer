@@ -116,3 +116,24 @@ test("binary execution forwards exact headers/no JSON and rejects fake success, 
   let unauthorized = false; api.onUnauthorized = () => { unauthorized = true; }; status = 401;
   await assert.rejects(api.executeStagedOperation("/test", 2)); assert.equal(unauthorized, true);
 });
+
+test("retained completed files remain inspectable after write expiry without authorizing new effects", async () => {
+  const s = setup();
+  await s.make().run(s.inputs);
+  const effects = s.effects.length, prepares = s.prepares.length;
+  s.remote.blocked = true; // Expired reservation: receipts remain, no write permit.
+  const record = await s.make().inspect();
+  assert.equal(record.state, "staged");
+  assert.ok(Object.values(record.progress).every(file => file.stored));
+  await assert.rejects(s.make().run(s.inputs), /uncertain or expired/);
+  assert.equal(s.effects.length, effects);
+  assert.equal(s.prepares.length, prepares);
+});
+
+test("retained partial upload stays blocked after write expiry", async () => {
+  const s = setup({ lostExecute: true });
+  await assert.rejects(s.make().run(s.inputs), /lost execute/);
+  s.remote.blocked = true;
+  assert.equal((await s.make().inspect()).state, "blocked");
+  assert.equal(s.effects.length, 1);
+});
