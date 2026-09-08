@@ -1,7 +1,5 @@
 // Staged bytes only. Never edits a course document or asserts playable readiness.
-// Author-only private staging. Server/proxy gates remain authoritative; no
-// learner access, course selection, publication or playable-ready promotion.
-export const PRIVATE_UPLOADS_ENABLED = true;
+export const PRIVATE_UPLOADS_ENABLED = false;
 export const CHUNK_BYTES = 8 * 1024 ** 2;
 export const FREE_UPLOAD_EXPLANATION = "Private video uploads are available for paid courses only.";
 const KINDS = ["video", "thumbnail"];
