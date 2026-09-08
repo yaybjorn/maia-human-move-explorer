@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>GingerGM Course Studio</title>
   <link rel="icon" type="image/svg+xml" href="/static/studio-favicon.svg">
-  <link rel="stylesheet" href="/static/studio.css">
+  <link rel="stylesheet" href="/static/studio.css?v=20260908-course-video">
 </head>
 <body>
   <section id="boot" class="center-card" aria-live="polite">
@@ -81,9 +81,13 @@
       </section>
 
       <section class="view" data-panel="videos">
-        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p>Add, preview and arrange the YouTube videos learners will see.</p></div><button id="add-video" class="primary" type="button">Add video</button></div>
+        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p>Add and preview the YouTube videos learners will see.</p></div></div>
+        <section class="tool-card video-editor-card" aria-labelledby="course-video-heading">
+          <div class="card-heading"><div><h2 id="course-video-heading">Course video <span class="optional-label">Optional</span></h2><p>One main video for this course. Leave it empty if you don’t need one.</p></div><button id="add-course-video" class="secondary" type="button">Add course video</button></div>
+          <div id="course-video-editor"></div>
+        </section>
         <section class="tool-card video-editor-card" aria-labelledby="videos-title">
-          <div class="card-heading"><div><h2 id="videos-title">Course videos</h2><p>Timestamped links can point to individual games in one video.</p></div></div>
+          <div class="card-heading"><div><h2 id="videos-title">Supplemental videos</h2><p>Extra videos, shown in the order below. Timestamped links can point to individual games.</p></div><button id="add-video" class="secondary" type="button">Add video</button></div>
           <div id="video-list" class="video-list" aria-live="polite"></div>
         </section>
       </section>
@@ -178,6 +182,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260902-maia-existing-lines"></script>
+  <script type="module" src="/static/studio.js?v=20260908-course-video"></script>
 </body>
 </html>

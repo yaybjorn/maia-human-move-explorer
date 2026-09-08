@@ -298,3 +298,43 @@ test("moves an imported position hint from a wrong sibling to the correct main m
   assert.doesNotMatch(serializeForPGN(imported)[1].comment, /\[%hint/);
   assert.equal(validateDocument(imported).blockers.some(item => /hint/.test(item.message)), false);
 });
+
+test("optional main course video preserves independent data through storage and hydration", () => {
+  const videos = [{ id: "extra", title: "Extra game", youtubeURL: "https://youtu.be/abcdefghijk?t=20" }];
+  const courseVideo = { id: "main", title: "  Course introduction  ", youtubeURL: "http://youtube.com/watch?v=abcdefghijk&t=1m30s" };
+  const document = importParsedPGN(parsed, { title: "Video course", slug: "video-course", courseVideo, videos, access: "subscriber", purchaseProductID: "existing.product", customField: { keep: true } });
+  const normalized = normalizeDocument(document);
+  const stored = documentForStorage(normalized, "1. e4 e5 *");
+  const restored = hydrateRestoredDocument(parsed, normalizeDocument(JSON.parse(JSON.stringify(stored))));
+  assert.deepEqual(restored.metadata.courseVideo, { id: "main", title: "Course introduction", youtubeURL: "https://www.youtube.com/watch?v=abcdefghijk&t=1m30s" });
+  assert.deepEqual(restored.metadata.videos, videos);
+  assert.equal(restored.metadata.purchaseProductID, "existing.product");
+  assert.deepEqual(restored.metadata.customField, { keep: true });
+  assert.deepEqual(serializeForPGN(restored), serializeForPGN(normalized));
+  assert.equal(new URL(youtubeEmbedURL(restored.metadata.courseVideo.youtubeURL)).searchParams.get("start"), "90");
+});
+
+test("course video omission and explicit removal remain distinct in wire JSON", () => {
+  const legacy = normalizeDocument({ metadata: { title: "Legacy", slug: "legacy" } });
+  assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(documentForStorage(legacy, "*"))).metadata, "courseVideo"), false);
+  const removed = normalizeDocument({ ...legacy, metadata: { ...legacy.metadata, courseVideo: null } });
+  assert.equal(JSON.parse(JSON.stringify(documentForStorage(removed, "*"))).metadata.courseVideo, null);
+});
+
+test("invalid main video blocks saving and points quality checks to Videos", () => {
+  const valid = { id: "main", title: "Intro", youtubeURL: "https://youtu.be/abcdefghijk" };
+  for (const courseVideo of [[], "bad", { ...valid, id: "bad id" }, { ...valid, title: " " }, { ...valid, youtubeURL: "https://youtube.com.evil.example/watch?v=abcdefghijk" }, { ...valid, youtubeURL: `https://youtu.be/abcdefghijk?x=${"x".repeat(2048)}` }]) {
+    const document = newCourseDocument({ title: "Course", slug: "course", courseVideo });
+    assert.throws(() => normalizeDocument(document), /Course video/);
+    assert.ok(validateDocument(document).blockers.some(item => item.area === "Course video"));
+  }
+});
+
+
+test("unfinished local course video can be recovered but not saved", () => {
+  const recovery = newCourseDocument({ title: "Recovery", slug: "recovery", courseVideo: { id: "main", title: "Work in progress", youtubeURL: "" } });
+  const restored = normalizeDocument(recovery, { allowIncompleteCourseVideo: true });
+  assert.deepEqual(restored.metadata.courseVideo, recovery.metadata.courseVideo);
+  assert.throws(() => normalizeDocument(restored), /Course video/);
+  assert.ok(validateDocument(restored).blockers.some(item => item.area === "Course video"));
+});

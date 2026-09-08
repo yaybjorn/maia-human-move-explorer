@@ -13,6 +13,26 @@ const DEFAULT_METADATA = Object.freeze({
 export const MAX_COURSE_VIDEOS = 100;
 export const MAX_VIDEO_TITLE_LENGTH = 120;
 
+// Omission preserves the server value; null explicitly removes it.
+export function normalizeCourseVideo(value) {
+  if (value == null) return value;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Course video must be an object.");
+  if (typeof value.id !== "string" || typeof value.title !== "string"
+      || typeof value.youtubeURL !== "string" || value.youtubeURL.trim().length > 2048) {
+    throw new Error("Course video needs a title and a valid YouTube link.");
+  }
+  try {
+    const [video] = normalizeCourseVideos([value]);
+    const url = new URL(video.youtubeURL);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    url.protocol = "https:";
+    url.hostname = host === "youtu.be" ? "youtu.be" : host === "m.youtube.com" ? host : "www.youtube.com";
+    return { ...video, youtubeURL: url.toString() };
+  } catch (error) {
+    throw new Error(error.message.replace(/Video 1/g, "Course video"));
+  }
+}
+
 export function normalizeCourseVideos(value = []) {
   if (!Array.isArray(value) || value.length > MAX_COURSE_VIDEOS) {
     throw new Error(`A course can have at most ${MAX_COURSE_VIDEOS} videos.`);
@@ -120,12 +140,16 @@ export function newCourseDocument(metadata = {}) {
   };
 }
 
-export function normalizeDocument(input = {}) {
+export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = false } = {}) {
   const metadata = { ...(input.metadata || {}) };
   if (!metadata.side && metadata.repertoireSide) metadata.side = metadata.repertoireSide;
   delete metadata.repertoireSide;
   const document = newCourseDocument(metadata);
   document.metadata.videos = normalizeCourseVideos(metadata.videos || []);
+  if (Object.hasOwn(metadata, "courseVideo")) {
+    document.metadata.courseVideo = allowIncompleteCourseVideo
+      ? structuredClone(metadata.courseVideo) : normalizeCourseVideo(metadata.courseVideo);
+  }
   // Older saved documents have no price tier. Keep their purchase metadata intact
   // until an author explicitly selects a new tier.
   if (!Object.hasOwn(metadata, "priceTier")) delete document.metadata.priceTier;
@@ -472,6 +496,8 @@ export function chapterSlices(document, packID = "draft") {
 
 export function validateDocument(document) {
   const blockers = [];
+  try { normalizeCourseVideo(document.metadata.courseVideo); }
+  catch (error) { blockers.push({ area: "Course video", message: error.message }); }
   const warnings = [];
   const ids = new Set(document.nodes.map(node => node.id));
   if (!document.metadata.title.trim()) blockers.push({ area: "Course details", message: "Add a course title." });

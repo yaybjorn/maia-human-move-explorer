@@ -104,3 +104,16 @@ Use the proportional verification tiers in the repo-local `AGENTS.md`.
 ## Likely next work
 
 Requests for improvements to `/check` should begin by reviewing the live results with a representative PGN and deciding whether the ranking, filtering, explanations, board interaction, or export/handoff format best helps Simon address repertoire gaps. Do not assume a redesign or add paid compute without evidence.
+
+## Optional main course video
+
+In Studio, open a course and choose **Videos → Add course video**. Enter a title
+and a YouTube link; a timestamp in the link (such as `?t=90`) sets the starting
+point. **Preview course video** plays it in the tool. **Save draft** stores the
+change; the existing publication flow makes it available to learners.
+
+The single optional Course video is separate from the ordered **Supplemental
+videos** list. **Remove course video**, then **Save draft**, clears only the main
+video. Courses without one need no placeholder or invented URL. Studio uses the
+existing `metadata.courseVideo` object (`id`, `title`, `youtubeURL`); `null` means
+explicit removal, while an omitted field preserves the backend value.

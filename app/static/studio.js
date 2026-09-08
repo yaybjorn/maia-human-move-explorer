@@ -6,7 +6,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260902-validation-position-link";
+} from "./studio-document.mjs?v=20260908-course-video";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 
@@ -24,7 +24,7 @@ const state = {
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
   sidebarCollapsed: false,
-  videoDrag: null, videoPreviewID: null, publishCandidate: null,
+  videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
@@ -47,7 +47,7 @@ const editorEngine = new EngineAnalysisController({
 function escapeHTML(value = "") {
   const node = document.createElement("span");
   node.textContent = String(value);
-  return node.innerHTML;
+  return node.innerHTML.replaceAll('"', "&quot;");
 }
 function slugify(value) { return String(value).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80); }
 function dirty() { return Boolean(state.document) && JSON.stringify(state.document) !== state.savedSnapshot; }
@@ -155,7 +155,7 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
     state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0;
     state.previewAttempt = null; state.previewPosition = null; state.previewSelectedSquare = null;
-    state.videoPreviewID = null; state.publishCandidate = null;
+    state.videoPreviewID = null; state.courseVideoPreview = false; state.publishCandidate = null;
     if (discardUnsaved) clearCrashRecovery(); else restoreCrashRecovery();
     $("course-title").textContent = state.document.metadata.title;
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
@@ -226,7 +226,7 @@ function restoreCrashRecovery() {
   try { recovery = JSON.parse(localStorage.getItem(recoveryKey()) || "null"); } catch { recovery = null; }
   if (!recovery?.document || JSON.stringify(recovery.document) === state.savedSnapshot) return;
   if (confirm(`Unsaved browser recovery from ${formatDate(recovery.savedAt)} was found. Restore it?`)) {
-    state.document = normalizeDocument(recovery.document);
+    state.document = normalizeDocument(recovery.document, { allowIncompleteCourseVideo: true });
     showStatus("Recovered unsaved browser work. Save the draft when ready.");
   } else clearCrashRecovery();
 }
@@ -369,6 +369,7 @@ function moveVideo(from, to) {
   const [video] = videos.splice(from, 1); videos.splice(to, 0, video); replaceVideos(videos);
 }
 function renderVideos() {
+  renderCourseVideo();
   const container = $("video-list"); if (!container || !state.document) return;
   const videos = videoItems();
   if (!videos.length) { container.innerHTML = '<div class="empty-state"><p>No videos added.</p></div>'; return; }
@@ -394,25 +395,61 @@ function renderVideos() {
   });
 }
 
-function videoPreviewHTML(video) {
+function renderCourseVideo() {
+  const container = $("course-video-editor"); if (!container || !state.document) return;
+  const video = state.document.metadata.courseVideo;
+  $("add-course-video").hidden = Boolean(video);
+  if (!video) { state.courseVideoPreview = false; container.innerHTML = ""; return; }
+  container.innerHTML = `<div class="course-video-fields">
+    <div class="video-fields"><label>Title<input id="course-video-title" maxlength="120" value="${escapeHTML(video.title)}" required></label><label>YouTube link<input id="course-video-url" type="url" value="${escapeHTML(video.youtubeURL)}" placeholder="https://youtu.be/…?t=…" aria-describedby="course-video-link-help" required></label></div>
+    <p id="course-video-link-help">To start partway through, paste a YouTube link with a timestamp (for example, <code>?t=90</code> for 1:30).</p>
+    <div class="course-video-actions"><button id="preview-course-video" class="secondary" type="button" aria-expanded="${state.courseVideoPreview}"${state.courseVideoPreview?' aria-controls="course-video-preview"':""}>${state.courseVideoPreview?"Close preview":"Preview course video"}</button><button id="remove-course-video" class="secondary danger" type="button">Remove course video</button></div>
+    ${state.courseVideoPreview?videoPreviewHTML(video,"course-video-preview"):""}
+  </div>`;
+  for (const [id, key] of [["course-video-title", "title"], ["course-video-url", "youtubeURL"]]) {
+    $(id).addEventListener("input", event => {
+      state.document.metadata.courseVideo = { ...state.document.metadata.courseVideo, [key]: event.target.value };
+      state.validation = null; state.publishCandidate = null;
+      if (state.courseVideoPreview) {
+        state.courseVideoPreview = false; $("course-video-preview")?.remove();
+        $("preview-course-video").textContent = "Preview course video";
+        $("preview-course-video").setAttribute("aria-expanded", "false");
+        $("preview-course-video").removeAttribute("aria-controls");
+      }
+      saveCrashRecovery(); markPendingInput();
+    });
+  }
+  $("preview-course-video").addEventListener("click", () => {
+    const next = !state.courseVideoPreview; unmountVideoPreview(); state.courseVideoPreview = next;
+    renderVideos(); $("preview-course-video").focus();
+  });
+  $("remove-course-video").addEventListener("click", () => {
+    state.courseVideoPreview = false;
+    commit({ ...state.document, metadata: { ...state.document.metadata, courseVideo: null } });
+    $("add-course-video").focus();
+  });
+}
+
+function videoPreviewHTML(video, previewID = `video-preview-${video.id}`) {
   try {
-    return `<div id="video-preview-${escapeHTML(video.id)}" class="video-preview" role="region" aria-label="Video preview"><iframe src="${escapeHTML(youtubeEmbedURL(video.youtubeURL))}" title="Preview: ${escapeHTML(video.title || "Course video")}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`;
+    return `<div id="${escapeHTML(previewID)}" class="video-preview" role="region" aria-label="Video preview"><iframe src="${escapeHTML(youtubeEmbedURL(video.youtubeURL))}" title="Preview: ${escapeHTML(video.title || "Course video")}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`;
   } catch (error) {
-    return `<p id="video-preview-${escapeHTML(video.id)}" class="video-preview-error" role="alert">${escapeHTML(error.message)}</p>`;
+    return `<p id="${escapeHTML(previewID)}" class="video-preview-error" role="alert">${escapeHTML(error.message)}</p>`;
   }
 }
 
 function toggleVideoPreview(index) {
   const video = videoItems()[index];
   if (!video) return;
-  state.videoPreviewID = state.videoPreviewID === video.id ? null : video.id;
+  const next = state.videoPreviewID === video.id ? null : video.id;
+  unmountVideoPreview(); state.videoPreviewID = next;
   renderVideos();
   document.querySelector(`[data-video-preview="${index}"]`)?.focus();
 }
 
 function unmountVideoPreview() {
-  const mounted = state.videoPreviewID !== null || Boolean(document.querySelector(".video-preview,.video-preview-error"));
-  state.videoPreviewID = null;
+  const mounted = state.videoPreviewID !== null || state.courseVideoPreview || Boolean(document.querySelector(".video-preview,.video-preview-error"));
+  state.videoPreviewID = null; state.courseVideoPreview = false;
   document.querySelectorAll(".video-preview,.video-preview-error").forEach(element => element.remove());
   return mounted;
 }
@@ -842,6 +879,10 @@ $("import-form").elements.slug.addEventListener("input",event=>{event.target.dat
 $("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const payload=await api.createCourse(importedCoursePayload({...data,pgn:state.pendingImport.pgn}));$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
 $("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
+$("add-course-video").addEventListener("click", () => {
+  commit({ ...state.document, metadata: { ...state.document.metadata, courseVideo: { id: videoID(), title: "", youtubeURL: "" } } });
+  $("course-video-title").focus();
+});
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
