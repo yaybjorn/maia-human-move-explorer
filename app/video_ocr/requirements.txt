@@ -1,0 +1,12 @@
+# CPU worker only. Python 3.11+; no torch/ultralytics/SAM/training dependencies.
+# Evaluated versions except NumPy2.4.6 for Python3.11 compatibility; Linux wheels verified.
+flatbuffers==25.12.19
+numpy==2.4.6
+onnxruntime==1.29.0
+opencv-python-headless==5.0.0.93
+packaging==26.3
+protobuf==7.36.1
+
+# Maintained YouTube acquisition, fixed supported source domain only.
+yt-dlp==2026.8.19
+yt-dlp-ejs==0.8.0

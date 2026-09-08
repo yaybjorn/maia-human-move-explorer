@@ -1,3 +1,4 @@
+import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-editor-maia";
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
@@ -26,6 +27,13 @@ const state = {
   sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
+const extractionPanel = createExtractionPanel({
+  api,
+  getContext: () => state.user && state.document ? {
+    courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(),
+  } : null,
+  notify: showStatus,
+});
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
 const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
@@ -65,6 +73,7 @@ function setBusy(button, busy, busyLabel) {
 }
 
 function showLogin(message = "") {
+  extractionPanel.clear();
   unmountVideoPreview();
   state.user = null; $("boot").hidden = true; $("studio").hidden = true; $("login-view").hidden = false;
   $("login-error").textContent = message;
@@ -298,6 +307,7 @@ async function performSaveDraft() {
     state.currentCourse = payload.course || state.currentCourse;
     state.revision = saved.revision ?? payload.revision ?? startingRevision + 1;
     state.savedSnapshot = JSON.stringify(savedDocument);
+    if (state.view === "videos") extractionPanel.refresh();
     if (!dirty()) clearCrashRecovery();
     else saveCrashRecovery();
     updateSaveState();
@@ -319,9 +329,10 @@ function flushActiveEditor() {
   if (active.id === "node-comment" || active.id === "node-hint"
       || active.dataset.chapterTitle !== undefined || active.form === $("details-form")) active.blur();
 }
-function markPendingInput(){if(!state.document)return;$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
+function markPendingInput(){if(!state.document)return;extractionPanel.contextChanged();$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
 function switchView(view) {
+  if (view !== "videos") extractionPanel.suspend();
   if (view === "analysis") view = "editor";
   if (view !== "dashboard" && !state.document) view = "dashboard";
   if (view !== "videos" && unmountVideoPreview()) {
@@ -335,11 +346,13 @@ function switchView(view) {
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
   if (["chapters","videos","preview"].includes(view)) renderAll();
+  if (view === "videos") extractionPanel.refresh();
   if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
   else { editorEngine.cancel(); stopEditorMaia(); }
 }
 function renderAll() {
   if (!state.document) return;
+  extractionPanel.contextChanged();
   renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();

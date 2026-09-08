@@ -1,5 +1,10 @@
+import asyncio
 import json
 import os
+import re
+import subprocess
+from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -7,7 +12,7 @@ from urllib.request import Request, urlopen
 import chess
 from fastapi import FastAPI, HTTPException
 from fastapi import Request as FastAPIRequest
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -24,6 +29,9 @@ from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire, writing_sources
 from .stockfish import stockfish
+from .video_jobs import kick_worker
+from .video_jobs_api import dispatch as dispatch_extraction
+from .video_jobs_api import is_extraction_path
 
 ROOT = Path(__file__).resolve().parent
 START_FEN = chess.STARTING_FEN
@@ -42,7 +50,24 @@ STUDIO_ALLOWED_ORIGINS = {
     ).split(",")
     if value.strip()
 }
-app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_app):
+    async def supervise_extractions():
+        while True:
+            await run_in_threadpool(kick_worker)
+            await asyncio.sleep(10)
+    task = asyncio.create_task(supervise_extractions())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 class PositionRequest(BaseModel):
@@ -232,6 +257,15 @@ def studio_path_allowed(path: str, method: str) -> bool:
 
 @app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if path in {"source", "source/recognizer"}:
+        if request.method != "GET":
+            raise HTTPException(405, "Source offers are read-only")
+        commit = deployed_source_revision()
+        suffix = f"blob/{commit}/docs/video-ocr-provenance.md" if path.endswith("recognizer") else f"tree/{commit}"
+        return RedirectResponse(f"https://github.com/yaybjorn/maia-human-move-explorer/{suffix}",
+                                status_code=303, headers={"Cache-Control": "no-store"})
+    if is_extraction_path(path):
+        return await dispatch_extraction(path, request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS)
     if not studio_path_allowed(path, request.method):
         raise HTTPException(404, "Unknown Studio operation")
     if not STUDIO_PROXY_SECRET:
@@ -273,6 +307,37 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
         if value := response_headers.get(name):
             outgoing[name] = value
     return Response(content=payload, status_code=status, headers=outgoing)
+
+
+@lru_cache(maxsize=1)
+def deployed_source_revision():
+    try:
+        result = subprocess.run(["git", "-C", str(ROOT.parent), "rev-parse", "HEAD"],
+                                capture_output=True, text=True, timeout=5, check=True)
+        revision = result.stdout.strip()
+        if not re.fullmatch(r"[a-f0-9]{40}", revision):
+            raise ValueError("Invalid revision")
+        return revision
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        raise HTTPException(503, "The deployment source revision is unavailable") from exc
+
+
+async def studio_authenticated_read(request: FastAPIRequest, path: str):
+    """Read existing session/course authority; never expose or persist proxy/session secrets."""
+    if not STUDIO_PROXY_SECRET:
+        raise HTTPException(503, "The Course Studio backend is not configured")
+    headers = {"Accept": "application/json", "User-Agent": "GingerGMCourseStudioProxy/1",
+               "X-Studio-Proxy-Secret": STUDIO_PROXY_SECRET}
+    if cookie := request.headers.get("cookie"):
+        headers["Cookie"] = cookie
+    upstream = Request(f"{GINGERGM_STUDIO_API_BASE}/{path}", headers=headers, method="GET")
+    payload, status, _ = await run_in_threadpool(studio_upstream_request, upstream)
+    if not 200 <= status < 300:
+        raise HTTPException(status, "The current session cannot access this Studio course")
+    try:
+        return json.loads(payload)
+    except ValueError as exc:
+        raise HTTPException(502, "Course Studio returned an invalid response") from exc
 
 
 def studio_upstream_request(upstream: Request):

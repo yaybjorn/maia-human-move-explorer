@@ -7,6 +7,7 @@
   <title>GingerGM Course Studio</title>
   <link rel="icon" type="image/svg+xml" href="/static/studio-favicon.svg">
   <link rel="stylesheet" href="/static/studio.css?v=20260908-course-video">
+  <link rel="stylesheet" href="/static/studio-extraction.css?v=20260908-video-fen">
 </head>
 <body>
   <section id="boot" class="center-card" aria-live="polite">
@@ -89,6 +90,12 @@
         <section class="tool-card video-editor-card" aria-labelledby="videos-title">
           <div class="card-heading"><div><h2 id="videos-title">Supplemental videos</h2><p>Extra videos, shown in the order below. Timestamped links can point to individual games.</p></div><button id="add-video" class="secondary" type="button">Add video</button></div>
           <div id="video-list" class="video-list" aria-live="polite"></div>
+        </section>
+        <section class="tool-card extraction-card" aria-labelledby="extraction-heading">
+          <div class="card-heading"><div><h2 id="extraction-heading">Extract positions from video</h2><p>Find timestamped board candidates to review alongside the video.</p></div></div>
+          <div id="studio-extraction"></div>
+          <p class="extraction-limitations"><a href="/studio/api/source" target="_blank" rel="noopener noreferrer">Corresponding source (AGPL)</a> · <a href="/studio/api/source/recognizer" target="_blank" rel="noopener noreferrer">Recognizer source and model licences</a></p>
+          <p class="extraction-limitations">Samples once per second: brief positions can be missed, and screened results are lossy, not certified correct. Raw uncertainty and later revisits remain available. Downloads contain <strong>seconds;piece-placement FEN</strong>, not complete game state. Extraction and review never change or publish course PGNs or training-position identities.</p>
         </section>
       </section>
 
@@ -182,6 +189,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260908-course-video"></script>
+  <script type="module" src="/static/studio.js?v=20260908-video-fen"></script>
 </body>
 </html>
