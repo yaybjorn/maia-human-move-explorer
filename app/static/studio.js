@@ -312,6 +312,7 @@ async function performSaveDraft() {
     state.currentCourse = payload.course || state.currentCourse;
     state.revision = saved.revision ?? payload.revision ?? startingRevision + 1;
     state.savedSnapshot = JSON.stringify(savedDocument);
+    uploadPanel.refresh();
     if (state.view === "videos") extractionPanel.refresh();
     if (!dirty()) clearCrashRecovery();
     else saveCrashRecovery();
