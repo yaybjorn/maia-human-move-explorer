@@ -28,6 +28,7 @@ from .engine import engine
 from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire, writing_sources
+from .runtime_transfer_proof import RuntimeProofReceiverMiddleware
 from .stockfish import stockfish
 from .video_jobs import kick_worker
 from .video_jobs_api import dispatch as dispatch_extraction
@@ -68,6 +69,11 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="Maia Human Move Explorer", docs_url=None, redoc_url=None, lifespan=lifespan)
+app.add_middleware(
+    RuntimeProofReceiverMiddleware,
+    enabled=os.getenv("RUNTIME_PROOF_RECEIVER_ENABLED") == "1",
+    proxy_secret=STUDIO_PROXY_SECRET,
+)
 
 
 class PositionRequest(BaseModel):
