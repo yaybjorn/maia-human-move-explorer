@@ -31,7 +31,7 @@ export class StudioAPI {
     this.onUnauthorized = null;
   }
 
-  async request(path, { method = "GET", body, mutation = !["GET", "HEAD"].includes(method) } = {}) {
+  async request(path, { method = "GET", body, mutation = !["GET", "HEAD"].includes(method), signal, redirect } = {}) {
     const headers = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (mutation && this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken;
@@ -42,6 +42,7 @@ export class StudioAPI {
         headers,
         credentials: "same-origin",
         cache: "no-store",
+        ...(signal ? { signal } : {}), ...(redirect ? { redirect } : {}),
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
@@ -62,6 +63,23 @@ export class StudioAPI {
   }
 
   session() { return this.request(ROUTES.session); }
+  async executeStagedOperation(path, fence, body, range) {
+    const headers = { Accept: "application/json", "X-Upload-Fence": String(fence) };
+    if (this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken;
+    if (body !== undefined) { headers["Content-Type"] = "application/octet-stream"; headers["Content-Range"] = range; }
+    let response;
+    try {
+      response = await this.fetcher(`${this.base}${path}`, { method: "PUT", headers, body, credentials: "same-origin", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(110000) });
+    } catch { throw new StudioAPIError("Upload acknowledgement was interrupted. Check progress before retrying.", { code: "network_error" }); }
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new StudioAPIError("Upload paused. Check progress before retrying.", { status: response.status, code: data?.error?.code });
+      if (response.status === 401 && this.onUnauthorized) this.onUnauthorized(error);
+      throw error;
+    }
+    if (data?.state !== "receipt_recorded") throw new StudioAPIError("The server did not confirm stored progress.", { code: "invalid_upload_response" });
+    return data;
+  }
   login(email, password) { return this.request(ROUTES.login, { method: "POST", body: { email, password } }); }
   logout() { return this.request(ROUTES.logout, { method: "POST" }); }
   courses() { return this.request(ROUTES.courses); }

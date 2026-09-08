@@ -30,6 +30,7 @@ from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire, writing_sources
 from .runtime_transfer_proof import RuntimeProofReceiverMiddleware
 from .stockfish import stockfish
+from .studio_upload_proxy import is_upload_path, proxy_upload
 from .video_jobs import kick_worker
 from .video_jobs_api import dispatch as dispatch_extraction
 from .video_jobs_api import is_extraction_path
@@ -43,6 +44,7 @@ GINGERGM_STUDIO_API_BASE = os.getenv(
     "GINGERGM_STUDIO_API_BASE", f"{GINGERGM_API_BASE}/v1/studio"
 ).rstrip("/")
 STUDIO_PROXY_SECRET = os.getenv("STUDIO_PROXY_SECRET", "")
+STUDIO_PRIVATE_UPLOADS_ENABLED = os.getenv("STUDIO_PRIVATE_UPLOADS_ENABLED") == "true"
 STUDIO_ALLOWED_ORIGINS = {
     value.strip()
     for value in os.getenv(
@@ -263,6 +265,10 @@ def studio_path_allowed(path: str, method: str) -> bool:
 
 @app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if is_upload_path(path):
+        return await proxy_upload(path, request, enabled=STUDIO_PRIVATE_UPLOADS_ENABLED,
+                                  base=GINGERGM_STUDIO_API_BASE, secret=STUDIO_PROXY_SECRET,
+                                  allowed_origins=STUDIO_ALLOWED_ORIGINS)
     if path in {"source", "source/recognizer"}:
         if request.method != "GET":
             raise HTTPException(405, "Source offers are read-only")

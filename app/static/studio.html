@@ -91,6 +91,14 @@
           <div class="card-heading"><div><h2 id="videos-title">Supplemental videos</h2><p>Extra videos, shown in the order below. Timestamped links can point to individual games.</p></div><button id="add-video" class="secondary" type="button">Add video</button></div>
           <div id="video-list" class="video-list" aria-live="polite"></div>
         </section>
+        <section id="staged-upload-panel" class="tool-card video-editor-card" aria-labelledby="staged-upload-heading" hidden>
+          <div class="card-heading"><div><h2 id="staged-upload-heading">Private course video <span class="optional-label">Optional</span></h2><p>Upload a separate video for offline viewing. Existing YouTube links stay unchanged.</p></div></div>
+          <div class="video-fields"><label>Video title<input data-upload="title" maxlength="200" disabled></label><label>MP4 video<input data-upload="video" type="file" accept="video/mp4" disabled></label><label>Thumbnail<input data-upload="thumbnail" type="file" accept="image/png,image/jpeg" disabled></label></div>
+          <p data-upload="status" role="status" aria-live="polite">Private uploads are not enabled.</p>
+          <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes"></progress>
+          <div class="course-video-actions"><button data-upload="start" class="secondary" type="button" disabled>Stage / resume files</button><button data-upload="check" class="secondary" type="button" disabled>Check saved progress</button><button data-upload="pause" class="secondary" type="button" disabled>Pause</button></div>
+          <p>Stored files remain staged until validation. Staging never saves, selects or publishes course content.</p>
+        </section>
         <section class="tool-card extraction-card" aria-labelledby="extraction-heading">
           <div class="card-heading"><div><h2 id="extraction-heading">Extract positions from video</h2><p>Find timestamped board candidates to review alongside the video.</p></div></div>
           <div id="studio-extraction"></div>
@@ -189,6 +197,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260908-video-fen"></script>
+  <script type="module" src="/static/studio.js?v=20260908-staged-upload"></script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260902-editor-maia";
+import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260908-staged";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260908-staged-upload";
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
@@ -34,6 +35,9 @@ const extractionPanel = createExtractionPanel({
   } : null,
   notify: showStatus,
 });
+const uploadPanel = createUploadPanel({ api, root: $("staged-upload-panel"), getContext: () => state.user && state.document ? {
+  actorID: state.user.id, courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(),
+} : null });
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
 const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
@@ -73,6 +77,7 @@ function setBusy(button, busy, busyLabel) {
 }
 
 function showLogin(message = "") {
+  uploadPanel.clear();
   extractionPanel.clear();
   unmountVideoPreview();
   state.user = null; $("boot").hidden = true; $("studio").hidden = true; $("login-view").hidden = false;
@@ -386,6 +391,7 @@ function moveVideo(from, to) {
   const [video] = videos.splice(from, 1); videos.splice(to, 0, video); replaceVideos(videos);
 }
 function renderVideos() {
+  uploadPanel.refresh();
   renderCourseVideo();
   const container = $("video-list"); if (!container || !state.document) return;
   const videos = videoItems();
