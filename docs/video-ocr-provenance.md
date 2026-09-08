@@ -58,11 +58,45 @@ private course data are not published as program source.
 ```python
 from app.video_ocr import run_video, VideoOCRError
 
-manifest = run_video(source_path, output_dir, model_path,
-                     progress=on_progress, cancelled=is_cancelled)
+manifest = run_video(bounded_clip_path, output_dir, model_path,
+                     progress=on_progress, cancelled=is_cancelled,
+                     source_range={"startSeconds": 19, "endSeconds": 139},
+                     acquisition=acquisition_provenance)
 ```
 
-`source_path` and `model_path` are caller-managed local regular files, not URLs.
+`bounded_clip_path` and `model_path` are caller-managed local regular files, not URLs.
+Every new job requires one explicit finite half-open `[startSeconds,endSeconds)`
+interval, `0 <= start < end <= 10800`. End must also be within verified source
+metadata duration. Linked playback starts are not game-end boundaries. The worker
+rejects historical unbounded jobs before acquisition; their retained results
+remain readable. The no-range `run_video` interface remains available only for
+frozen offline benchmark compatibility, not a new job path.
+
+Acquisition applies the section before download/decode. Pinned yt-dlp expands its
+single `download_ranges` entry through `process_ie_result` (not `process_info`,
+which skips range expansion), using `force_keyframes_at_cuts=True`. FFmpeg uses
+accurate input seek plus video re-encoding, one decoder/encoder/filter thread,
+no audio, and a dynamic output cap no larger than 350 MiB. The cap reserves the
+higher 768 MiB engine free-space floor plus 32 MiB for concurrent growth; it is
+also bounded by remaining private-store budget. The queue supervisor checks the
+same floor and partial acquisition bytes before spawn and once per second,
+independently of completion-only FFmpeg download hooks, and kills/waits for the
+entire job process group on exhaustion. Linux parent-death cleanup also kills
+the job group so a downloader cannot outlive the exclusive queue owner. An operator-seeded, hash-verified full source
+cache is accurately section-cut with the same constraints; the recognizer never
+decodes that full file. Acquisition/decode fail closed if clip duration differs
+from the requested span by more than two frame periods or decoding ends early.
+The upstream server may supply neighboring keyframe/container data for seeking;
+this is bounded section acquisition, not a promise of exact HTTP byte coverage.
+No fallback downloads or scans the full source on section failure.
+
+`acquisition.json` preserves original video ID/URL/duration, optional full-cache
+hash, requested interval, cut method, bounded clip metadata and clip SHA-256 after
+temporary clip deletion. The same provenance is embedded in `manifest.json`.
+The manifest `source_sha256` / job `sourceHash` identifies the **bounded clip**,
+not the original complete video (`source_hash_scope=bounded-clip`).
+Clip endpoints are quantized to encoded frames; provenance records one frame
+period in `cutFrameQuantizationSeconds`. This is not exact appearance timing.
 `output_dir` must be empty. `on_progress(dict)` receives `phase`, `progress` from
 0 to 1, `frames_processed`, `duration_seconds`, `wall_seconds`, and (after first
 sample) `timestamp_seconds`. `is_cancelled()` returns a boolean. Failure raises
@@ -79,11 +113,11 @@ The evaluated package versions are retained except NumPy 2.4.6, selected because
 evaluated NumPy 2.5.3 requires Python 3.12 and production uses Python 3.11.
 Linux x86_64 CPython 3.11 wheels for NumPy 2.4.6 and ONNX Runtime 1.29.0 need
 glibc 2.28+; OpenCV 5.0.0.93 also supplies Linux ABI3 wheels. Exact deployment
-pins must pass a short real-host fixture inference before a live full job.
+pins must pass a short real-host fixture inference before a live bounded job.
 
-`ffprobe` on PATH is required only for bounded metadata probing. FFmpeg CLI is
-not used during extraction; OpenCV's wheel supplies its FFmpeg decoder. A normal
-OS `ffmpeg` package supplies `ffprobe` if no smaller supported package exists.
+`ffprobe` on PATH probes media; the existing FFmpeg CLI accurately cuts/acquires
+bounded clips. OpenCV's wheel supplies the recognizer's sequential clip decoder.
+No new runtime dependency is introduced by range support.
 No new public service is introduced. Inference and OpenCV processing/decoding each
 use one thread; ONNX spin waits are disabled. Set `OMP_NUM_THREADS`,
 `OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS` to 1 before worker startup. The parent
@@ -103,10 +137,16 @@ closed. Independent parent watchdog and storage accounting remain required.
 
 Sequential decoder traversal chooses the first frame at or after each whole
 second, using decoder PTS rather than average-FPS arithmetic or repeated seeks.
-Observations retain normalized source `timestamp_seconds`, actual
-`opencv_pts_ms`, `first_frame_pts_ms`, requested time bucket and decoded frame
-index. Nonzero first PTS is normalized to video-relative time. Sample gaps remain
-gaps; no duplicate frames are inserted to fill missing seconds.
+For bounded jobs, observations retain absolute original-video `timestamp_seconds`
+and `requested_timestamp_seconds`: requested start plus normalized clip PTS/sample
+bucket. Nonzero first clip PTS is normalized; `opencv_pts_ms`, `first_frame_pts_ms`,
+`clip_timestamp_seconds` and `clip_frame_index` preserve local decoder evidence.
+`source_frame_index` is null for a clip because its original full-video frame
+index is not known. All CSV/review/seek timestamps use original-video seconds,
+not clip-relative seconds. End is exclusive even if the decoder supplies an
+endpoint frame. Progress/duration/frame bounds cover only the requested interval.
+Each separate range gets a fresh accumulator, so disjoint excerpts cannot merge
+runs. Sample gaps remain gaps; no duplicate frames fill missing seconds.
 
 | Artifact | Contents |
 | --- | --- |

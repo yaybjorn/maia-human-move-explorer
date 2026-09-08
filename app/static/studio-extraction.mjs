@@ -22,6 +22,25 @@ export function extractionTimestamp(value) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
+export function extractionRange(start, end) {
+  if (![start, end].every(value => ['number', 'string'].includes(typeof value) && String(value).trim() !== '')) throw new Error('Enter both a start and an explicit end in seconds.');
+  const startSeconds = Number(start), endSeconds = Number(end);
+  if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds) || startSeconds < 0 || endSeconds <= startSeconds || endSeconds > 10800) throw new Error('Use finite seconds: start must be zero or later, and end must be after start and no later than 10800.');
+  return { startSeconds, endSeconds };
+}
+
+export function extractionSourceStart(source) {
+  return Number(new URL(youtubeEmbedURL(source)).searchParams.get('start') || 0);
+}
+
+export function extractionRangeLabel(source) {
+  if (!source?.range) return 'Legacy full video — no extraction range was recorded';
+  try {
+    const { startSeconds, endSeconds } = extractionRange(source.range.startSeconds, source.range.endSeconds);
+    return `Excerpt [${startSeconds}, ${endSeconds}) seconds · ${endSeconds - startSeconds} seconds · end excluded`;
+  } catch { return 'Invalid recorded range — inspect raw evidence'; }
+}
+
 export function placementSquares(fen, orientation = 'white') {
   // Never fill in unknown game state or interpret a full FEN as an OCR placement.
   orientation = orientation === 'normal' ? 'white' : orientation === 'flipped' ? 'black' : orientation;
@@ -74,7 +93,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
   const scope = new ExtractionScope(getContext);
   let courseID = null, jobs = [], selected = null, rows = [], total = 0, offset = 0, kind = 'screened';
   let timer = null, selectionSequence = 0, listSequence = 0, busy = false, sources = [];
-  let pendingRequest = null;
+  let pendingRequest = null, rangeSourceKey = null;
   const PAGE_SIZE = 50;
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -89,7 +108,9 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
   const sourceSelect = el('select'); sourceSelect.id = 'extraction-source';
   const sourceURL = el('input'); sourceURL.type = 'url'; sourceURL.placeholder = 'https://www.youtube.com/watch?v=…'; sourceURL.id = 'extraction-url';
   const pastedField = field('YouTube link', sourceURL);
-  const start = button('Extract positions', startJob, 'primary'); start.id = 'extraction-start';
+  const rangeStart = el('input'); rangeStart.type = 'number'; rangeStart.min = '0'; rangeStart.max = '10800'; rangeStart.step = 'any'; rangeStart.required = true; rangeStart.id = 'extraction-range-start';
+  const rangeEnd = el('input'); rangeEnd.type = 'number'; rangeEnd.min = '0'; rangeEnd.max = '10800'; rangeEnd.step = 'any'; rangeEnd.required = true; rangeEnd.placeholder = 'Required'; rangeEnd.id = 'extraction-range-end';
+  const start = button('Extract excerpt', startJob, 'primary'); start.id = 'extraction-start';
   const refreshButton = button('Refresh jobs', () => refresh());
   const startHint = el('p', '', 'muted');
   const status = el('p', '', 'extraction-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
@@ -97,10 +118,22 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
   const detail = el('section', undefined, 'extraction-detail'); detail.hidden = true;
   const controls = el('div', undefined, 'extraction-source-controls');
   controls.append(field('Video source', sourceSelect), pastedField);
+  const rangeControls = el('div', undefined, 'extraction-source-controls');
+  rangeControls.append(field('Start (seconds, included)', rangeStart), field('End (seconds, excluded)', rangeEnd));
   const actions = el('div', undefined, 'extraction-actions'); actions.append(start, refreshButton);
-  root.replaceChildren(controls, startHint, actions, status, jobList, detail);
-  sourceSelect.addEventListener('change', () => { pastedField.hidden = sourceSelect.value !== 'external'; pendingRequest = null; });
-  sourceURL.addEventListener('input', () => { pendingRequest = null; });
+  root.replaceChildren(controls, rangeControls, startHint, actions, status, jobList, detail);
+  sourceSelect.addEventListener('change', () => { pastedField.hidden = sourceSelect.value !== 'external'; resetRangeForSource(); });
+  sourceURL.addEventListener('input', () => { resetRangeForSource(); });
+  for (const input of [rangeStart, rangeEnd]) input.addEventListener('input', () => { pendingRequest = null; });
+
+  function resetRangeForSource() {
+    const attached = sourceSelect.value === 'external' ? null : sources[Number(sourceSelect.value)];
+    const url = attached?.youtubeURL || sourceURL.value.trim();
+    const key = JSON.stringify([sourceSelect.value, attached?.attachmentID, url]);
+    if (rangeSourceKey === key) return;
+    rangeSourceKey = key; pendingRequest = null; rangeEnd.value = '';
+    try { rangeStart.value = String(extractionSourceStart(url)); } catch { rangeStart.value = ''; }
+  }
 
   function path(id = '') { return `/courses/${encodeURIComponent(courseID)}/extractions${id ? `/${encodeURIComponent(id)}` : ''}`; }
   function stopTimer() { clearTimeout(timer); timer = null; }
@@ -109,7 +142,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
   function updateStart() {
     const context = getContext();
     start.disabled = busy || !scope.active || !context?.courseID || context.courseID !== courseID || context.dirty || !Number.isInteger(context.revision);
-    startHint.textContent = context?.dirty ? 'Save draft first to extract or review positions from this version.' : 'Scans the full video at one-second intervals, even when the link includes a start time. You can leave and reopen this course while it runs.';
+    startHint.textContent = context?.dirty ? 'Save draft first to extract or review positions from this version.' : 'Extracts only the specified excerpt at one-second intervals. Start is included; end is excluded. Confirm the video and choose an explicit end—not the next game link. Times in previews and downloads are absolute original-video seconds. You can leave and reopen this course while it runs.';
   }
   function renderSources() {
     const previous = sourceSelect.value;
@@ -123,7 +156,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
     if (previous === 'external' || (previous !== '' && sources[Number(previous)])) sourceSelect.value = previous;
     else sourceSelect.value = sources.length ? '0' : 'external';
     pastedField.hidden = sourceSelect.value !== 'external';
-    updateStart();
+    resetRangeForSource(); updateStart();
   }
   function renderJobs() {
     jobList.replaceChildren();
@@ -134,7 +167,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
       open.setAttribute('aria-pressed', String(selected?.id === job.id));
       const summary = el('div');
       const when = new Date(typeof job.createdAt === 'number' ? job.createdAt * 1000 : job.createdAt).toLocaleString();
-      summary.append(open, el('small', `Draft revision ${job.revision}${job.createdAt ? ` · ${when}` : ''}${job.stale ? ' · Older source/version' : ''}`));
+      summary.append(open, el('small', extractionRangeLabel(job.source)), el('small', `Draft revision ${job.revision}${job.createdAt ? ` · ${when}` : ''}${job.stale ? ' · Older source/version' : ''}`));
       row.append(summary);
       if (ACTIVE.has(job.status)) {
         const progress = el('progress'); progress.max = 1; progress.value = Math.min(1, Math.max(0, Number(job.progress) || 0));
@@ -171,7 +204,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
     const token = scope.open(); busy = false;
     if (changed) {
       courseID = context.courseID; selected = null; jobs = []; rows = []; offset = 0; kind = 'screened';
-      sourceURL.value = ''; sourceSelect.value = ''; pendingRequest = null; detail.replaceChildren(); detail.hidden = true; busy = false;
+      sourceURL.value = ''; sourceSelect.value = ''; pendingRequest = null; rangeSourceKey = null; detail.replaceChildren(); detail.hidden = true; busy = false;
     }
     renderSources(); renderJobs(); setStatus('');
     // Invalidate pending result requests but retain the current job on same-course reopen.
@@ -190,6 +223,8 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
         : { youtubeURL: sourceURL.value.trim(), videoRole: 'external' };
       youtubeEmbedURL(source.youtubeURL); // Same strict YouTube-origin validation as existing previews.
     } catch { setStatus('Choose an attached video or enter a valid, specific YouTube video link.', true); return; }
+    try { source.range = extractionRange(rangeStart.value, rangeEnd.value); }
+    catch (error) { report(error); return; }
     const identity = JSON.stringify({ courseID, revision: context.revision, source });
     if (pendingRequest?.identity !== identity) pendingRequest = { identity, id: crypto.randomUUID() };
     busy = true; updateStart(); setStatus('Submitting extraction…');
@@ -232,6 +267,8 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
     heading.append(title); detail.append(heading);
     const sourceRole = selected.source?.videoRole === 'main' ? 'Course video' : selected.source?.videoRole === 'supplemental' ? 'Supplemental video' : 'Pasted video link';
     detail.append(el('p', `${sourceRole}: ${selected.source?.youtubeURL || 'Source unavailable'}`, 'extraction-fen muted'));
+    detail.append(el('p', extractionRangeLabel(selected.source), 'extraction-notice'));
+    detail.append(el('p', 'All result, preview and CSV timestamps are absolute seconds in the original video. An excerpt is not a verified full game.', 'muted'));
     if (selected.stale || selected.revision !== getContext()?.revision) detail.append(el('p', 'This extraction belongs to an older draft or video source. You can inspect and download it, but cannot review it for the current version. Start a new extraction from the saved draft.', 'extraction-notice'));
     if (selected.error) detail.append(el('p', selected.error, 'form-error'));
     if (ACTIVE.has(selected.status)) {
@@ -247,7 +284,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
     }
     detail.append(filters, el('p', kind === 'screened' ? 'Lossy shortlist: consecutive observations without screening flags. These candidates still need human review.' : kind === 'changes' ? 'Consecutive duplicates are compressed; later revisits remain separate. Flags identify uncertainty, not measured errors.' : 'Every sampled observation, including no board, occlusion, multiple boards and unknown orientation. Raw observations are read-only.', 'muted'));
     const downloads = el('div', undefined, 'extraction-downloads');
-    downloads.append(el('span', 'CSV (seconds; piece-placement FEN):'));
+    downloads.append(el('span', 'CSV (original-video seconds; piece-placement FEN):'));
     for (const downloadKind of [...KINDS, 'reviewed']) {
       const link = el('a', downloadKind === 'reviewed' ? 'Accepted candidates' : KIND_LABELS[downloadKind]);
       link.href = `${api.base || '/studio/api'}${path(selected.id)}/download?kind=${downloadKind}`; link.className = 'secondary';
@@ -339,7 +376,7 @@ export function createExtractionPanel({ api, getContext, notify = () => {} }) {
     const preview = document.getElementById('extraction-preview'); if (preview) { preview.replaceChildren(); preview.hidden = true; }
   }
   function clear() {
-    suspend(); courseID = null; jobs = []; selected = null; rows = []; pendingRequest = null; sourceURL.value = '';
+    suspend(); courseID = null; jobs = []; selected = null; rows = []; pendingRequest = null; rangeSourceKey = null; sourceURL.value = ''; rangeStart.value = ''; rangeEnd.value = '';
     sourceSelect.replaceChildren(); detail.replaceChildren(); detail.hidden = true; jobList.replaceChildren(); setStatus(''); updateStart();
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopTimer(); else if (scope.active) loadJobs(); });

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .postprocess import CLASS_NAMES, process_detections
 
-EXTRACTION_VERSION = "2d-chess-ocr-94d6a81-cpu-1hz-v1"
+EXTRACTION_VERSION = "2d-chess-ocr-94d6a81-cpu-1hz-v2-ranges"
 SOURCE_REVISION = "94d6a8157524825fcfda4f27c430577eec04b356"
 MODEL_REVISION = "03d9df9fc14fade1a3579683fd0de215b3864ee1"
 MODEL_SHA256 = "a8e78afa8e00cd7ee39a941f888327bd85a12c3cf5c2140a4fa882ea3f7abff7"
@@ -237,11 +237,16 @@ class ReviewAccumulator:
             with (directory / name).open("w") as stream:
                 stream.write("timestamp_seconds;fen\n")
                 for segment in segments:
-                    stream.write(f'{segment["first_seen_seconds"]:g};{segment["fen"]}\n')
+                    stream.write(f'{format_seconds(segment["first_seen_seconds"])};{segment["fen"]}\n')
         (directory / "segments.json").write_text(json.dumps(self.segments, separators=(",", ":")))
         (directory / "review-flags.json").write_text(json.dumps(self.flagged, separators=(",", ":")))
         return {**self.counts, "fen_segments": len(self.segments), "flagged_frames": len(self.flagged),
                 "screened_draft_segments": sum(segment["screened"] for segment in self.segments)}
+
+
+def format_seconds(seconds):
+    """Round-trip timestamps; default :g can round a valid instant past end."""
+    return str(int(seconds)) if seconds == int(seconds) else repr(float(seconds))
 
 
 def _write_manifest(directory, manifest):
@@ -250,8 +255,14 @@ def _write_manifest(directory, manifest):
     temporary.replace(directory / "manifest.json")
 
 
-def run_video(source_path, output_dir, model_path, progress=None, cancelled=None):
-    """Extract a local <=3 hour video and return its manifest.
+def run_video(source_path, output_dir, model_path, progress=None, cancelled=None, *,
+              source_range=None, acquisition=None):
+    """Extract a local video or accurately cut bounded clip and return its manifest.
+
+    source_range is the original-video half-open interval. The input must already
+    be an accurately cut clip of that interval, never a full source with a seek
+    hint. Output timestamps remain absolute original-video seconds. No-range
+    operation exists for the frozen offline benchmark, not new worker jobs.
 
     progress receives dicts (phase, progress 0..1, frames_processed,
     timestamp_seconds, duration_seconds, wall_seconds). cancelled returns bool.
@@ -261,6 +272,23 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
     source, directory, model = Path(source_path), Path(output_dir), Path(model_path)
     _check_cancel(cancelled)
     metadata = probe_video(source)
+    offset = 0.0
+    duration = metadata["duration_seconds"]
+    if source_range is not None:
+        try:
+            start, end = source_range["startSeconds"], source_range["endSeconds"]
+            valid = (type(start) in (int, float) and type(end) in (int, float)
+                     and 0 <= start < end <= MAX_DURATION_SECONDS
+                     and math.isfinite(start) and math.isfinite(end))
+        except (KeyError, TypeError):
+            valid = False
+        if not valid:
+            raise VideoOCRError("invalid_range", "A finite explicit [start, end) range is required.")
+        offset, duration = float(start), float(end - start)
+        # Accurate cuts may differ by at most two encoded frame periods. A full
+        # source, a keyframe-expanded clip or a materially truncated clip fails.
+        if abs(metadata["duration_seconds"] - duration) > 2 / metadata["fps"] + 0.001:
+            raise VideoOCRError("range_mismatch", "Acquired clip does not match the requested interval.")
     directory.mkdir(parents=True, exist_ok=True)
     if any(directory.iterdir()):
         raise VideoOCRError("output_exists", "Extraction output directory must be empty.")
@@ -272,14 +300,19 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
                 "model_sha256": MODEL_SHA256, "model_license_metadata": "AGPL-3.0",
                 "source": metadata, "sampling_interval_seconds": 1, "note": NOTE,
                 "artifacts": ARTIFACTS, "inference_threads": 1, "decode_threads": 1}
+    if source_range is not None:
+        manifest.update({"range": dict(source_range), "timestamp_basis": "absolute-original-video-seconds",
+                         "media_kind": "accurately-cut-bounded-clip", "acquisition": acquisition or {},
+                         "duration_seconds": duration})
     capture = None
     try:
         if progress:
             progress({"phase": "initializing", "progress": 0, "frames_processed": 0,
-                      "duration_seconds": metadata["duration_seconds"], "wall_seconds": 0})
+                      "duration_seconds": duration, "wall_seconds": 0})
         if not model.is_file() or sha256_file(model, cancelled) != MODEL_SHA256:
             raise VideoOCRError("invalid_model", "OCR model is missing or fails its pinned SHA-256.")
         manifest["source_sha256"] = sha256_file(source, cancelled)
+        manifest["source_hash_scope"] = "bounded-clip" if source_range is not None else "full-local-source"
         _write_manifest(directory, manifest)
         engine = Engine(model)
         manifest["dependency_versions"] = {
@@ -297,13 +330,15 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
         accumulator = ReviewAccumulator()
         frame_index, next_sample, previous_pts, first_pts = 0, 0, None, None
         written = 0
+        relative_seconds = -1.0
+        decoded_limit = min(MAX_DECODED_FRAMES, math.ceil(duration * 60) + 120)
         with gzip.open(directory / "raw.jsonl.gz", "wt", compresslevel=3) as raw_stream, \
                 (directory / "observations.jsonl").open("w") as review_stream, \
                 (directory / "positions.csv").open("w") as csv_stream:
             csv_stream.write("timestamp_seconds;fen\n")
             while capture.grab():
                 _check_cancel(cancelled)
-                if frame_index > MAX_DECODED_FRAMES or time.monotonic() - started > MAX_WALL_SECONDS:
+                if frame_index > decoded_limit or time.monotonic() - started > MAX_WALL_SECONDS:
                     raise VideoOCRError("runtime_limit", "Extraction exceeded its bounded runtime.")
                 pts_ms = capture.get(cv2.CAP_PROP_POS_MSEC)
                 if not math.isfinite(pts_ms) or pts_ms < 0:
@@ -312,11 +347,14 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
                     raise VideoOCRError("invalid_timestamps", "Frame timestamps are not increasing.")
                 if first_pts is None:
                     first_pts = pts_ms
-                seconds = (pts_ms - first_pts) / 1000
+                relative_seconds = (pts_ms - first_pts) / 1000
+                seconds = offset + relative_seconds
                 previous_pts = pts_ms
-                if seconds > MAX_DURATION_SECONDS or seconds > metadata["duration_seconds"] + 1:
+                if relative_seconds > MAX_DURATION_SECONDS or relative_seconds > metadata["duration_seconds"] + 1:
                     raise VideoOCRError("duration_limit", "Decoded video exceeds declared duration.")
-                if seconds + 1e-7 >= next_sample:
+                if source_range is not None and relative_seconds >= duration:
+                    break  # exclusive end: never infer/sample beyond the chosen interval
+                if relative_seconds + 1e-7 >= next_sample:
                     ok, image = capture.retrieve()
                     if not ok or image is None:
                         raise VideoOCRError("decode_failed", "A sampled video frame could not be decoded.")
@@ -324,11 +362,15 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
                     if width * height > 1920 * 1080 or max(width, height) > 1920:
                         raise VideoOCRError("unsupported_video", "Decoded resolution exceeds 1080p.")
                     prediction = engine.predict(image)
-                    prediction.update({"timestamp_seconds": round(seconds, 6),
-                                       "sample_index": math.floor(seconds + 1e-7),
-                                       "requested_timestamp_seconds": next_sample,
-                                       "source_frame_index": frame_index, "opencv_pts_ms": pts_ms,
+                    prediction.update({"timestamp_seconds": seconds if source_range is not None else round(seconds, 6),
+                                       "sample_index": math.floor(relative_seconds + 1e-7),
+                                       "requested_timestamp_seconds": offset + next_sample,
+                                       "source_frame_index": frame_index if source_range is None else None,
+                                       "opencv_pts_ms": pts_ms,
                                        "first_frame_pts_ms": first_pts})
+                    if source_range is not None:
+                        prediction["clip_frame_index"] = frame_index
+                        prediction["clip_timestamp_seconds"] = round(relative_seconds, 6)
                     accumulator.add(prediction)
                     raw_line = json.dumps(prediction, separators=(",", ":"), allow_nan=False) + "\n"
                     raw_stream.write(raw_line)
@@ -339,13 +381,13 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
                     if written > MAX_OUTPUT_BYTES:
                         raise VideoOCRError("storage_limit", "Extraction output exceeded its size bound.")
                     for board in prediction["boards"]:
-                        csv_stream.write(f'{seconds:g};{board["fen"]}\n')
-                    next_sample = math.floor(seconds + 1e-7) + 1
+                        csv_stream.write(f'{format_seconds(prediction["timestamp_seconds"])};{board["fen"]}\n')
+                    next_sample = math.floor(relative_seconds + 1e-7) + 1
                     if progress:
-                        progress({"phase": "extracting", "progress": min(seconds / metadata["duration_seconds"], 0.99),
+                        progress({"phase": "extracting", "progress": min(relative_seconds / duration, 0.99),
                                   "frames_processed": accumulator.counts["frames"],
                                   "timestamp_seconds": seconds,
-                                  "duration_seconds": metadata["duration_seconds"],
+                                  "duration_seconds": duration,
                                   "wall_seconds": time.monotonic() - started})
                     if accumulator.counts["frames"] % 60 == 0:
                         raw_stream.flush()
@@ -354,7 +396,8 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
                         if shutil.disk_usage(directory).free < 128 * 1024**2:
                             raise VideoOCRError("storage_limit", "Extraction stopped before storage filled.")
                 frame_index += 1
-        if not accumulator.counts["frames"] or seconds < metadata["duration_seconds"] - max(1, 2 / metadata["fps"]):
+        eof_tolerance = max(2 / metadata["fps"], 0.001) if source_range is not None else max(1, 2 / metadata["fps"])
+        if not accumulator.counts["frames"] or relative_seconds < duration - eof_tolerance:
             raise VideoOCRError("decode_failed", "Video ended before its declared duration.")
         _check_cancel(cancelled)
         manifest.update(accumulator.finish(directory))
@@ -364,7 +407,7 @@ def run_video(source_path, output_dir, model_path, progress=None, cancelled=None
         _write_manifest(directory, manifest)
         if progress:
             progress({"phase": "completed", "progress": 1, "frames_processed": manifest["frames"],
-                      "timestamp_seconds": seconds, "duration_seconds": metadata["duration_seconds"],
+                      "timestamp_seconds": seconds, "duration_seconds": duration,
                       "wall_seconds": manifest["wall_seconds"]})
         return manifest
     except Exception as exc:

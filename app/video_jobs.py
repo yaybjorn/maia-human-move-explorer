@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -33,7 +34,19 @@ def now() -> float:
     return time.time()
 
 
-def canonical_source(candidate: dict, metadata: dict) -> dict:
+def canonical_range(value: object) -> dict:
+    """Explicit original-video seconds, with an exclusive end; never infer a game end."""
+    if not isinstance(value, dict) or set(value) != {"startSeconds", "endSeconds"}:
+        raise JobError(422, "Enter explicit start and end seconds for this extraction")
+    start, end = value["startSeconds"], value["endSeconds"]
+    if (type(start) not in {int, float} or type(end) not in {int, float}
+            or not 0 <= start < end <= 10800
+            or not math.isfinite(start) or not math.isfinite(end)):
+        raise JobError(422, "Use finite seconds with 0 ≤ start < end ≤ 10800; the end is excluded")
+    return {"startSeconds": start, "endSeconds": end}
+
+
+def canonical_source(candidate: dict, metadata: dict, *, require_range: bool = True) -> dict:
     if not isinstance(candidate, dict):
         raise JobError(422, "Choose a YouTube video")
     role = candidate.get("videoRole", "external")
@@ -64,19 +77,24 @@ def canonical_source(candidate: dict, metadata: dict) -> dict:
             raise ValueError()
     except ValueError as exc:
         raise JobError(422, "Use a specific youtube.com or youtu.be video link") from exc
-    return {
+    result = {
         "youtubeURL": raw.strip(), "downloadURL": f"https://www.youtube.com/watch?v={video_id}",
         "videoID": video_id, "videoRole": role,
         "attachmentID": attached.get("id") if attached else None,
         "title": attached.get("title", "YouTube video") if attached else "YouTube video",
     }
+    if require_range or "range" in candidate:
+        result["range"] = canonical_range(candidate.get("range"))
+    return result
 
 
 def source_stale(job: dict, revision: int, metadata: dict) -> bool:
     if job["revision"] != revision:
         return True
     try:
-        return canonical_source(job["source"], metadata) != job["source"]
+        # Legacy completed/cancelled full-video jobs remain readable. New POSTs
+        # always require explicit bounds, including from already-open old tabs.
+        return canonical_source(job["source"], metadata, require_range=False) != job["source"]
     except JobError:
         return True
 

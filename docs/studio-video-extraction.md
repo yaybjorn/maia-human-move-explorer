@@ -3,9 +3,14 @@
 ## Author workflow
 
 In a saved course, open **Videos → Extract positions from video**. Select the distinct main
-Course video, a supplemental link, or another YouTube video. Start extraction;
+Course video, a supplemental link, or another YouTube video. Enter explicit start
+and end seconds, then choose **Extract excerpt**. Start is included and end is
+excluded: `[start, end)`. A timestamped link prefills the start only; the end is
+required and is never inferred from the next game link. Only that interval is
+acquired and processed. This verifies an excerpt, not an entire game or course.
+Start extraction;
 the job remains associated with the course, creating author, saved revision,
-video identity, source hash and pinned extraction version. Leaving and reopening
+video identity, explicit range, bounded-media hash and pinned extraction version. Leaving and reopening
 Studio does not cancel it. Jobs and review decisions never save or publish course
 content and never replace PGN/game identity.
 
@@ -25,7 +30,12 @@ sampled model slots, absence, multiple boards and uncertainty. No turn, castling
 en-passant, move counters, hidden-board reconstruction or automatic publication
 is inferred.
 
-Sampling is 1 Hz; short-lived positions can be missed. Public YouTube access may
+Sampling is 1 Hz; short-lived positions can be missed. Accurate re-encoded cuts
+are frame-aligned; timestamps retain the requested original-video offset with
+frame-period precision, not sub-frame accuracy. The manifest distinguishes the
+bounded media hash/clip frame index from original-video provenance. Historical
+full-video jobs remain readable; already-open old clients cannot start new jobs
+without explicit bounds. Public YouTube access may
 fail because a source is removed, restricted or challenges the host. Jobs then
 fail with a readable message without changing course data. There is no browser
 cookie import, authentication bypass or file upload in this version. A bounded

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createExtractionPanel, extractionSources, extractionTimestamp, extractionSeekURL, extractionReviewAllowed, placementSquares, ExtractionScope } from '../app/static/studio-extraction.mjs';
+import { createExtractionPanel, extractionSources, extractionRange, extractionSourceStart, extractionRangeLabel, extractionTimestamp, extractionSeekURL, extractionReviewAllowed, placementSquares, ExtractionScope } from '../app/static/studio-extraction.mjs';
 
 const FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 const SOURCE = 'https://www.youtube.com/watch?v=8y9gWaB8zk4&t=90';
@@ -91,10 +91,11 @@ test('dirty draft does not submit an extraction; external source uses revision a
   assert.equal(h.calls.filter(call => call.options.method === 'POST').length, 0);
   h.context({ courseID: 'course-a', revision: 5, dirty: false, metadata: {} }); await h.panel.refresh();
   h.byID('extraction-source').value = 'external'; h.byID('extraction-url').value = SOURCE;
+  h.byID('extraction-url').listeners.input(); h.byID('extraction-range-end').value = '139';
   await h.byID('extraction-start').listeners.click();
   const submission = h.calls.find(call => call.options.method === 'POST');
   assert.equal(submission.options.body.revision, 5);
-  assert.deepEqual(submission.options.body.source, { youtubeURL: SOURCE, videoRole: 'external' });
+  assert.deepEqual(submission.options.body.source, { youtubeURL: SOURCE, videoRole: 'external', range: { startSeconds: 90, endSeconds: 139 } });
   assert.match(submission.options.body.requestID, /^[a-f0-9-]{36}$/);
   assert.equal(h.calls.some(call => /publish|draft|pgn/.test(call.path)), false);
   h.panel.clear();
@@ -165,6 +166,7 @@ test('an uncertain submit retry reuses its request ID and suspended panels canno
   });
   await h.panel.refresh();
   h.byID('extraction-source').value = 'external'; h.byID('extraction-url').value = SOURCE;
+  h.byID('extraction-url').listeners.input(); h.byID('extraction-range-end').value = '139';
   await h.byID('extraction-start').listeners.click();
   await h.byID('extraction-start').listeners.click();
   const mutations = h.calls.filter(call => call.options.method === 'POST');
@@ -172,5 +174,66 @@ test('an uncertain submit retry reuses its request ID and suspended panels canno
   assert.equal(mutations[0].options.body.requestID, mutations[1].options.body.requestID);
   h.panel.suspend(); await h.byID('extraction-start').listeners.click();
   assert.equal(h.calls.filter(call => call.options.method === 'POST').length, 2);
+  h.panel.clear();
+});
+
+
+test('finite explicit ranges reject absent/reversed/nonfinite/out-of-source bounds', () => {
+  assert.deepEqual(extractionRange('19.5', '139.25'), { startSeconds: 19.5, endSeconds: 139.25 });
+  assert.deepEqual(extractionRange(0, 10800), { startSeconds: 0, endSeconds: 10800 });
+  for (const bounds of [[0, ''], ['', 10], [null, 10], [false, 10], [0, true], [-1, 10], [19, 19], [20, 19], [0, Infinity], [NaN, 10], [0, 10800.1]]) assert.throws(() => extractionRange(...bounds));
+  assert.match(extractionRangeLabel({ range: { startSeconds: 19, endSeconds: 139 } }), /\[19, 139\).*end excluded/);
+  assert.match(extractionRangeLabel({}), /Legacy full video/);
+});
+
+test('attached and pasted timestamp anchors prefill only start; source changes clear explicit end', async () => {
+  const metadata = { courseVideo: { id: 'main', title: 'Main', youtubeURL: SOURCE }, videos: [{ id: 'game', title: 'Game', youtubeURL: 'https://youtu.be/hPM32iF75Pk?t=19' }] };
+  const before = structuredClone(metadata);
+  const h = harness(() => ({ jobs: [] }), { metadata });
+  await h.panel.refresh();
+  assert.equal(h.byID('extraction-range-start').value, '90');
+  assert.equal(h.byID('extraction-range-end').value, '');
+  h.byID('extraction-range-end').value = '139';
+  h.panel.contextChanged();
+  assert.equal(h.byID('extraction-range-end').value, '139');
+  h.byID('extraction-source').value = '1'; h.byID('extraction-source').listeners.change();
+  assert.equal(h.byID('extraction-range-start').value, '19');
+  assert.equal(h.byID('extraction-range-end').value, '');
+  h.byID('extraction-source').value = 'external'; h.byID('extraction-source').listeners.change();
+  h.byID('extraction-url').value = 'https://youtu.be/hPM32iF75Pk#t=1m12s'; h.byID('extraction-url').listeners.input();
+  assert.equal(h.byID('extraction-range-start').value, '72');
+  assert.equal(h.byID('extraction-range-end').value, '');
+  assert.equal(extractionSourceStart('https://youtube.com/watch?v=hPM32iF75Pk&start=19'), 19);
+  assert.deepEqual(metadata, before);
+  h.panel.clear();
+});
+
+test('missing end cannot submit; changed range gets a distinct idempotency key without course writes', async () => {
+  const h = harness((path, options) => { if (options.method === 'POST') throw new Error('Network unavailable'); return { jobs: [] }; });
+  await h.panel.refresh();
+  h.byID('extraction-url').value = SOURCE; h.byID('extraction-url').listeners.input();
+  await h.byID('extraction-start').listeners.click();
+  assert.equal(h.calls.filter(call => call.options.method === 'POST').length, 0);
+  assert.ok(find(h.root, node => node.textContent.includes('explicit end')));
+  h.byID('extraction-range-end').value = '139';
+  await h.byID('extraction-start').listeners.click();
+  h.byID('extraction-range-end').value = '140.5';
+  await h.byID('extraction-start').listeners.click();
+  const posts = h.calls.filter(call => call.options.method === 'POST');
+  assert.notEqual(posts[0].options.body.requestID, posts[1].options.body.requestID);
+  assert.deepEqual(posts[1].options.body.source.range, { startSeconds: 90, endSeconds: 140.5 });
+  assert.ok(posts.every(call => call.path.endsWith('/extractions')));
+  h.panel.clear();
+});
+
+test('bounded completed jobs show immutable excerpt bounds and use absolute seek without adding start again', async () => {
+  const selected = job('bounded', { source: { title: 'Excerpt', youtubeURL: SOURCE, range: { startSeconds: 19, endSeconds: 139 } } });
+  const h = harness(path => path.includes('/results?') ? { rows: [{ ...row, timestamp_seconds: 90 }], total: 1 } : path.endsWith('/bounded') ? { job: selected } : { jobs: [selected] });
+  await h.panel.refresh(); await h.button('Excerpt · completed').listeners.click();
+  assert.ok(find(h.root, node => node.textContent.includes('[19, 139) seconds')));
+  assert.ok(find(h.root, node => node.textContent.includes('not a verified full game')));
+  await h.button('▶ 1:30').listeners.click();
+  const iframe = find(h.root, node => node.tagName === 'iframe');
+  assert.equal(new URL(iframe.src).searchParams.get('start'), '90');
   h.panel.clear();
 });

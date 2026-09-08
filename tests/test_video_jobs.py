@@ -42,7 +42,8 @@ def client(tmp_path, monkeypatch):
 
 def create(client, request_id="request-one", source=None):
     return client.post(BASE, headers=HEADERS, json={"revision": 4, "requestID": request_id,
-                       "source": source or {"youtubeURL": URL, "videoRole": "main", "attachmentID": "main-video"}})
+                       "source": source or {"youtubeURL": URL, "videoRole": "main", "attachmentID": "main-video",
+                                            "range": {"startSeconds": 0, "endSeconds": 40}}})
 
 
 def complete(client, job):
@@ -170,3 +171,43 @@ def test_public_source_offer_resolves_exact_deployed_revision():
     assert len(response.headers["location"].split("/")[-1]) == 40
     assert "github.com/yaybjorn/maia-human-move-explorer/tree/" in response.headers["location"]
     assert client.post("/studio/api/source").status_code == 405
+
+
+@pytest.mark.parametrize("bounds", [None, {}, {"startSeconds": 19},
+    {"startSeconds": 19, "endSeconds": 19}, {"startSeconds": -1, "endSeconds": 20},
+    {"startSeconds": 20, "endSeconds": 19}, {"startSeconds": 0, "endSeconds": 10801},
+    {"startSeconds": True, "endSeconds": 20}, {"startSeconds": "19", "endSeconds": 139},
+    {"startSeconds": float("nan"), "endSeconds": 139},
+    {"startSeconds": 19, "endSeconds": float("inf")},
+    {"startSeconds": 19, "endSeconds": 10**400},
+    {"startSeconds": 19, "endSeconds": 139, "inferred": True}])
+def test_range_requires_explicit_finite_bounds(bounds):
+    with pytest.raises(JobError) as exc:
+        canonical_source({"youtubeURL": URL, "range": bounds}, {})
+    assert exc.value.status == 422
+
+
+def test_old_tab_cannot_start_full_video_but_historical_job_remains_readable(client):
+    old_source = {"youtubeURL": URL, "videoRole": "main", "attachmentID": "main-video"}
+    assert create(client, source=old_source).status_code == 422
+    store = JobStore(client.root)
+    legacy = store.create("author-one", COURSE, 4,
+                          canonical_source(old_source, client.metadata, require_range=False),
+                          "legacy-request", "1. e4 e5 *")
+    url = complete(client, legacy)
+    assert client.get(url).json()["job"]["stale"] is False
+    assert client.get(url + "/download").status_code == 200
+    assert client.get(url + "/results").status_code == 200
+    assert len(store.list("author-one", COURSE)) == 1
+
+
+def test_range_is_durable_and_part_of_idempotency_not_course_metadata(client):
+    before = json.loads(json.dumps(client.metadata))
+    source = {"youtubeURL": URL, "range": {"startSeconds": 19.25, "endSeconds": 139.5}}
+    job = create(client, source=source).json()["job"]
+    assert JobStore(client.root).get(job["id"])["source"]["range"] == source["range"]
+    assert create(client, source=source).json()["job"]["id"] == job["id"]
+    changed = {**source, "range": {"startSeconds": 19.25, "endSeconds": 140}}
+    assert create(client, source=changed).status_code == 409
+    assert client.metadata == before
+    assert client.get(f"{BASE}/{job['id']}").json()["job"]["stale"] is False
