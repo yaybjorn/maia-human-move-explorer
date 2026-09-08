@@ -87,8 +87,8 @@ test("same-size substituted files, stale revision and server part mismatch stop 
   await assert.rejects(s.make().run(s.inputs), /fingerprints/);
   assert.equal(s.requests.filter(r => r[1] === "POST").length, count);
 });
-test("free or unknown paid mapping is denied; production gate remains false", async () => {
-  assert.equal(PRIVATE_UPLOADS_ENABLED, false);
+test("author staging UI is enabled but free or unknown paid mapping is denied", async () => {
+  assert.equal(PRIVATE_UPLOADS_ENABLED, true);
   const s = setup(); await assert.rejects(s.make({ metadata: { ...metadata, priceTier: "free" } }).run(s.inputs), /paid courses only/);
   assert.equal(paidUploadCourse({ slug: "unknown", priceTier: "usd-4.99" }), false);
   assert.equal(s.requests.length, 0);
