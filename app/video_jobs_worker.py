@@ -16,6 +16,9 @@ from pathlib import Path
 
 from .video_jobs import MAX_SOURCE_BYTES, JobError, JobStore
 
+# A shared-core host may take longer than the source duration; match the engine guard.
+PROCESSING_LIMIT_SECONDS = 6 * 3600
+
 
 def file_hash(path: Path) -> str:
     digest = hashlib.sha256()
@@ -104,8 +107,8 @@ def execute(job: dict, store: JobStore):
 
     def progress(values):
         nonlocal last_update
-        if time.monotonic() - start > 3 * 3600:
-            raise JobError(408, "Extraction reached the three-hour processing limit")
+        if time.monotonic() - start > PROCESSING_LIMIT_SECONDS:
+            raise JobError(408, "Extraction reached the six-hour processing limit")
         if time.monotonic() - last_update < 1 and values.get("phase") == "extracting":
             return
         store.check_capacity()
@@ -182,7 +185,7 @@ def main():
             started = time.monotonic()
             while child.poll() is None:
                 current = store.get(job["id"])
-                if current.get("cancelRequested") or time.monotonic() - started > 3 * 3600:
+                if current.get("cancelRequested") or time.monotonic() - started > PROCESSING_LIMIT_SECONDS:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
                     cancelled = current.get("cancelRequested", False)

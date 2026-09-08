@@ -2,7 +2,7 @@
 
 ## Author workflow
 
-In a saved course, open **Videos → Video to positions**. Select the distinct main
+In a saved course, open **Videos → Extract positions from video**. Select the distinct main
 Course video, a supplemental link, or another YouTube video. Start extraction;
 the job remains associated with the course, creating author, saved revision,
 video identity, source hash and pinned extraction version. Leaving and reopening
@@ -76,10 +76,12 @@ new code then reopens the durable queue. Do not launch a parallel OCR supervisor
 or change deployed source underneath an active standalone worker.
 
 Bounds: global eight active jobs, two per author; finished videos ≤3h, downloader
-≤720p and 350MiB; external processing watchdog 3h; child address space 2GiB and
+≤720p and 350MiB; external processing watchdog 6h; child address space 2GiB and
 single-file size 450MiB. Runtime adds codec/container/timestamp validation,
-1080p/60fps maximum, 512MiB cumulative uncompressed evidence and its own longer
-wall guard. The private store caps at 800MiB and stops admission/progress below
+1080p/60fps maximum, 512MiB cumulative uncompressed evidence and a six-hour
+wall guard. On the existing shared-core e2-medium, sustained reference processing
+can take about five hours; short burst-speed smoke timings are not a full-job estimate.
+The private store caps at 800MiB and stops admission/progress below
 700MiB host free space; engine admission requires 768MiB free. The lower bound
 that fails first wins, with a truthful failure instead of a successful partial
 export. Monitor actual host space before starting long work.
