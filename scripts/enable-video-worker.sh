@@ -24,8 +24,9 @@ settings = {
 env = Path('/etc/maia-human-move-explorer.env')
 if env.exists():
     backup = env.with_name(env.name + '.video-backup-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
-    shutil.copyfile(env, backup)
-    backup.chmod(0o600)
+    backup.touch(mode=0o600, exist_ok=False)
+    with env.open('rb') as source, backup.open('wb') as target:
+        shutil.copyfileobj(source, target)
 lines = env.read_text().splitlines() if env.exists() else []
 retained = [line for line in lines if line.split('=', 1)[0] not in settings]
 temporary = env.with_suffix('.env.video-next')
