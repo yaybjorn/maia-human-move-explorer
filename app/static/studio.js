@@ -852,7 +852,22 @@ function renderQuality(validation=state.validation){const checks=combinedValidat
 function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
 function reviewQualityItem(button){switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
 function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("video"))return"videos";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
-async function runQuality({forPublish=false}={}){const button=$("refresh-quality");setBusy(button,true,"Checking…");try{if(dirty()&&!await saveDraft({quiet:true}))return null;state.validation=await api.validateCourse(state.courseID,state.revision);renderQuality();showStatus("Quality checks complete.");return state.validation;}catch(error){showStatus(forPublish?`Publish stopped during quality checks. No publication request was sent. ${error.message}`:error.message,true);return null}finally{setBusy(button,false)}}
+async function runQuality({forPublish=false}={}){
+  const button=$("refresh-quality");setBusy(button,true,"Checking…");
+  try{
+    if(dirty()&&!await saveDraft({quiet:true}))return null;
+    // A failed fresh request must not leave yesterday's zero-blocker result
+    // looking authoritative. This is a service-check blocker, not course data.
+    state.validation={valid:false,errors:[{area:"Server checks",message:"Server checks are running; publish readiness is not confirmed yet."}],warnings:[]};
+    renderQuality();
+    state.validation=await api.validateCourse(state.courseID,state.revision);
+    renderQuality();showStatus("Quality checks complete.");return state.validation;
+  }catch(error){
+    state.validation={valid:false,errors:[{area:"Server checks",message:`Server checks could not complete. No course edit is required to fix this service error. ${error.message}`}],warnings:[]};
+    renderQuality();
+    showStatus(forPublish?`Publish stopped during quality checks. No publication request was sent. ${error.message}`:error.message,true);return null;
+  }finally{setBusy(button,false)}
+}
 function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 function beginPublish(){return publishPreparationFlight.run(preparePublish)}
 async function preparePublish(){

@@ -22,6 +22,19 @@ test('pre-publication check failure says no publication request was sent',async(
 test('normal Quality failure does not make publication claims',async()=>{
  const f=context();await f.ctx.runQuality();assert.equal(f.messages.at(-1),'Server limit');
 });
+test('a fresh failed check replaces stale passing results with a service blocker',async()=>{
+ const f=context();f.ctx.state.validation={valid:true,errors:[],warnings:[]};
+ await f.ctx.runQuality();assert.equal(f.ctx.state.validation.valid,false);
+ assert.equal(f.ctx.state.validation.errors[0].area,'Server checks');
+ assert.match(f.ctx.state.validation.errors[0].message,/could not complete/);
+});
+test('pending checks are not shown as passing and successful retry replaces the failure',async()=>{
+ const result={valid:true,revision:210,errors:[],warnings:[]};let pending;
+ const f=context({api:{validateCourse:async()=>{pending=f.ctx.state.validation;return result;}}});
+ f.ctx.state.validation={valid:false,errors:[{message:'previous failure'}]};
+ await f.ctx.runQuality();assert.equal(pending.valid,false);assert.match(pending.errors[0].message,/running/);
+ assert.equal(f.ctx.state.validation,result);assert.equal(f.messages.at(-1),'Quality checks complete.');
+});
 test('lost publish response is uncertain and never retries automatically',async()=>{
  const f=context();await f.ctx.confirmPublish();assert.equal(f.calls(),1);
  assert.match(f.messages.at(-1),/could not be confirmed.*Check Version history/);assert.equal(f.ctx.state.revision,210);assert.equal(f.busy.at(-1),false);
