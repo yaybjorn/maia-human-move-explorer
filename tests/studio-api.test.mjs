@@ -140,3 +140,18 @@ test("worker failure and network loss never acknowledge a save", async () => {
     await assert.rejects(api.saveDraft("course", 3, {}), StudioAPIError);
   }
 });
+
+test('publish requires an exact course/version receipt, not HTTP success alone', async () => {
+  const receipt={published:true,courseID:'course',version:'2026-09-14.1',revision:210};
+  for (const value of [null,{}, {...receipt,published:false},{...receipt,courseID:'other'},
+    {...receipt,version:''},{...receipt,version:'success'},{...receipt,revision:209},{...receipt,revision:'210'}]) {
+    const api=new StudioAPI('/studio/api',async()=>new Response(JSON.stringify(value),{status:200}));
+    await assert.rejects(api.publishCourse('course',210),e=>e.code==='invalid_publish_response');
+  }
+  const html=new StudioAPI('/studio/api',async()=>new Response('<html>proxy failure</html>',{status:200}));
+  await assert.rejects(html.publishCourse('course',210),e=>e.code==='invalid_publish_response');
+  for (const value of [receipt,{...receipt,idempotent:true},{...receipt,revision:211}]) {
+    const api=new StudioAPI('/studio/api',async()=>new Response(JSON.stringify(value),{status:200}));
+    assert.deepEqual(await api.publishCourse('course',210),value);
+  }
+});

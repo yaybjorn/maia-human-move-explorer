@@ -99,8 +99,15 @@ export class StudioAPI {
   validateCourse(id, revision, document) {
     return this.request(ROUTES.validate(id), { method: "POST", body: { revision, document } });
   }
-  publishCourse(id, revision) {
-    return this.request(ROUTES.publish(id), { method: "POST", body: { revision } });
+  async publishCourse(id, revision) {
+    const result = await this.request(ROUTES.publish(id), { method: "POST", body: { revision } });
+    // HTTP success alone is not an immutable publication acknowledgement.
+    if (result?.published !== true || result.courseID !== id
+        || typeof result.version !== "string" || !/^\d{4}-\d{2}-\d{2}\.\d+$/.test(result.version)
+        || !Number.isInteger(result.revision) || result.revision < revision) {
+      throw new StudioAPIError("The server did not return a valid publication receipt.", { code: "invalid_publish_response" });
+    }
+    return result;
   }
   versions(id) { return this.request(ROUTES.versions(id)); }
   restoreVersion(id, versionID, revision) {
