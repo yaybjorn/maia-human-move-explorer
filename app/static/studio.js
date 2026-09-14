@@ -1,6 +1,6 @@
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
 import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260908-staged";
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260908-staged-upload";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260914-publish-receipt";
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
