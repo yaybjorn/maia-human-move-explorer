@@ -104,3 +104,8 @@ button{min-height:44px}
 
 .optional-label{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}.course-video-fields{display:grid;gap:12px}.course-video-fields>p{margin:0;font-size:12px;color:var(--muted)}.course-video-actions{display:flex;flex-wrap:wrap;gap:8px}.course-video-fields>.video-preview,.course-video-fields>.video-preview-error{grid-column:1;max-width:760px;width:100%}.video-editor-card+.video-editor-card{margin-top:18px}
 @media(max-width:760px){.video-editor-card .card-heading{flex-wrap:wrap}.video-editor-card .card-heading>div{min-width:0}.course-video-fields .video-fields{grid-template-columns:minmax(0,1fr)}}
+
+.publish-feedback{padding:14px;border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere;line-height:1.5;background:var(--surface,#fff)}
+.publish-feedback[data-kind="error"]{border-color:#a52e2e;color:#842525;background:#fff2f2}
+.publish-feedback[data-kind="success"]{border-color:#356748;color:#244c32;background:#f0f8f1}
+.publish-dialog .dialog-actions{flex-wrap:wrap}

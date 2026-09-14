@@ -99,16 +99,36 @@ export class StudioAPI {
   validateCourse(id, revision, document) {
     return this.request(ROUTES.validate(id), { method: "POST", body: { revision, document } });
   }
-  async publishCourse(id, revision) {
-    const result = await this.request(ROUTES.publish(id), { method: "POST", body: { revision } });
-    // HTTP success alone is not an immutable publication acknowledgement.
-    if (result?.published !== true || result.courseID !== id
-        || typeof result.version !== "string" || !/^\d{4}-\d{2}-\d{2}\.\d+$/.test(result.version)
-        || !Number.isInteger(result.revision) || result.revision < revision) {
-      throw new StudioAPIError("The server did not return a valid publication receipt.", { code: "invalid_publish_response" });
+  async publishCourse(id, revision, revisionHash, { timeoutMs = 70000 } = {}) {
+    if (!Number.isInteger(revision) || typeof revisionHash !== "string" || !revisionHash) {
+      throw new StudioAPIError("The reviewed draft is missing its server revision hash. Reload and review the course.", { code: "invalid_publish_fence" });
     }
-    return result;
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new StudioAPIError("The publication response timed out; the server may still have completed it.", { code: "publish_timeout" }));
+        controller.abort();
+      }, timeoutMs);
+    });
+    try {
+      const result = await Promise.race([
+        this.request(ROUTES.publish(id), { method: "POST", body: { revision, revisionHash }, signal: controller.signal }),
+        deadline,
+      ]);
+      // Ordinary publication acknowledges the same revision/hash. Indexed publication
+      // atomically adds its selection marker and advances exactly one revision.
+      if (result?.published !== true || result.courseID !== id
+          || typeof result.version !== "string" || !/^\d{4}-\d{2}-\d{2}\.\d+$/.test(result.version)
+          || !Number.isInteger(result.revision) || ![revision, revision + 1].includes(result.revision)
+          || typeof result.revisionHash !== "string" || !result.revisionHash
+          || (result.revision === revision && result.revisionHash !== revisionHash)) {
+        throw new StudioAPIError("The server did not return a valid publication receipt.", { code: "invalid_publish_response" });
+      }
+      return result;
+    } finally { clearTimeout(timer); }
   }
+
   versions(id) { return this.request(ROUTES.versions(id)); }
   restoreVersion(id, versionID, revision) {
     return this.request(ROUTES.restore(id, versionID), { method: "POST", body: { revision } });
