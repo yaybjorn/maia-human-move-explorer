@@ -23,7 +23,7 @@ const state = {
   chapterDrag: null, chapterAddMode: false, previewIndex: 0, previewChapter: 0,
   previewAttempt: null, previewPosition: null, previewSelectedSquare: null,
   reconciliationError: null, pendingImport: null,
-  ignoredWords: [],
+  ignoredWords: [], diagnosticGeneration: 0, writingRequest: 0, coverageRequest: 0,
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
   sidebarCollapsed: false,
@@ -96,6 +96,7 @@ function setBusy(button, busy, busyLabel) {
 }
 
 function showLogin(message = "") {
+  invalidateDiagnostics();
   uploadPanel.clear();
   extractionPanel.clear();
   unmountVideoPreview();
@@ -168,6 +169,7 @@ function renderDashboard() {
 
 async function openCourse(id, { discardUnsaved = false } = {}) {
   if (dirty() && !discardUnsaved && !confirm("Discard your unsaved changes and open another course?")) return false;
+  invalidateDiagnostics();
   stopEditorMaia(); state.analysisToken += 1;
   showStatus("Opening course…");
   try {
@@ -182,6 +184,7 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     state.courseID = courseID;
     state.currentCourse = currentCourse;
     state.revision = revision;
+    invalidateDiagnostics();
     state.document = hydrated.document;
     state.reconciliationError = hydrated.reconciliationError;
     state.validation = hydrated.validation;
@@ -251,6 +254,7 @@ function commit(next, { navigateTo } = {}) {
     updateSaveState();
     return;
   }
+  invalidateDiagnostics();
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
   state.redo = []; state.document = syncActiveChapter(value); state.validation = null; state.publishCandidate = null;
   if (navigateTo !== undefined) state.currentNodeID = navigateTo;
@@ -267,18 +271,21 @@ function restoreCrashRecovery() {
   try { recovery = JSON.parse(localStorage.getItem(recoveryKey()) || "null"); } catch { recovery = null; }
   if (!recovery?.document || JSON.stringify(recovery.document) === state.savedSnapshot) return;
   if (confirm(`Unsaved browser recovery from ${formatDate(recovery.savedAt)} was found. Restore it?`)) {
+    invalidateDiagnostics();
     state.document = normalizeDocument(recovery.document, { allowIncompleteCourseVideo: true });
     showStatus("Recovered unsaved browser work. Save the draft when ready.");
   } else clearCrashRecovery();
 }
 function undo() {
   const previous = state.undo.pop(); if (!previous) return;
+  invalidateDiagnostics();
   state.redo.push(structuredClone(state.document)); state.document = previous;
   if (state.currentNodeID && !nodeByID(state.document, state.currentNodeID)) state.currentNodeID = null;
   saveCrashRecovery(); renderAll(); refreshPosition();
 }
 function redo() {
   const next = state.redo.pop(); if (!next) return;
+  invalidateDiagnostics();
   state.undo.push(structuredClone(state.document)); state.document = next;
   saveCrashRecovery(); renderAll(); refreshPosition();
 }
@@ -366,7 +373,7 @@ function flushActiveEditor() {
   if (active.id === "node-comment" || active.id === "node-hint"
       || active.dataset.chapterTitle !== undefined || active.dataset.independentTitle !== undefined || active.form === $("details-form")) active.blur();
 }
-function markPendingInput(){if(!state.document)return;extractionPanel.contextChanged();$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
+function markPendingInput(){if(!state.document)return;invalidateDiagnostics();extractionPanel.contextChanged();$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
 function switchView(view) {
   if (view !== "videos") extractionPanel.suspend();
@@ -775,12 +782,49 @@ function renderMaia(items=[],token,positionKey) {
   bindSuggestedMoves(token,positionKey);
 }
 function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);if(button.dataset.existingNode){navigate(button.dataset.existingNode);showStatus(`${button.dataset.san} is already in the repertoire.`);return}const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
+// Diagnostics are capabilities for one exact source, not reusable chapter-local node IDs.
+function invalidateDiagnostics() {
+  state.diagnosticGeneration += 1;
+  state.writingRequest += 1; state.coverageRequest += 1;
+  for (const id of ["writing-results", "writing-summary", "gap-results"]) {
+    const element = $(id); if (element) element.innerHTML = "";
+  }
+  setBusy($("run-spellcheck"), false); setBusy($("run-gap-check"), false);
+}
+function diagnosticContext() {
+  return { courseID: state.courseID, chapterID: state.document?.activeChapterID,
+    generation: state.diagnosticGeneration, source: JSON.stringify(state.document) };
+}
+function diagnosticIsCurrent(context) {
+  return Boolean(context && state.document && context.courseID === state.courseID
+    && context.chapterID === state.document.activeChapterID
+    && context.generation === state.diagnosticGeneration
+    && context.source === JSON.stringify(state.document));
+}
+function requireCurrentDiagnostic(context) {
+  flushActiveEditor();
+  if (diagnosticIsCurrent(context)) return true;
+  showStatus("This check belongs to an older chapter or edit. Run the check again.", true);
+  return false;
+}
+function writingIssueIsCurrent(issue) {
+  if (!diagnosticIsCurrent(issue.context)) return false;
+  const source = writingSources().find(item => item.sourceId === issue.sourceId);
+  return Boolean(source && source.comment === issue.comment
+    && Number.isInteger(issue.start) && Number.isInteger(issue.end)
+    && issue.start >= 0 && issue.end >= issue.start && issue.end <= source.comment.length);
+}
 async function runGapCheck(){
+  flushActiveEditor();
+  const context=diagnosticContext(), request=++state.coverageRequest;
+  const isCurrent=()=>request===state.coverageRequest&&diagnosticIsCurrent(context);
   const button=$("run-gap-check"); setBusy(button,true,"Checking…");
   try {
     const pgn=await exportSource();
+    if(!isCurrent())return;
     const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,Number($("maia-rating").value),.15);
-    const findings=(data.findings||[]).map(finding=>({ ...finding, nodeID: nodeIDForHistory(finding.history) }));
+    if(!isCurrent())return;
+    const findings=(data.findings||[]).map(finding=>({ ...finding, context, nodeID: nodeIDForHistory(finding.history) }));
     $("gap-results").innerHTML=findings.map((finding,index)=>{
       const missing=(finding.missing||[]).filter(move=>!state.document.ignoredSuggestionIDs.includes(gapSuggestionID(finding,move)));
       if(!missing.length)return"";
@@ -790,9 +834,9 @@ async function runGapCheck(){
       const finding=findings[Number(card.dataset.gap)], missing=(finding.missing||[]).filter(move=>!state.document.ignoredSuggestionIDs.includes(gapSuggestionID(finding,move)));
       card.querySelector("[data-gap-jump]")?.addEventListener("click",()=>jumpToFinding(finding));
       card.querySelectorAll("[data-gap-add]").forEach(control=>control.addEventListener("click",()=>addGapMove(finding,missing[Number(control.dataset.gapAdd)])));
-      card.querySelectorAll("[data-gap-ignore]").forEach(control=>control.addEventListener("click",()=>{const id=gapSuggestionID(finding,missing[Number(control.dataset.gapIgnore)]);commit({...state.document,ignoredSuggestionIDs:[...new Set([...state.document.ignoredSuggestionIDs,id])]});runGapCheck();}));
+      card.querySelectorAll("[data-gap-ignore]").forEach(control=>control.addEventListener("click",()=>{if(!requireCurrentDiagnostic(finding.context))return;const id=gapSuggestionID(finding,missing[Number(control.dataset.gapIgnore)]);commit({...state.document,ignoredSuggestionIDs:[...new Set([...state.document.ignoredSuggestionIDs,id])]});runGapCheck();}));
     });
-  } catch(error){showStatus(error.message,true)} finally {setBusy(button,false)}
+  } catch(error){if(isCurrent())showStatus(error.message,true)} finally {if(request===state.coverageRequest)setBusy(button,false)}
 }
 function gapSuggestionID(finding,move){return`coverage:${finding.history||"start"}:${move.uci}`}
 function nodeIDForHistory(history){
@@ -801,8 +845,8 @@ function nodeIDForHistory(history){
   return undefined;
 }
 function pgnHistory(nodes){const chunks=[];for(let index=0;index<nodes.length;index+=2){let chunk=`${index/2+1}. ${nodes[index].san}`;if(nodes[index+1])chunk+=` ${nodes[index+1].san}`;chunks.push(chunk)}return chunks.join(" ")||"Starting position"}
-function jumpToFinding(finding){if(finding.nodeID===undefined)return showStatus("This finding no longer matches the edited tree. Run coverage again.",true);navigate(finding.nodeID);switchView("editor")}
-function addGapMove(finding,move){if(!move)return;if(finding.nodeID===undefined)return showStatus("Run coverage again after the latest edits.",true);const result=addMove(state.document,finding.nodeID,move);commit(result.document,{navigateTo:result.node.id});refreshPosition();switchView("editor");showStatus(`${move.san} added. Add the author explanation before publishing.`)}
+function jumpToFinding(finding){if(!requireCurrentDiagnostic(finding.context))return;if(finding.nodeID===undefined)return showStatus("This finding no longer matches the edited tree. Run coverage again.",true);navigate(finding.nodeID);switchView("editor")}
+function addGapMove(finding,move){if(!requireCurrentDiagnostic(finding.context))return;if(!move)return;if(finding.nodeID===undefined)return showStatus("Run coverage again after the latest edits.",true);const result=addMove(state.document,finding.nodeID,move);commit(result.document,{navigateTo:result.node.id});refreshPosition();switchView("editor");showStatus(`${move.san} added. Add the author explanation before publishing.`)}
 
 function setSidebarCollapsed(collapsed) {
   state.sidebarCollapsed=Boolean(collapsed);
@@ -826,12 +870,24 @@ function writingSources(){
   return sources;
 }
 function loadIgnoredWords(){return [...state.ignoredWords]}
-async function runSpellcheck({refreshDictionary=true}={}){const button=$("run-spellcheck");setBusy(button,true,"Checking…");try{flushActiveEditor();if(refreshDictionary)await refreshIgnoredWords();const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});renderWriting(issues,sources.length);}catch(error){showStatus(error.message,true)}finally{setBusy(button,false)}}
-async function ignoreWritingWord(issue,button){setBusy(button,true,"Adding…");try{const payload=await api.addIgnoredWord(issue.problem);state.ignoredWords=[...(payload?.words||state.ignoredWords)];showStatus(`“${issue.problem}” added to the shared dictionary.`);await runSpellcheck({refreshDictionary:false});}catch(error){showStatus(`Could not add “${issue.problem}” to the shared dictionary: ${error.message}`,true);setBusy(button,false)}}
+async function runSpellcheck({refreshDictionary=true}={}) {
+  flushActiveEditor();
+  const context=diagnosticContext(), request=++state.writingRequest;
+  const isCurrent=()=>request===state.writingRequest&&diagnosticIsCurrent(context);
+  const button=$("run-spellcheck");setBusy(button,true,"Checking…");
+  try {
+    if(refreshDictionary)await refreshIgnoredWords();
+    if(!isCurrent())return;
+    const sources=writingSources(),issues=await checkWriting(sources,{ignoredWords:loadIgnoredWords()});
+    if(isCurrent())renderWriting(issues.map(issue=>({...issue,context})),sources.length);
+  }catch(error){if(isCurrent())showStatus(error.message,true)}
+  finally{if(request===state.writingRequest)setBusy(button,false)}
+}
+async function ignoreWritingWord(issue,button){if(!requireCurrentDiagnostic(issue.context))return;setBusy(button,true,"Adding…");try{const payload=await api.addIgnoredWord(issue.problem);state.ignoredWords=[...(payload?.words||state.ignoredWords)];showStatus(`“${issue.problem}” added to the shared dictionary.`);if(diagnosticIsCurrent(issue.context))await runSpellcheck({refreshDictionary:false});}catch(error){showStatus(`Could not add “${issue.problem}” to the shared dictionary: ${error.message}`,true);setBusy(button,false)}}
 function renderWriting(issues,count){const bulkFixes=new Map(groupWritingBulkFixes(issues).map(fix=>[fix.key,fix]));const bulkHTML=[...bulkFixes.values()].map(fix=>`<div class="heading-actions"><button class="primary" data-writing-fix-all="${escapeHTML(fix.key)}">${escapeHTML(fix.label)} (${fix.issues.length})</button></div>`).join("");$("writing-summary").innerHTML=`<div class="stat"><strong>${count}</strong><span>Writing fields checked</span></div><div class="stat"><strong>${issues.length}</strong><span>Suggestions</span></div><div class="stat"><strong>${loadIgnoredWords().length}</strong><span>Shared words</span></div>`;$("writing-results").innerHTML=bulkHTML+issues.map((issue,index)=>`<article class="quality-item warning" data-writing="${index}"><span class="quality-icon">!</span><div><h3>${escapeHTML(issue.history)} · ${escapeHTML(issue.kind)}</h3><p>${highlight(issue.comment,issue.start,issue.end)}</p><p>${escapeHTML(issue.message)}</p><div class="heading-actions">${issue.suggestions.map((suggestion,suggestionIndex)=>`<button data-writing-fix="${suggestionIndex}">${escapeHTML(writingSuggestionLabel(issue.problem,suggestion))}</button>`).join("")}<button data-writing-custom>Custom fix…</button>${issue.canIgnore?`<button data-writing-ignore>Add “${escapeHTML(issue.problem)}” to shared dictionary</button>`:""}</div></div></article>`).join("")||qualityHTML("good",{area:"Writing looks clean",message:`No issues found in ${count} writing fields.`});$("writing-results").querySelectorAll("[data-writing-fix-all]").forEach(button=>button.addEventListener("click",()=>{const fix=bulkFixes.get(button.dataset.writingFixAll);if(fix)applyWritingFixAll(fix.issues,fix.replacement)}));$("writing-results").querySelectorAll("[data-writing]").forEach(card=>{const issue=issues[Number(card.dataset.writing)];card.querySelectorAll("[data-writing-fix]").forEach(button=>button.addEventListener("click",()=>applyWritingFix(issue,issue.suggestions[Number(button.dataset.writingFix)])));card.querySelector("[data-writing-custom]")?.addEventListener("click",()=>{const value=prompt(`Replace “${issue.problem}” with`,issue.problem);if(value!==null)applyWritingFix(issue,value)});card.querySelector("[data-writing-ignore]")?.addEventListener("click",event=>ignoreWritingWord(issue,event.currentTarget));});}
 function highlight(text,start,end){return`${escapeHTML(text.slice(0,start))}<mark>${escapeHTML(text.slice(start,end))}</mark>${escapeHTML(text.slice(end))}`}
-function applyWritingFix(issue,replacement){const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":kind==="hint"?"hint":"comment",current=node[field]||"";const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
-function applyWritingFixAll(issues,replacement){let document=state.document;const grouped=new Map();for(const issue of issues){const group=grouped.get(issue.sourceId)||[];group.push(issue);grouped.set(issue.sourceId,group)}for(const [sourceId,sourceIssues] of grouped){const [kind,key]=String(sourceId).split(":");const ordered=[...sourceIssues].sort((left,right)=>right.start-left.start);if(kind==="metadata"){let text=String(document.metadata[key]||"");for(const issue of ordered)text=text.slice(0,issue.start)+replacement+text.slice(issue.end);document={...document,metadata:{...document.metadata,[key]:text}};continue}const node=nodeByID(document,key);if(!node)continue;const field=kind==="starting"?"startingComment":kind==="hint"?"hint":"comment";let text=node[field]||"";for(const issue of ordered)text=text.slice(0,issue.start)+replacement+text.slice(issue.end);document=updateNode(document,key,{[field]:text})}commit(document);runSpellcheck();}
+function applyWritingFix(issue,replacement){if(!requireCurrentDiagnostic(issue.context)||!writingIssueIsCurrent(issue))return;const [kind,key]=String(issue.sourceId).split(":");if(kind==="metadata"){const current=String(state.document.metadata[key]||"");const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit({...state.document,metadata:{...state.document.metadata,[key]:text}});}else{const node=nodeByID(state.document,key);if(!node)return;const field=kind==="starting"?"startingComment":kind==="hint"?"hint":"comment",current=node[field]||"";const text=current.slice(0,issue.start)+replacement+current.slice(issue.end);commit(updateNode(state.document,key,{[field]:text}));}runSpellcheck();}
+function applyWritingFixAll(issues,replacement){if(!issues.length||!requireCurrentDiagnostic(issues[0].context)||!issues.every(writingIssueIsCurrent))return;let document=state.document;const grouped=new Map();for(const issue of issues){const group=grouped.get(issue.sourceId)||[];group.push(issue);grouped.set(issue.sourceId,group)}for(const [sourceId,sourceIssues] of grouped){const [kind,key]=String(sourceId).split(":");const ordered=[...sourceIssues].sort((left,right)=>right.start-left.start);if(kind==="metadata"){let text=String(document.metadata[key]||"");for(const issue of ordered)text=text.slice(0,issue.start)+replacement+text.slice(issue.end);document={...document,metadata:{...document.metadata,[key]:text}};continue}const node=nodeByID(document,key);if(!node)continue;const field=kind==="starting"?"startingComment":kind==="hint"?"hint":"comment";let text=node[field]||"";for(const issue of ordered)text=text.slice(0,issue.start)+replacement+text.slice(issue.end);document=updateNode(document,key,{[field]:text})}commit(document);runSpellcheck();}
 
 function renderChapters(){
   if(!state.document)return;
@@ -947,7 +1003,7 @@ async function preparePublish(){
 }
 async function confirmPublish(){const button=$("confirm-publish"),candidate=state.publishCandidate;if(!candidate||candidate.courseID!==state.courseID||candidate.revision!==state.revision||candidate.savedSnapshot!==state.savedSnapshot||dirty()){$("publish-dialog").close();state.publishCandidate=null;return showStatus("The course changed after the publish review. Press Publish again to review the latest version.",true)}setBusy(button,true,"Publishing…");let confirmedVersion=null;try{const result=await api.publishCourse(candidate.courseID,candidate.revision);confirmedVersion=result.version;state.revision=result.revision??state.revision;state.savedSnapshot=candidate.savedSnapshot;state.publishCandidate=null;$("publish-dialog").close();updateSaveState();showStatus(`Published ${result.version||"successfully"}. The app will receive the update automatically.`);await loadCourses();await loadHistory();}catch(error){showStatus(confirmedVersion?`Published ${confirmedVersion}. The history display could not refresh; reload to see it.`:`Publication could not be confirmed. Check Version history before trying again. ${error.message}`,true)}finally{setBusy(button,false)}}
 async function loadHistory(){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||[];const publications=state.versions.map((version,index)=>{const summary=version.validation?.summary||{};return`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>${Number(summary.positionCount||0)} positions · ${Number(summary.chapterCount||0)} chapters · draft revision ${Number(version.documentRevision||0)}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`}).join("");const revisions=(payload.revisions||[]).slice(0,12).map(revision=>`<article class="history-row"><div><h2>Draft revision ${Number(revision.revision)}</h2><p>${escapeHTML(revision.reason||"save")} · ${escapeHTML(formatDate(revision.createdAt))}</p></div><span class="tag draft">Draft activity</span></article>`).join("");$("history-list").innerHTML=`${publications||'<div class="loading-card">No published versions yet.</div>'}${revisions?`<div class="page-heading compact"><div><h2>Recent draft activity</h2></div></div>${revisions}`:""}`;$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`}}
-async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;const revision=raw?.revision??payload.revision,hydrated=await hydrateSourceDocument(draft,state.courseID,revision);state.revision=revision;state.document=hydrated.document;state.reconciliationError=hydrated.reconciliationError;state.validation=hydrated.validation;state.savedSnapshot=JSON.stringify(state.document);state.publishCandidate=null;clearCrashRecovery();state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
+async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;const revision=raw?.revision??payload.revision,hydrated=await hydrateSourceDocument(draft,state.courseID,revision);invalidateDiagnostics();state.revision=revision;state.document=hydrated.document;state.reconciliationError=hydrated.reconciliationError;state.validation=hydrated.validation;state.savedSnapshot=JSON.stringify(state.document);state.publishCandidate=null;clearCrashRecovery();state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
 
 async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),preview=await api.importPGN(pgn),title=preview.inferredTitle&&preview.inferredTitle!=="?"?preview.inferredTitle:file.name.replace(/\.pgn$/i,"");state.pendingImport={pgn,fileName:file.name,moveCount:preview.moveCount};const form=$("import-form");form.reset();delete form.elements.slug.dataset.edited;form.elements.title.value=title;form.elements.slug.value=slugify(title);$("import-file-name").textContent=`${file.name} · ${Number(preview.moveCount||0)} moves`;$("import-dialog").showModal();}catch(error){showStatus(error.message,true)}}
 function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
@@ -1003,6 +1059,7 @@ async function exportAllChapterSources(document) {
 }
 function selectIndependentChapter(id, view = 'editor') {
   flushActiveEditor();
+  invalidateDiagnostics();
   state.document = activateChapter(state.document, id);
   state.currentNodeID = null; state.previewAttempt = null; state.analysisToken += 1;
   stopEditorMaia(); editorEngine.cancel();
