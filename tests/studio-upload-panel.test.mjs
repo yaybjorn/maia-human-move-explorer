@@ -6,9 +6,9 @@ function dom() {
   return { nodes, root: { hidden: true, querySelector: s => nodes[s.match(/"(\w+)"/)[1]] } };
 }
 const paid = { actorID: "author", courseID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 207, metadata: { slug: "cowboy-kilkenny", priceTier: "usd-4.99" }, dirty: false };
-test("default-disabled panel cannot access storage, send requests or show upload controls", async () => {
+test("explicitly disabled panel cannot access storage, send requests or show upload controls", async () => {
   const { root, nodes } = dom(); let access = 0;
-  const panel = createUploadPanel({ root, api: { request: () => { throw Error("unexpected request"); } }, getContext: () => paid, storage: { getItem: () => { access++; throw Error("unavailable"); } } });
+  const panel = createUploadPanel({ root, enabled: false, api: { request: () => { throw Error("unexpected request"); } }, getContext: () => paid, storage: { getItem: () => { access++; throw Error("unavailable"); } } });
   panel.refresh(); await nodes.start.listeners.click();
   assert.equal(root.hidden, true); assert.equal(access, 0);
 });

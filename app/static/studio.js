@@ -1,14 +1,15 @@
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
-import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260908-staged";
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260914-publish-receipt";
+import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260923-chapters";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
+  activateChapter, syncActiveChapter, newChapterCourse, addIndependentChapter, chapterDocument, chapterPGNHeaders,
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260908-course-video";
+} from "./studio-document.mjs?v=20260923-chapters";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 
@@ -36,8 +37,16 @@ const extractionPanel = createExtractionPanel({
   notify: showStatus,
 });
 const uploadPanel = createUploadPanel({ api, root: $("staged-upload-panel"), getContext: () => state.user && state.document ? {
-  actorID: state.user.id, courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(),
-} : null });
+  actorID: state.user.id, courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(), chapterID: state.document.activeChapterID || null,
+} : null, onStaged: async record => {
+  if (!record.chapterID || state.courseID !== record.courseID) return;
+  const next = syncActiveChapter(state.document);
+  const chapter = next.chapterSources?.find(item => item.id === record.chapterID);
+  if (!chapter || chapter.videoUploadID === record.uploadID) return;
+  chapter.videoUploadID = record.uploadID;
+  commit(next);
+  showStatus('Video files staged for this chapter. Save draft to keep the association; playback validation is still required.');
+} });
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
 const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
@@ -62,7 +71,16 @@ function escapeHTML(value = "") {
   return node.innerHTML.replaceAll('"', "&quot;");
 }
 function slugify(value) { return String(value).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80); }
-function dirty() { return Boolean(state.document) && JSON.stringify(state.document) !== state.savedSnapshot; }
+function comparableDocument(document) {
+  if (!Array.isArray(document?.chapterSources)) return JSON.stringify(document);
+  const { activeChapterID: _active, nodes: _nodes, headers: _headers, sourcePGN: _source, trainingStartPath: _start, ...stored } = syncActiveChapter(document);
+  return JSON.stringify(stored);
+}
+function dirty() {
+  if (!state.document) return false;
+  try { return comparableDocument(state.document) !== comparableDocument(JSON.parse(state.savedSnapshot || 'null')); }
+  catch { return true; }
+}
 function recoveryKey() { return `${RECOVERY_PREFIX}${state.courseID || "unknown"}`; }
 function showStatus(message, error = false) {
   const toast = $("global-status");
@@ -180,6 +198,14 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
 }
 
 async function hydrateSourceDocument(document, courseID, revision) {
+  if (Array.isArray(document.chapterSources)) {
+    const chapterSources = [];
+    for (const chapter of document.chapterSources) {
+      const hydrated = pgnHasMoves(chapter.sourcePGN) ? importParsedPGN(await analysisAPI.parsePGN(chapter.sourcePGN), document.metadata) : newCourseDocument(document.metadata);
+      chapterSources.push({ ...chapter, nodes: hydrated.nodes, headers: hydrated.headers });
+    }
+    return { document: activateChapter({ ...document, chapterSources, activeChapterID: null }, document.activeChapterID || chapterSources[0]?.id), reconciliationError: null, validation: null };
+  }
   if (document.nodes.length || !pgnHasMoves(document.sourcePGN)) {
     return { document, reconciliationError: null, validation: null };
   }
@@ -225,7 +251,7 @@ function commit(next, { navigateTo } = {}) {
     return;
   }
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
-  state.redo = []; state.document = value; state.validation = null; state.publishCandidate = null;
+  state.redo = []; state.document = syncActiveChapter(value); state.validation = null; state.publishCandidate = null;
   if (navigateTo !== undefined) state.currentNodeID = navigateTo;
   saveCrashRecovery(); renderAll(); updateSaveState();
 }
@@ -263,7 +289,9 @@ function updateSaveState(saving = false) {
   $("undo").disabled = !state.undo.length; $("redo").disabled = !state.redo.length;
 }
 async function exportSource(document = state.document) {
-  const payload = await analysisAPI.exportPGN(serializeForPGN(document), document.headers);
+  const chapter = Array.isArray(document.chapterSources) ? syncActiveChapter(document).chapterSources.find(c => c.id === document.activeChapterID) : null;
+  if (Array.isArray(document.chapterSources) && !chapter) throw new Error('Add a chapter first.');
+  const payload = await analysisAPI.exportPGN(serializeForPGN(document), chapter ? chapterPGNHeaders(document, chapter) : document.headers);
   if (!payload?.pgn) throw new Error("The course could not be exported safely. Nothing was saved.");
   return payload.pgn;
 }
@@ -288,8 +316,10 @@ async function performSaveDraft() {
       },
     });
     saveCrashRecovery();
-    const sourcePGN = await exportSource(documentToSave);
-    const localDocument = normalizeDocument({ ...documentToSave, sourcePGN });
+    const localDocument = Array.isArray(documentToSave.chapterSources)
+      ? await exportAllChapterSources(documentToSave)
+      : normalizeDocument({ ...documentToSave, sourcePGN: await exportSource(documentToSave) });
+    const sourcePGN = localDocument.sourcePGN;
     const payload = await api.saveDraft(startingCourseID, startingRevision, documentForStorage(localDocument, sourcePGN));
     if (state.courseID !== startingCourseID) return true;
     const saved = payload.draft || payload.document || {};
@@ -313,7 +343,7 @@ async function performSaveDraft() {
     state.revision = saved.revision ?? payload.revision ?? startingRevision + 1;
     state.savedSnapshot = JSON.stringify(savedDocument);
     uploadPanel.refresh();
-    if (state.view === "videos") extractionPanel.refresh();
+    if (state.view === "videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
     if (!dirty()) clearCrashRecovery();
     else saveCrashRecovery();
     updateSaveState();
@@ -333,7 +363,7 @@ function flushActiveEditor() {
   const active = document.activeElement;
   if (!active || !active.matches("input,textarea,select")) return;
   if (active.id === "node-comment" || active.id === "node-hint"
-      || active.dataset.chapterTitle !== undefined || active.form === $("details-form")) active.blur();
+      || active.dataset.chapterTitle !== undefined || active.dataset.independentTitle !== undefined || active.form === $("details-form")) active.blur();
 }
 function markPendingInput(){if(!state.document)return;extractionPanel.contextChanged();$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
@@ -352,13 +382,14 @@ function switchView(view) {
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
   if (["chapters","videos","preview"].includes(view)) renderAll();
-  if (view === "videos") extractionPanel.refresh();
+  if (view === "videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
   if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
   else { editorEngine.cancel(); stopEditorMaia(); }
 }
 function renderAll() {
   if (!state.document) return;
   extractionPanel.contextChanged();
+  renderChapterSelector();
   renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
@@ -392,7 +423,17 @@ function moveVideo(from, to) {
   const [video] = videos.splice(from, 1); videos.splice(to, 0, video); replaceVideos(videos);
 }
 function renderVideos() {
-  uploadPanel.refresh();
+  const chapterFirst = Array.isArray(state.document?.chapterSources);
+  if (chapterFirst) extractionPanel.suspend();
+  if (chapterFirst && !state.document.activeChapterID) uploadPanel.clear(); else uploadPanel.refresh();
+  $('staged-upload-heading').textContent = chapterFirst ? 'Optional chapter video' : 'Private video upload';
+  $('chapter-video-context').hidden = !chapterFirst;
+  if (chapterFirst) {
+    const active = syncActiveChapter(state.document).chapterSources.find(c => c.id === state.document.activeChapterID);
+    $('chapter-video-context').textContent = active ? `${active.title}: ${active.videoUploadID ? 'files staged; playback validation pending' : 'no video'}. Select another chapter in Chapters.` : 'Add a chapter first.';
+  }
+  document.querySelector('[aria-labelledby="course-video-heading"]').hidden = chapterFirst;
+  document.querySelector('[aria-labelledby="extraction-heading"]').hidden = chapterFirst;
   renderCourseVideo();
   const container = $("video-list"); if (!container || !state.document) return;
   const videos = videoItems();
@@ -595,6 +636,7 @@ function chooseBoardMove(candidates) {
     const promotion = (prompt("Promote to queen, rook, bishop, or knight", "queen") || "queen")[0].toLowerCase();
     move = candidates.find(item => item.uci.endsWith({q:"q",r:"r",b:"b",k:"n",n:"n"}[promotion])) || move;
   }
+  if (Array.isArray(state.document.chapterSources) && !state.document.activeChapterID) { switchView("chapters"); return showStatus("Add or import a chapter before editing moves.", true); }
   const result = addMove(state.document, state.currentNodeID, move);
   commit(result.document, { navigateTo: result.node.id }); state.selectedSquare = null; refreshPosition();
 }
@@ -786,6 +828,8 @@ function applyWritingFixAll(issues,replacement){let document=state.document;cons
 
 function renderChapters(){
   if(!state.document)return;
+  if(Array.isArray(state.document.chapterSources)) return renderIndependentChapters();
+  $("chapter-board").hidden=false;
   const id=state.document.metadata.slug||"draft",slices=chapterSlices(state.document,id),container=$("studio-chapters"),starts=new Set(slices.slice(1).map(chapter=>chapter.startIndex));
   container.classList.toggle("adding",state.chapterAddMode);
   container.innerHTML=slices.map((chapter,index)=>`<section class="studio-chapter"><div class="studio-chapter-head" draggable="${index>0}" data-chapter-drag="${index}"><span aria-hidden="true">⠿</span><input data-chapter-title="${index}" value="${escapeHTML(chapter.title)}" maxlength="80" aria-label="Chapter ${index+1} name"><span class="chapter-count ${chapter.positions.length<16||chapter.positions.length>32?"outside":""}">${chapter.positions.length} positions</span>${index?`<span class="boundary-controls"><button data-boundary-step="-1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position earlier">↑</button><button data-boundary-step="1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position later">↓</button></span><button data-delete-chapter="${index}" class="icon-button" aria-label="Delete chapter ${escapeHTML(chapter.title)}">×</button>`:"<span></span><span></span>"}</div>${chapter.positions.map(position=>`${chapterDrop(position.learningOrder,starts.has(position.learningOrder))}<button class="chapter-position-row" data-chapter-position="${escapeHTML(position.id)}"><span>#${position.learningOrder+1} - move ${position.moveNumber} - <strong>${escapeHTML(position.correctMove.san)}</strong></span></button>`).join("")}</section>`).join("");
@@ -846,11 +890,11 @@ function renderPreviewCard(position,chapter){
 function restartPreviewChapter(){state.previewIndex=0;state.previewAttempt=null;state.previewSelectedSquare=null;renderPreview()}
 
 function combinedValidation(remote=null){const local=validateDocument(state.document);if(state.reconciliationError)local.blockers.push({area:"Chapters",message:state.reconciliationError});if(!remote)return local;const source=remote.validation||remote;return{blockers:uniqueChecks([...local.blockers,...(source.blockers||source.errors||[])]),warnings:uniqueChecks([...local.warnings,...(source.warnings||[])])};}
-function normalizeCheck(item){if(typeof item==="string")return{area:"Validation",message:item};const area=item.area||item.path||(item.code==="chapter_size"?"Chapters":"Validation");return{area,message:item.message||item.detail||"Course issue",...(item.nodeID?{nodeID:String(item.nodeID)}:{})}}
+function normalizeCheck(item){if(typeof item==="string")return{area:"Validation",message:item};const area=item.area||item.path||(item.code==="chapter_size"?"Chapters":"Validation");return{area,message:item.message||item.detail||"Course issue",...(item.nodeID?{nodeID:String(item.nodeID)}:{}),...(item.chapterID?{chapterID:String(item.chapterID)}:{})}}
 function uniqueChecks(items){const seen=new Set();return items.map(normalizeCheck).filter(item=>{const key=`${item.area}|${item.message}`.toLocaleLowerCase("en-GB").replace(/\b(?:has|contains)\b/g,"").replace(/\bpositions?\b/g,"position").replace(/[^a-z0-9|]+/g," ").trim();if(seen.has(key))return false;seen.add(key);return true})}
 function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item,true)),...checks.warnings.map(item=>qualityHTML("warning",item,true))].join("")||qualityHTML("good",{area:"Ready to publish",message:"No blockers or warnings found."});$("quality-results").querySelectorAll("[data-quality-area]").forEach(button=>button.addEventListener("click",()=>reviewQualityItem(button)));return checks;}
-function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
-function reviewQualityItem(button){switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
+function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.chapterID?` data-quality-chapter="${escapeHTML(item.chapterID)}"`:""}${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
+function reviewQualityItem(button){if(button.dataset.qualityChapter)selectIndependentChapter(button.dataset.qualityChapter,button.dataset.qualityNode?"editor":"chapters");else switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
 function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("video"))return"videos";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
 async function runQuality({forPublish=false}={}){
   const button=$("refresh-quality");setBusy(button,true,"Checking…");
@@ -868,7 +912,7 @@ async function runQuality({forPublish=false}={}){
     showStatus(forPublish?`Publish stopped during quality checks. No publication request was sent. ${error.message}`:error.message,true);return null;
   }finally{setBusy(button,false)}
 }
-function resolveCompiledChapters(validation){const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
+function resolveCompiledChapters(validation){if(Array.isArray(state.document.chapterSources))return (validation?.compiledPreview?.chapters?.length||0)===state.document.chapterSources.length;const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 function beginPublish(){return publishPreparationFlight.run(preparePublish)}
 async function preparePublish(){
   const button=$("publish");setBusy(button,true,"Preparing…");
@@ -878,7 +922,7 @@ async function preparePublish(){
   let validation=await runQuality({forPublish:true}); if(!validation) return;
   const checks=combinedValidation(validation);
   if(checks.blockers.length){switchView("quality");return showStatus("Fix the publish blockers first.",true);}
-  if(!state.document.chapterDrafts.length) state.document.chapterDrafts=ensureChapters(state.document,state.document.metadata.slug||"draft");
+  if(!Array.isArray(state.document.chapterSources)&&!state.document.chapterDrafts.length) state.document.chapterDrafts=ensureChapters(state.document,state.document.metadata.slug||"draft");
   if(!resolveCompiledChapters(validation)) return showStatus("The compiled chapter positions could not be matched safely. Publishing is blocked.",true);
   if(dirty()){if(!await saveDraft({quiet:true}))return;validation=await runQuality({forPublish:true});if(!validation)return;}
   const warnings=combinedValidation(validation).warnings;
@@ -911,11 +955,11 @@ document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventL
 $("new-course").addEventListener("click",()=>{$("create-form").reset();delete $("create-form").elements.slug.dataset.edited;$("create-dialog").showModal()});
 $("create-form").elements.title.addEventListener("input",event=>{const slug=$("create-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("create-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
-$("create-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const document=newCourseDocument(data);try{const payload=await api.createCourse({...data,document});$("create-dialog").close();await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
+$("create-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const document=newChapterCourse(data);try{const payload=await api.createCourse({...data,document});$("create-dialog").close();await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
 $("dashboard-import").addEventListener("change",event=>{importPGN(event.target.files[0]);event.target.value=""});
 $("import-form").elements.title.addEventListener("input",event=>{const slug=$("import-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("import-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
-$("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const payload=await api.createCourse(importedCoursePayload({...data,pgn:state.pendingImport.pgn}));$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
+$("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const parsed=await analysisAPI.parsePGN(state.pendingImport.pgn), document=addIndependentChapter(newChapterCourse(data),parsed,parsed.headers?.Event||'Chapter 1',`chapter-${crypto.randomUUID()}`), exported=await exportAllChapterSources(document);const payload=await api.createCourse({...data,document:documentForStorage(exported,'')});$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
 $("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
 $("add-course-video").addEventListener("click", () => {
@@ -926,9 +970,9 @@ $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:v
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
-$("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
+$("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
-$("add-chapter").addEventListener("click",()=>{state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
+$("add-chapter").addEventListener("click",()=>{if(Array.isArray(state.document.chapterSources))return createIndependentChapter();state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
 $("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",()=>{state.publishCandidate=null;$("publish-dialog").close()});$("cancel-publish").addEventListener("click",()=>{state.publishCandidate=null;$("publish-dialog").close()});$("confirm-publish").addEventListener("click",confirmPublish);
 $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=await exportSource();$("raw-pgn-error").textContent="";$("raw-pgn-dialog").showModal()}catch(error){showStatus(error.message,true)}});
 $("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
@@ -939,3 +983,125 @@ window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){e
 window.addEventListener("hashchange",()=>{const view=location.hash.slice(1);if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
 boot();
+
+async function exportAllChapterSources(document) {
+  const next = syncActiveChapter(document), chapterSources = [];
+  for (const chapter of next.chapterSources) {
+    const child = chapterDocument(next, chapter);
+    const payload = await analysisAPI.exportPGN(serializeForPGN(child), chapterPGNHeaders(next, chapter));
+    if (!payload?.pgn) throw new Error(`${chapter.title} could not be exported. Nothing was saved.`);
+    chapterSources.push({ ...chapter, sourcePGN: payload.pgn });
+  }
+  return activateChapter({ ...next, chapterSources, activeChapterID: null }, next.activeChapterID);
+}
+function selectIndependentChapter(id, view = 'editor') {
+  flushActiveEditor();
+  state.document = activateChapter(state.document, id);
+  state.currentNodeID = null; state.previewAttempt = null; state.analysisToken += 1;
+  stopEditorMaia(); editorEngine.cancel();
+  renderAll(); refreshPosition(); switchView(view);
+}
+function renderChapterSelector() {
+  const independent = Array.isArray(state.document.chapterSources);
+  $('chapter-editor-controls').hidden = !independent;
+  $('import-chapter-label').hidden = !independent;
+  $('raw-pgn').hidden = independent;
+  $('export-pgn').disabled = independent && !state.document.activeChapterID;
+  if (!independent) return;
+  const select = $('active-chapter');
+  select.innerHTML = state.document.chapterSources.map(chapter => `<option value="${escapeHTML(chapter.id)}" ${chapter.id===state.document.activeChapterID?'selected':''}>${escapeHTML(chapter.title)}</option>`).join('') || '<option>No chapters yet</option>';
+  $('chapter-training-start').textContent = (state.document.trainingStartPath || []).length ? `Training begins after ${state.document.trainingStartPath.length} moves.` : 'Training begins at the starting position.';
+  $('set-training-start').disabled = !state.document.activeChapterID;
+  $('clear-training-start').disabled = !(state.document.trainingStartPath || []).length;
+}
+function createIndependentChapter(parsed = null, title = '') {
+  const id = `chapter-${crypto.randomUUID()}`;
+  try {
+    commit(addIndependentChapter(state.document, parsed, title || `Chapter ${state.document.chapterSources.length + 1}`, id), { navigateTo: null });
+    refreshPosition(); switchView('editor');
+  } catch (error) { showStatus(error.message, true); }
+}
+function renderIndependentChapters() {
+  const chapters = chapterSlices(state.document), container = $('studio-chapters');
+  container.classList.remove('adding');
+  $('chapter-board').hidden = true;
+  container.innerHTML = chapters.map((chapter, index) => `<section class="studio-chapter independent-chapter" data-independent-chapter="${escapeHTML(chapter.id)}" draggable="true">
+    <div class="independent-chapter-heading"><span aria-hidden="true">⠿</span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label><span>${chapter.positions.length} training positions</span></div>
+    <p>${chapter.nodes.length ? 'PGN ready' : 'PGN missing — add moves or import a new chapter'} · ${chapter.videoUploadID ? 'Video staged — validation pending' : 'No video (optional)'}</p>
+    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter</button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">Video</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-export="${escapeHTML(chapter.id)}">Export PGN</button><button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-chapter-shift="-1" data-chapter-index="${index}" ${index===0?'disabled':''} aria-label="Move chapter up">↑</button><button class="secondary" data-chapter-shift="1" data-chapter-index="${index}" ${index===chapters.length-1?'disabled':''} aria-label="Move chapter down">↓</button><button class="danger" data-independent-delete="${escapeHTML(chapter.id)}">Delete</button></div>
+    </section>`).join('') || '<div class="empty-state"><h2>Build your course chapter by chapter</h2><p>Import a PGN as a starting point, or add a blank chapter and author its moves here. Video is optional.</p></div>';
+  container.querySelectorAll('[data-independent-title]').forEach(input => {
+    input.addEventListener('input', markPendingInput);
+    input.addEventListener('change', () => {
+      const next = syncActiveChapter(state.document);
+      next.chapterSources = next.chapterSources.map(chapter => chapter.id === input.dataset.independentTitle ? { ...chapter, title: input.value.trim() || chapter.title } : chapter);
+      commit(next);
+    });
+  });
+  container.querySelectorAll('[data-chapter-video]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterVideo, 'videos')));
+  container.querySelectorAll('[data-chapter-remove-video]').forEach(button => button.addEventListener('click', () => {
+    const next = syncActiveChapter(state.document);
+    const chapter = next.chapterSources.find(item => item.id === button.dataset.chapterRemoveVideo);
+    if (chapter) { delete chapter.videoUploadID; commit(next); }
+  }));
+  container.querySelectorAll('[data-chapter-open]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterOpen)));
+  container.querySelectorAll('[data-chapter-export]').forEach(button => button.addEventListener('click', () => { selectIndependentChapter(button.dataset.chapterExport, 'chapters'); $('export-pgn').click(); }));
+  container.querySelectorAll('[data-chapter-check]').forEach(button => button.addEventListener('click', () => checkIndependentChapter(button.dataset.chapterCheck)));
+  container.querySelectorAll('[data-chapter-preview]').forEach(button => button.addEventListener('click', () => { state.previewChapter = Number(button.dataset.chapterPreview); state.previewIndex = 0; state.previewAttempt = null; switchView('preview'); }));
+  container.querySelectorAll('[data-chapter-shift]').forEach(button => button.addEventListener('click', () => reorderIndependentChapter(Number(button.dataset.chapterIndex), Number(button.dataset.chapterIndex) + Number(button.dataset.chapterShift))));
+  container.querySelectorAll('[data-independent-delete]').forEach(button => button.addEventListener('click', () => {
+    if (!confirm('Delete this chapter and its authored moves? Export its PGN first if you want to keep a copy. The saved course remains unchanged until Save draft.')) return;
+    const next = syncActiveChapter(state.document);
+    next.chapterSources = next.chapterSources.filter(chapter => chapter.id !== button.dataset.independentDelete);
+    commit(activateChapter({ ...next, activeChapterID: null }, next.activeChapterID === button.dataset.independentDelete ? next.chapterSources[0]?.id : next.activeChapterID), { navigateTo: null });
+    refreshPosition();
+  }));
+  container.querySelectorAll('[data-independent-chapter]').forEach((row, index) => {
+    row.addEventListener('dragstart', event => { if (event.target.closest('input,button')) { event.preventDefault(); return; } state.chapterDrag = index; });
+    row.addEventListener('dragover', event => event.preventDefault());
+    row.addEventListener('drop', event => { event.preventDefault(); if (state.chapterDrag !== null) reorderIndependentChapter(state.chapterDrag, index); state.chapterDrag = null; });
+    row.addEventListener('dragend', () => { state.chapterDrag = null; });
+  });
+  $('chapter-position').innerHTML = '<p>Each chapter keeps its full move history. Choose its training start in the editor. Branches that diverge before that point remain editable and exportable but do not become exercises.</p>';
+}
+function reorderIndependentChapter(from, to) {
+  const next = syncActiveChapter(state.document);
+  if (from < 0 || to < 0 || from >= next.chapterSources.length || to >= next.chapterSources.length) return;
+  const [chapter] = next.chapterSources.splice(from, 1); next.chapterSources.splice(to, 0, chapter); commit(next);
+}
+$('active-chapter').addEventListener('change', event => selectIndependentChapter(event.target.value));
+$('set-training-start').addEventListener('click', () => {
+  const path = movesToNode(state.document, state.currentNodeID), learnerPly = state.document.metadata.side === 'black' ? 1 : 0;
+  if (path.length % 2 !== learnerPly) return showStatus('Choose a position where the learner is to move.', true);
+  const child = chapterDocument(state.document, { ...state.document, chapterSources: undefined, trainingStartPath: [] });
+  if (!trainingPack(child).positions.some(position => JSON.stringify(position.path) === JSON.stringify(path))) return showStatus('Choose a position on a trainable repertoire line.', true);
+  commit({ ...state.document, trainingStartPath: path });
+});
+$('clear-training-start').addEventListener('click', () => commit({ ...state.document, trainingStartPath: [] }));
+$('chapter-pgn-import').addEventListener('change', async event => {
+  const file = event.target.files[0]; event.target.value = ''; if (!file) return;
+  const courseID = state.courseID;
+  try {
+    if (file.size > 1800000) throw new Error('PGN exceeds the 1.8 MB limit.');
+    const pgn = await file.text(); await api.importPGN(pgn); const parsed = await analysisAPI.parsePGN(pgn);
+    if (state.courseID !== courseID) throw new Error('The open course changed. Import the chapter again.');
+    createIndependentChapter(parsed, parsed.headers?.Event || file.name.replace(/\.pgn$/i, ''));
+  } catch (error) { showStatus(error.message, true); }
+});
+
+async function checkIndependentChapter(id) {
+  selectIndependentChapter(id, 'quality');
+  if (!await saveDraft({ quiet: true })) return;
+  const chapter = syncActiveChapter(state.document).chapterSources.find(item => item.id === id);
+  if (!chapter) return;
+  const courseID = state.courseID, revision = state.revision;
+  try {
+    const remote = await api.validateChapter(courseID, revision, id);
+    if (state.courseID !== courseID || state.revision !== revision || dirty()) return showStatus('The draft changed; check this chapter again.');
+    const local = validateDocument(chapterDocument(state.document, chapter));
+    const blockers = uniqueChecks([...local.blockers, ...(remote.errors || [])]), warnings = uniqueChecks([...local.warnings, ...(remote.warnings || [])]);
+    $('quality-summary').innerHTML = `<div class="stat"><strong>${escapeHTML(chapter.title)}</strong><span>Chapter-only check · ${blockers.length} blockers · ${warnings.length} warnings</span></div>`;
+    $('quality-results').innerHTML = [...blockers.map(item => qualityHTML('blocker', item)), ...warnings.map(item => qualityHTML('warning', item))].join('') || qualityHTML('good', { area: chapter.title, message: 'This chapter passes. Publishing still checks every chapter.' });
+    showStatus('Chapter checks complete.');
+  } catch (error) { showStatus(`Chapter check unavailable: ${error.message}`, true); }
+}

@@ -99,6 +99,9 @@ export class StudioAPI {
   validateCourse(id, revision, document) {
     return this.request(ROUTES.validate(id), { method: "POST", body: { revision, document } });
   }
+  validateChapter(id, revision, chapterID) {
+    return this.request(ROUTES.validate(id), { method: "POST", body: { revision, chapterID } });
+  }
   async publishCourse(id, revision) {
     const result = await this.request(ROUTES.publish(id), { method: "POST", body: { revision } });
     // HTTP success alone is not an immutable publication acknowledgement.

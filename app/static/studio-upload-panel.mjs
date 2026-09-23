@@ -1,6 +1,6 @@
-import { StagedUpload, PRIVATE_UPLOADS_ENABLED, paidUploadCourse, FREE_UPLOAD_EXPLANATION } from "./studio-upload.mjs";
+import { StagedUpload, PRIVATE_UPLOADS_ENABLED, paidUploadCourse, FREE_UPLOAD_EXPLANATION } from "./studio-upload.mjs?v=20260923-chapters";
 
-export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPLOADS_ENABLED, storage }) {
+export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPLOADS_ENABLED, storage, onStaged = () => {} }) {
   let uploader = null, contextKey = null, busy = false;
   const find = id => root.querySelector(`[data-upload="${id}"]`);
   const message = text => { find("status").textContent = text; };
@@ -30,13 +30,13 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     root.hidden = !enabled;
     if (!enabled) return;
     const context = getContext();
-    const key = context && `${context.actorID}:${context.courseID}:${context.revision}`;
+    const key = context && `${context.actorID}:${context.courseID}:${context.revision}:${context.chapterID || ""}`;
     if (key !== contextKey) {
       uploader?.pause(); uploader = null; contextKey = key;
       find("video").value = ""; find("thumbnail").value = ""; find("title").value = "";
       if (context) {
         try {
-          uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}` === contextKey) renderProgress(record); } });
+          uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
           if (record) { find("title").value = record.title; renderProgress(record); }
           else message("Stage an MP4 video and PNG or JPEG thumbnail. Validation is required before the course can use them.");
@@ -51,14 +51,14 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     if (!context || context.dirty || !paidUploadCourse(context.metadata)) return refresh();
     busy = true; const current = uploader; controls(context);
     message("Checking file fingerprints… Keep these files available to resume later.");
-    try { await current.run({ title: find("title").value, video: find("video").files[0], thumbnail: find("thumbnail").files[0] }); }
+    try { const record = await current.run({ title: find("title").value, video: find("video").files[0], thumbnail: find("thumbnail").files[0] }); if (current === uploader && record?.state === "staged") await onStaged(record); }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
   });
   find("check").addEventListener("click", async () => {
     if (!enabled || busy || !uploader) return;
     const current = uploader; busy = true; controls(getContext());
-    try { if (!await current.inspect()) message("No saved upload for this course."); }
+    try { const record = await current.inspect(); if (!record) message("No saved upload for this course."); else if (current === uploader && record.state === "staged") await onStaged(record); }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
   });

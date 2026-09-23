@@ -224,12 +224,12 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20260908-video-fen' in page.text
+    assert '/static/studio.js?v=20260923-chapters' in page.text
     assert "This course was saved in another tab or browser" in page.text
     assert "server draft" not in page.text.lower()
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
-    assert './studio-api.mjs?v=20260902-editor-maia' in studio_source
-    assert './studio-document.mjs?v=20260908-course-video' in studio_source
+    assert './studio-api.mjs?v=20260923-chapters' in studio_source
+    assert './studio-document.mjs?v=20260923-chapters' in studio_source
     assert './studio-engine.mjs?v=20260902-progressive-engine' in studio_source
     assert 'to shared dictionary</button>' in studio_source
     assert 'runSpellcheck({refreshDictionary:false})' in studio_source
@@ -239,6 +239,9 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert "min-width:0;min-height:0;overflow:hidden" in css.text
     assert 'id="raw-pgn-dialog"' in page.text
     assert 'id="preview-chapter"' in page.text
+    assert 'id="chapter-pgn-import"' in page.text
+    assert 'id="active-chapter"' in page.text
+    assert 'id="set-training-start"' in page.text
     assert 'id="video-list"' in page.text
     assert 'id="add-video"' in page.text
     assert 'data-view="videos"' in page.text

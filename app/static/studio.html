@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>GingerGM Course Studio</title>
   <link rel="icon" type="image/svg+xml" href="/static/studio-favicon.svg">
-  <link rel="stylesheet" href="/static/studio.css?v=20260908-course-video">
+  <link rel="stylesheet" href="/static/studio.css?v=20260923-chapters">
   <link rel="stylesheet" href="/static/studio-extraction.css?v=20260908-video-fen">
 </head>
 <body>
@@ -93,7 +93,7 @@
         </section>
         <section id="staged-upload-panel" class="tool-card video-editor-card" aria-labelledby="staged-upload-heading" hidden>
           <div class="card-heading"><div><h2 id="staged-upload-heading">Private course video <span class="optional-label">Optional</span></h2><p>Upload a separate video for offline viewing. Existing YouTube links stay unchanged.</p></div></div>
-          <div class="video-fields"><label>Video title<input data-upload="title" maxlength="200" disabled></label><label>MP4 video<input data-upload="video" type="file" accept="video/mp4" disabled></label><label>Thumbnail<input data-upload="thumbnail" type="file" accept="image/png,image/jpeg" disabled></label></div>
+          <p id="chapter-video-context" hidden></p><div class="video-fields"><label>Video title<input data-upload="title" maxlength="200" disabled></label><label>MP4 video<input data-upload="video" type="file" accept="video/mp4" disabled></label><label>Thumbnail<input data-upload="thumbnail" type="file" accept="image/png,image/jpeg" disabled></label></div>
           <p data-upload="status" role="status" aria-live="polite">Private uploads are not enabled.</p>
           <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes"></progress>
           <div class="course-video-actions"><button data-upload="start" class="secondary" type="button" disabled>Stage / resume files</button><button data-upload="check" class="secondary" type="button" disabled>Check saved progress</button><button data-upload="pause" class="secondary" type="button" disabled>Pause</button></div>
@@ -109,6 +109,7 @@
 
       <section class="view editor-view" data-panel="editor">
         <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Repertoire editor</h1><p>Play moves on the board, then explain what the learner should remember.</p></div><div class="heading-actions"><button id="export-pgn" class="secondary" type="button">Export PGN</button></div></div>
+        <div id="chapter-editor-controls" class="tool-card" hidden><label>Editing chapter<select id="active-chapter"></select></label><p id="chapter-training-start"></p><div class="heading-actions"><button id="set-training-start" type="button">Start training at this position</button><button id="clear-training-start" type="button">Train from beginning</button></div><p class="muted">Full history stays in the PGN. Branches diverging before the selected start remain editable, but are excluded from training.</p></div>
         <div class="editor-layout">
           <section class="board-pane">
             <div id="editor-board-stage" class="editor-board-stage">
@@ -136,7 +137,7 @@
       </section>
 
       <section class="view" data-panel="chapters">
-        <div class="page-heading"><div><p class="eyebrow">Structure</p><h1>Chapters</h1><p>Drag a chapter divider, name the lesson and keep each one memorable.</p></div><button id="add-chapter" class="secondary" type="button">Add chapter</button></div>
+        <div class="page-heading"><div><p class="eyebrow">Structure</p><h1>Chapters</h1><p>Import a PGN for each chapter, then edit its moves and hints in Studio.</p></div><div class="heading-actions"><label id="import-chapter-label" class="secondary" hidden>Import chapter PGN<input id="chapter-pgn-import" type="file" accept=".pgn,application/x-chess-pgn" hidden></label><button id="add-chapter" class="secondary" type="button">Add chapter</button></div></div>
         <div class="chapter-layout"><div id="studio-chapters" class="chapter-timeline"></div><aside class="chapter-preview tool-card"><div id="chapter-board" class="chessboard small" role="group" aria-label="Chapter position preview"></div><div id="chapter-position"><p>Select a position to preview it.</p></div></aside></div>
       </section>
 
@@ -197,6 +198,6 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <script type="module" src="/static/studio.js?v=20260914-quality-recurrence"></script>
+  <script type="module" src="/static/studio.js?v=20260923-chapters"></script>
 </body>
 </html>

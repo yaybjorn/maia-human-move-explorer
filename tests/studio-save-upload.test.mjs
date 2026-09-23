@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import { createUploadPanel } from "../app/static/studio-upload-panel.mjs";
-import { StagedUpload } from "../app/static/studio-upload.mjs";
+import { StagedUpload } from "../app/static/studio-upload.mjs?v=20260923-chapters";
 
 // Execute the production save body with the real upload panel. No browser,
 // network, provider or persisted course mutation; only deterministic local fixtures.

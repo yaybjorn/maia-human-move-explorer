@@ -117,3 +117,43 @@ videos** list. **Remove course video**, then **Save draft**, clears only the mai
 video. Courses without one need no placeholder or invented URL. Studio uses the
 existing `metadata.courseVideo` object (`id`, `title`, `youtubeURL`); `null` means
 explicit removal, while an omitted field preserves the backend value.
+
+## Chapter-first drafts (2026-09-23 implementation; not deployed)
+
+New Studio courses use `chapterSources[]` as the authoring authority. Each entry has
+an immutable `id`, editable `title`, full `sourcePGN`, and one `trainingStartPath`
+(UCI history). An empty course/chapter is a valid draft, but cannot publish.
+Legacy drafts without `chapterSources` keep their existing source/divider path.
+
+Import PGN creates a new chapter; it never replaces an existing chapter. Authors
+edit moves, comments and hints in the editor, rename/reorder/delete chapters,
+check one chapter, and export each chapter separately. `GingerGMTrainingStart`
+and `GingerGMChapterID` headers accompany all existing annotations/hints. Export
+retains the full move tree. Branches diverging before a selected training start
+remain editable/exportable but are excluded from exercises. Black courses use
+the same learner-turn check. The compiler namespaces position IDs by stable chapter
+ID so identical openings in different chapters remain separate.
+
+Save and publish remain whole-course, revision-protected operations. Chapter-only
+checks are not course-publication approval. New drafts hide the legacy main-video
+and video-position extraction UI. Supplemental example links remain separate.
+
+### Existing media limitation — release blocker, not completed readiness
+
+The existing private upload system stages files but has **no production trusted
+media decoder/validation runner**. Chapter upload recovery now has separate keys
+per chapter; a completed staging upload can be associated with its chapter as
+`videoUploadID` and saved. The backend checks author/course ownership and never
+accepts a browser-provided playable descriptor. Staged videos block publication,
+not silently disappear or become ready. Video removal unlinks the draft only;
+it does not destroy retained private objects. Upload admission still uses the
+existing paid-course slug allowlist; a new Kilkenny course is not implicitly
+admitted. Do not claim ready/offline video or deploy this as the finished task.
+
+To complete media acceptance: implement/verify the trusted validation runner and
+chapter immutable ready binding, publish chapter video descriptors with retained
+asset references, support retry/replace after terminal upload, agree the new-course
+upload policy, then test real protected upload/save/reopen/publication. Native
+chapter downloading remains outside this author-tool task. Live backup/cleanup
+also remains blocked until authenticated access is restored; preserve both
+Kilkenny source courses before any mutation. No hint migration UI is included.

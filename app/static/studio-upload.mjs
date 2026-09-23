@@ -33,10 +33,10 @@ function matchingPart(a, b) {
   return a && b && ["partNumber", "offset", "byteLength", "sha256"].every(key => a[key] === b[key]);
 }
 export class StagedUpload {
-  constructor({ api, storage, courseID, actorID, revision, metadata, onProgress = () => {} }) {
-    Object.assign(this, { api, storage, courseID, actorID, revision, metadata, onProgress });
+  constructor({ api, storage, courseID, actorID, revision, metadata, chapterID = null, onProgress = () => {} }) {
+    Object.assign(this, { api, storage, courseID, actorID, revision, metadata, chapterID, onProgress });
     requireValue(courseID && actorID, "Sign in and open a saved course first.");
-    this.key = `gingergm-staged-upload-v1:${actorID}:${courseID}`;
+    this.key = `gingergm-staged-upload-v1:${actorID}:${courseID}${chapterID ? `:chapter:${chapterID}` : ""}`;
     this.path = `/courses/${encodeURIComponent(courseID)}/offline-video/uploads`;
     this.busy = false; this.paused = false;
   }
@@ -45,7 +45,7 @@ export class StagedUpload {
     if (!raw) return null;
     requireValue(raw.length <= 100000, "Saved upload progress is invalid.");
     const record = JSON.parse(raw);
-    requireValue(record.schema === 1 && record.courseID === this.courseID && record.actorID === this.actorID, "Saved upload belongs to another course or author.");
+    requireValue(record.schema === 1 && record.courseID === this.courseID && record.actorID === this.actorID && (record.chapterID || null) === this.chapterID, "Saved upload belongs to another course or author.");
     return record;
   }
   save(record) { this.storage.setItem(this.key, JSON.stringify(record)); this.onProgress(record); }
@@ -95,7 +95,7 @@ export class StagedUpload {
       } else {
         title = String(title || "").trim();
         requireValue(title.length > 0 && title.length <= 200 && !/[\u0000-\u001f\u007f]/.test(title), "Enter a video title (up to 200 characters).");
-        record = { schema: 1, courseID: this.courseID, actorID: this.actorID, draftRevision: this.revision, title, files, state: "reservation_unconfirmed" };
+        record = { schema: 1, courseID: this.courseID, actorID: this.actorID, ...(this.chapterID ? { chapterID: this.chapterID } : {}), draftRevision: this.revision, title, files, state: "reservation_unconfirmed" };
         this.save(record); // Must persist recovery before any reservation; quota/storage failure stops here.
         let response;
         try {

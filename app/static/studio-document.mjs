@@ -140,6 +140,44 @@ export function newCourseDocument(metadata = {}) {
   };
 }
 
+// A chapter owns a complete source tree. The top-level editor is only a projection
+// of the active chapter, so the existing board/analysis always keeps full history.
+export function syncActiveChapter(document) {
+  if (!Array.isArray(document.chapterSources)) return document;
+  return { ...document, chapterSources: document.chapterSources.map(chapter => chapter.id === document.activeChapterID
+    ? { ...chapter, nodes: structuredClone(document.nodes), headers: { ...document.headers }, sourcePGN: document.sourcePGN,
+      trainingStartPath: [...(document.trainingStartPath || [])] } : chapter) };
+}
+export function activateChapter(document, id) {
+  const next = syncActiveChapter(document), chapter = next.chapterSources.find(item => item.id === id);
+  return { ...next, activeChapterID: chapter?.id || null, nodes: structuredClone(chapter?.nodes || []),
+    headers: { ...(chapter?.headers || {}) }, sourcePGN: chapter?.sourcePGN || '',
+    trainingStartPath: [...(chapter?.trainingStartPath || [])], chapters: [], chapterDrafts: [] };
+}
+export function newChapterCourse(metadata = {}) {
+  return { ...newCourseDocument(metadata), chapterSources: [], activeChapterID: null, trainingStartPath: [] };
+}
+export function chapterDocument(document, chapter) {
+  const { chapterSources: _sources, activeChapterID: _active, ...base } = document;
+  return { ...base, ...chapter, chapters: [], chapterDrafts: [], metadata: document.metadata };
+}
+export function chapterPGNHeaders(document, chapter) {
+  return { ...chapter.headers, Event: chapter.title, GingerGMChapterID: chapter.id,
+    GingerGMTrainingStart: (chapter.trainingStartPath || []).join(' ') };
+}
+export function addIndependentChapter(document, parsed, title, id) {
+  const next = syncActiveChapter(document);
+  if (!Array.isArray(next.chapterSources)) throw new Error('Legacy courses must remain separate from chapter-first courses.');
+  const imported = parsed ? importParsedPGN(parsed, document.metadata) : newCourseDocument(document.metadata);
+  const marker = String(imported.headers.GingerGMTrainingStart || '').trim();
+  const trainingStartPath = marker ? marker.split(/\s+/) : [];
+  if (trainingStartPath.some(move => !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move))) throw new Error('Invalid PGN training start marker.');
+  const chapter = { id, title, nodes: imported.nodes, headers: imported.headers, sourcePGN: '', trainingStartPath };
+  next.chapterSources = [...next.chapterSources, chapter];
+  // Do not sync the old projection back over the new chapter.
+  return activateChapter({ ...next, activeChapterID: null }, id);
+}
+
 export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = false } = {}) {
   const metadata = { ...(input.metadata || {}) };
   if (!metadata.side && metadata.repertoireSide) metadata.side = metadata.repertoireSide;
@@ -184,6 +222,15 @@ export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = fal
     startPath: Array.isArray(chapter.startPath) ? chapter.startPath.map(String) : null,
   }));
   document.ignoredSuggestionIDs = [...(input.ignoredSuggestionIDs || [])];
+  if (Array.isArray(input.chapterSources)) {
+    document.chapterSources = input.chapterSources.map(chapter => {
+      const child = normalizeDocument({ ...chapter, metadata: document.metadata });
+      return { ...chapter, nodes: child.nodes, headers: child.headers, trainingStartPath: [...(chapter.trainingStartPath || [])] };
+    });
+    document.activeChapterID = input.activeChapterID || document.chapterSources[0]?.id || null;
+    document.trainingStartPath = [...(input.trainingStartPath || document.chapterSources.find(c => c.id === document.activeChapterID)?.trainingStartPath || [])];
+    if (!input.nodes?.length) return activateChapter({ ...document, activeChapterID: null }, document.activeChapterID);
+  }
   return document;
 }
 
@@ -343,6 +390,13 @@ export function updateNode(document, id, patch) {
 }
 
 export function trainingPack(document, packID = "draft") {
+  if (Array.isArray(document.chapterSources)) {
+    let order = 0;
+    return { id: packID, positions: syncActiveChapter(document).chapterSources.flatMap(chapter =>
+      trainingPack(chapterDocument(document, chapter), packID).positions.map(position => ({
+        ...position, id: `${chapter.id}:${position.id}`, chapterID: chapter.id, learningOrder: order++, source: { ...position.source, chapter: chapter.title },
+      }))) };
+  }
   const learnerOnOddPly = document.metadata.side !== "black";
   const positions = [];
   const visitLine = startingParentID => {
@@ -381,7 +435,8 @@ export function trainingPack(document, packID = "draft") {
     deferredOpponentBranches.forEach(branchID => visitLine(branchID));
   };
   visitLine(null);
-  return { id: packID, positions };
+  const start = document.trainingStartPath || [];
+  return { id: packID, positions: positions.filter(position => start.every((uci, index) => position.path[index] === uci)) };
 }
 
 export function reconcileChapterDrafts(previous, next, packID = "draft") {
@@ -408,6 +463,7 @@ export function reconcileChapterDrafts(previous, next, packID = "draft") {
 
 export function structuralDocument(previous, next, packID = previous.metadata?.slug || "draft") {
   const output = structuredClone(next);
+  if (Array.isArray(previous.chapterSources)) return syncActiveChapter(output);
   output.chapterDrafts = reconcileChapterDrafts(previous, output, packID);
   output.chapters = [];
   return output;
@@ -430,6 +486,13 @@ export function hydrateRestoredDocument(parsed, saved) {
 }
 
 export function documentForStorage(document, sourcePGN) {
+  if (Array.isArray(document.chapterSources)) {
+    const stored = syncActiveChapter(document);
+    delete stored.activeChapterID;
+    delete stored.trainingStartPath;
+    return { ...stored, sourcePGN: '', headers: {}, nodes: [], chapters: [], chapterDrafts: [],
+      chapterSources: stored.chapterSources.map(({ nodes: _nodes, headers: _headers, ...chapter }) => chapter) };
+  }
   // The PGN is the move-tree authority. Omitting hydrated nodes avoids sending
   // the same large course twice and keeps create/save requests under the proxy
   // ceiling; opening the draft deterministically hydrates the tree again.
@@ -466,6 +529,7 @@ export function evaluatePreviewMove(position, move) {
 }
 
 export function ensureChapters(document, packID = "draft") {
+  if (Array.isArray(document.chapterSources)) return document.chapterSources.map(({ id, title }) => ({ id, title }));
   const pack = trainingPack(document, packID);
   if (!pack.positions.length) return [];
   const indexByID = new Map(pack.positions.map((position, index) => [position.id, index]));
@@ -484,6 +548,10 @@ export function ensureChapters(document, packID = "draft") {
 }
 
 export function chapterSlices(document, packID = "draft") {
+  if (Array.isArray(document.chapterSources)) {
+    const positions = trainingPack(document, packID).positions;
+    return syncActiveChapter(document).chapterSources.map(chapter => ({ ...chapter, positions: positions.filter(p => p.chapterID === chapter.id) }));
+  }
   const pack = trainingPack(document, packID);
   const chapters = ensureChapters(document, packID);
   const indexByID = new Map(pack.positions.map((position, index) => [position.id, index]));
@@ -495,6 +563,16 @@ export function chapterSlices(document, packID = "draft") {
 }
 
 export function validateDocument(document) {
+  if (Array.isArray(document.chapterSources)) {
+    const results = syncActiveChapter(document).chapterSources.map(chapter => {
+      const result = validateDocument(chapterDocument(document, chapter));
+      if (chapter.videoUploadID) result.blockers.push({ area: 'Video', message: 'Video is staged, not ready for publication. Playback validation is pending.' });
+      if (!chapter.title.trim()) result.blockers.push({ area: 'Chapters', message: 'Every chapter needs a name.' });
+      if (!trainingPack(chapterDocument(document, chapter)).positions.length) result.blockers.push({ area: 'Chapters', message: 'No training positions at or after the selected start. Choose a learner-turn position on a repertoire line.' });
+      return Object.fromEntries(['blockers', 'warnings'].map(key => [key, result[key].map(item => ({ ...item, area: `Chapters / ${chapter.title}`, message: `${chapter.title}: ${item.message}`, chapterID: chapter.id }))]));
+    });
+    return { blockers: document.chapterSources.length ? results.flatMap(result => result.blockers) : [{ area: 'Chapters', message: 'Add at least one chapter.' }], warnings: results.flatMap(result => result.warnings) };
+  }
   const blockers = [];
   try { normalizeCourseVideo(document.metadata.courseVideo); }
   catch (error) { blockers.push({ area: "Course video", message: error.message }); }

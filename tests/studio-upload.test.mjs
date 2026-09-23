@@ -137,3 +137,15 @@ test("retained partial upload stays blocked after write expiry", async () => {
   assert.equal((await s.make().inspect()).state, "blocked");
   assert.equal(s.effects.length, 1);
 });
+
+test('chapter upload recovery is isolated from sibling chapters and legacy course staging', async () => {
+  const s = setup();
+  const first = new StagedUpload({ api: s.api, storage: s.storage, actorID: 'author', courseID, revision: 207, metadata, chapterID: 'first' });
+  const second = new StagedUpload({ api: s.api, storage: s.storage, actorID: 'author', courseID, revision: 207, metadata, chapterID: 'second' });
+  first.save({ schema: 1, courseID, actorID: 'author', chapterID: 'first', state: 'paused' });
+  assert.equal(first.load().chapterID, 'first');
+  assert.equal(second.load(), null);
+  assert.notEqual(first.key, second.key);
+  const legacy = new StagedUpload({ api: s.api, storage: s.storage, actorID: 'author', courseID, revision: 207, metadata });
+  assert.equal(legacy.load(), null);
+});
