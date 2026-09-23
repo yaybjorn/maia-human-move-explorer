@@ -106,3 +106,7 @@ button{min-height:44px}
 @media(max-width:760px){.video-editor-card .card-heading{flex-wrap:wrap}.video-editor-card .card-heading>div{min-width:0}.course-video-fields .video-fields{grid-template-columns:minmax(0,1fr)}}
 
 .independent-chapter{padding:16px;margin-bottom:12px}.independent-chapter-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.independent-chapter-heading label{flex:1;min-width:160px}.independent-chapter .heading-actions{flex-wrap:wrap}#chapter-editor-controls{margin-bottom:16px}#import-chapter-label{cursor:pointer;display:inline-flex;align-items:center}
+.publish-feedback{padding:14px;border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere;line-height:1.5;background:var(--surface,#fff)}
+.publish-feedback[data-kind="error"]{border-color:#a52e2e;color:#842525;background:#fff2f2}
+.publish-feedback[data-kind="success"]{border-color:#356748;color:#244c32;background:#f0f8f1}
+.publish-dialog .dialog-actions{flex-wrap:wrap}

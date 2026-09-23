@@ -7,6 +7,7 @@
   <title>GingerGM Course Studio</title>
   <link rel="icon" type="image/svg+xml" href="/static/studio-favicon.svg">
   <link rel="stylesheet" href="/static/studio.css?v=20260923-chapters">
+
   <link rel="stylesheet" href="/static/studio-extraction.css?v=20260908-video-fen">
 </head>
 <body>
@@ -195,9 +196,10 @@
   </dialog>
 
   <dialog id="publish-dialog" aria-labelledby="publish-title">
-    <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><div class="dialog-actions"><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
+    <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><p id="publish-feedback" class="publish-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p><div class="dialog-actions"><button id="publish-history" class="secondary" hidden>Check Version history</button><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
   <script type="module" src="/static/studio.js?v=20260923-chapters"></script>
+
 </body>
 </html>

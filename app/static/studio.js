@@ -1,6 +1,7 @@
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
 import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260923-chapters";
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
+
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
   activateChapter, syncActiveChapter, newChapterCourse, addIndependentChapter, chapterDocument, chapterPGNHeaders,
@@ -54,6 +55,8 @@ const RECOVERY_PREFIX = "gingergm-studio-recovery-v1:";
 const SIDEBAR_KEY = "gingergm-studio-sidebar-collapsed";
 const draftSaveQueue = new SaveQueue(options => performSaveDraft(options), () => !dirty());
 const publishPreparationFlight = new SingleFlight();
+const publishSubmissionFlight = new SingleFlight();
+let publishPending = false;
 
 const editorEngine = new EngineAnalysisController({
   analyze: (moves, options) => analysisAPI.stockfish(moves, options),
@@ -996,14 +999,66 @@ async function preparePublish(){
     latest?`Training positions: ${liveSummary.positionCount??"unknown"} → ${positions}`:`First publication with ${positions} training positions`,
     latest?`Chapters: ${liveSummary.chapterCount??"unknown"} → ${chapters}`:`${chapters} authored chapters`,
   ];
-  state.publishCandidate={courseID:state.courseID,revision:state.revision,savedSnapshot:state.savedSnapshot};
+  if(validation.revision!==state.revision||typeof validation.revisionHash!=="string"||!validation.revisionHash){
+    return showStatus("The server did not confirm the exact draft for publication. No publication request was sent. Reload the course before reviewing again.",true);
+  }
+  state.publishCandidate={courseID:state.courseID,revision:state.revision,revisionHash:validation.revisionHash,savedSnapshot:state.savedSnapshot,attempted:false};
+  resetPublishFeedback();
   $("publish-review").innerHTML=`<p><strong>${escapeHTML(state.document.metadata.title)}</strong> will update in the live app after publication.</p><h3>Changes from ${latest?escapeHTML(latest.version):"no live version"}</h3><ul class="change-list">${changes.map(item=>`<li>${escapeHTML(item)}</li>`).join("")}</ul><h3>Warnings to accept (${warnings.length})</h3>${warnings.length?`<ul class="warning-list">${warnings.map(item=>`<li><strong>${escapeHTML(item.area)}</strong> · ${escapeHTML(item.message)}</li>`).join("")}</ul>`:'<p class="muted">No warnings.</p>'}<p class="muted">Published versions are immutable. You can restore one later without destroying history.</p>`;
   $("publish-dialog").showModal();
   }catch(error){showStatus(`Publish preparation stopped. No publication request was sent. ${error.message}`,true);}finally{setBusy(button,false)}
 }
-async function confirmPublish(){const button=$("confirm-publish"),candidate=state.publishCandidate;if(!candidate||candidate.courseID!==state.courseID||candidate.revision!==state.revision||candidate.savedSnapshot!==state.savedSnapshot||dirty()){$("publish-dialog").close();state.publishCandidate=null;return showStatus("The course changed after the publish review. Press Publish again to review the latest version.",true)}setBusy(button,true,"Publishing…");let confirmedVersion=null;try{const result=await api.publishCourse(candidate.courseID,candidate.revision);confirmedVersion=result.version;state.revision=result.revision??state.revision;state.savedSnapshot=candidate.savedSnapshot;state.publishCandidate=null;$("publish-dialog").close();updateSaveState();showStatus(`Published ${result.version||"successfully"}. The app will receive the update automatically.`);await loadCourses();await loadHistory();}catch(error){showStatus(confirmedVersion?`Published ${confirmedVersion}. The history display could not refresh; reload to see it.`:`Publication could not be confirmed. Check Version history before trying again. ${error.message}`,true)}finally{setBusy(button,false)}}
-async function loadHistory(){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||[];const publications=state.versions.map((version,index)=>{const summary=version.validation?.summary||{};return`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>${Number(summary.positionCount||0)} positions · ${Number(summary.chapterCount||0)} chapters · draft revision ${Number(version.documentRevision||0)}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`}).join("");const revisions=(payload.revisions||[]).slice(0,12).map(revision=>`<article class="history-row"><div><h2>Draft revision ${Number(revision.revision)}</h2><p>${escapeHTML(revision.reason||"save")} · ${escapeHTML(formatDate(revision.createdAt))}</p></div><span class="tag draft">Draft activity</span></article>`).join("");$("history-list").innerHTML=`${publications||'<div class="loading-card">No published versions yet.</div>'}${revisions?`<div class="page-heading compact"><div><h2>Recent draft activity</h2></div></div>${revisions}`:""}`;$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`}}
+function resetPublishFeedback(){
+  $("publish-feedback").hidden=true;$("publish-feedback").textContent="";
+  $("publish-history").hidden=true;$("confirm-publish").hidden=false;
+  $("confirm-publish").disabled=false;$("cancel-publish").textContent="Cancel";
+}
+function publishFeedback(message,kind){
+  const feedback=$("publish-feedback");feedback.textContent=message;feedback.hidden=false;
+  feedback.dataset.kind=kind;feedback.setAttribute("role",kind==="error"?"alert":"status");
+  // The global toast is outside the modal top layer and inert while it is open.
+  // Keep persistent, focusable feedback INSIDE the dialog, including long reviews.
+  feedback.focus();feedback.scrollIntoView({block:"nearest"});
+}
+function confirmPublish(){return publishSubmissionFlight.run(submitReviewedPublication)}
+async function submitReviewedPublication(){
+  const button=$("confirm-publish"),candidate=state.publishCandidate;
+  if(candidate?.attempted)return;
+  if(!candidate||candidate.courseID!==state.courseID||candidate.revision!==state.revision||
+     candidate.savedSnapshot!==state.savedSnapshot||typeof candidate.revisionHash!=="string"||!candidate.revisionHash||dirty()){
+    state.publishCandidate=null;button.hidden=true;
+    publishFeedback("The course changed after this review. Close this dialog and review the latest draft before publishing. No publication request was sent.","error");return;
+  }
+  candidate.attempted=true;publishPending=true;
+  setBusy(button,true,"Publishing…");$("close-publish").disabled=true;$("cancel-publish").disabled=true;
+  $("publish-dialog").setAttribute("aria-busy","true");
+  publishFeedback("Publishing this reviewed draft… Please wait. Do not submit it again.","pending");
+  let confirmedVersion=null;
+  try{
+    const result=await api.publishCourse(candidate.courseID,candidate.revision,candidate.revisionHash);
+    confirmedVersion=result.version;state.revision=result.revision;state.savedSnapshot=candidate.savedSnapshot;
+    state.publishCandidate=null;updateSaveState();
+    publishFeedback(`Published ${confirmedVersion}. The app will receive the update automatically.`,"success");
+    try{await loadCourses();await loadHistory({throwOnError:true});}
+    catch{publishFeedback(`Published ${confirmedVersion}. The course or history display could not refresh. Close this dialog and reload to see the published version; do not publish again.`,"success");}
+  }catch(error){
+    // A failed/lost response may follow a committed transaction. Never retry it.
+    publishFeedback(`Publication could not be confirmed. Check Version history before trying again. ${error.message}`,"error");
+  }finally{
+    publishPending=false;setBusy(button,false);button.hidden=true;button.disabled=true;
+    $("close-publish").disabled=false;$("cancel-publish").disabled=false;
+    $("cancel-publish").textContent=confirmedVersion?"Done":"Close";
+    $("publish-history").hidden=false;$("publish-dialog").setAttribute("aria-busy","false");
+  }
+}
+function closePublishDialog(){if(publishPending)return;state.publishCandidate=null;$("publish-dialog").close();}
+function showPublicationHistory(){
+  if(publishPending)return;closePublishDialog();switchView("history");
+}
+
+async function loadHistory({throwOnError=false}={}){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||[];const publications=state.versions.map((version,index)=>{const summary=version.validation?.summary||{};return`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>${Number(summary.positionCount||0)} positions · ${Number(summary.chapterCount||0)} chapters · draft revision ${Number(version.documentRevision||0)}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`}).join("");const revisions=(payload.revisions||[]).slice(0,12).map(revision=>`<article class="history-row"><div><h2>Draft revision ${Number(revision.revision)}</h2><p>${escapeHTML(revision.reason||"save")} · ${escapeHTML(formatDate(revision.createdAt))}</p></div><span class="tag draft">Draft activity</span></article>`).join("");$("history-list").innerHTML=`${publications||'<div class="loading-card">No published versions yet.</div>'}${revisions?`<div class="page-heading compact"><div><h2>Recent draft activity</h2></div></div>${revisions}`:""}`;$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`;if(throwOnError)throw error;}}
 async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;const revision=raw?.revision??payload.revision,hydrated=await hydrateSourceDocument(draft,state.courseID,revision);invalidateDiagnostics();state.revision=revision;state.document=hydrated.document;state.reconciliationError=hydrated.reconciliationError;state.validation=hydrated.validation;state.savedSnapshot=JSON.stringify(state.document);state.publishCandidate=null;clearCrashRecovery();state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
+
 
 async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),preview=await api.importPGN(pgn),title=preview.inferredTitle&&preview.inferredTitle!=="?"?preview.inferredTitle:file.name.replace(/\.pgn$/i,"");state.pendingImport={pgn,fileName:file.name,moveCount:preview.moveCount};const form=$("import-form");form.reset();delete form.elements.slug.dataset.edited;form.elements.title.value=title;form.elements.slug.value=slugify(title);$("import-file-name").textContent=`${file.name} · ${Number(preview.moveCount||0)} moves`;$("import-dialog").showModal();}catch(error){showStatus(error.message,true)}}
 function formatDate(value){if(!value)return"Unknown date";try{return new Intl.DateTimeFormat("en-GB",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}catch{return String(value)}}
@@ -1036,7 +1091,10 @@ $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
 $("add-chapter").addEventListener("click",()=>{if(Array.isArray(state.document.chapterSources))return createIndependentChapter();state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
-$("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",()=>{state.publishCandidate=null;$("publish-dialog").close()});$("cancel-publish").addEventListener("click",()=>{state.publishCandidate=null;$("publish-dialog").close()});$("confirm-publish").addEventListener("click",confirmPublish);
+$("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",closePublishDialog);$("cancel-publish").addEventListener("click",closePublishDialog);$("confirm-publish").addEventListener("click",confirmPublish);
+$("publish-dialog").addEventListener("cancel",event=>{if(publishPending)event.preventDefault();else state.publishCandidate=null;});
+$("publish-history").addEventListener("click",showPublicationHistory);
+
 $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=await exportSource();$("raw-pgn-error").textContent="";$("raw-pgn-dialog").showModal()}catch(error){showStatus(error.message,true)}});
 $("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
 $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$("conflict-reload").addEventListener("click",async()=>{$("conflict-dialog").close();await openCourse(state.courseID,{discardUnsaved:true})});

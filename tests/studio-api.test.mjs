@@ -142,16 +142,45 @@ test("worker failure and network loss never acknowledge a save", async () => {
 });
 
 test('publish requires an exact course/version receipt, not HTTP success alone', async () => {
-  const receipt={published:true,courseID:'course',version:'2026-09-14.1',revision:210};
+  const receipt={published:true,courseID:'course',version:'2026-09-14.1',revision:210,revisionHash:'server-hash'};
   for (const value of [null,{}, {...receipt,published:false},{...receipt,courseID:'other'},
-    {...receipt,version:''},{...receipt,version:'success'},{...receipt,revision:209},{...receipt,revision:'210'}]) {
+    {...receipt,version:''},{...receipt,version:'success'},{...receipt,revision:209},{...receipt,revision:'210'},{...receipt,revision:212},{...receipt,revisionHash:'wrong'},{...receipt,revisionHash:undefined}]) {
     const api=new StudioAPI('/studio/api',async()=>new Response(JSON.stringify(value),{status:200}));
-    await assert.rejects(api.publishCourse('course',210),e=>e.code==='invalid_publish_response');
+    await assert.rejects(api.publishCourse('course',210,'server-hash'),e=>e.code==='invalid_publish_response');
   }
   const html=new StudioAPI('/studio/api',async()=>new Response('<html>proxy failure</html>',{status:200}));
-  await assert.rejects(html.publishCourse('course',210),e=>e.code==='invalid_publish_response');
-  for (const value of [receipt,{...receipt,idempotent:true},{...receipt,revision:211}]) {
+  await assert.rejects(html.publishCourse('course',210,'server-hash'),e=>e.code==='invalid_publish_response');
+  for (const value of [receipt,{...receipt,idempotent:true},{...receipt,revision:211,revisionHash:'indexed-marker-hash'}]) {
     const api=new StudioAPI('/studio/api',async()=>new Response(JSON.stringify(value),{status:200}));
-    assert.deepEqual(await api.publishCourse('course',210),value);
+    assert.deepEqual(await api.publishCourse('course',210,'server-hash'),value);
   }
+});
+
+
+test('final request carries exact server source fence with same-origin auth and no extra authority',async()=>{
+ let call;const receipt={published:true,courseID:'course',version:'2026-09-14.1',revision:211,revisionHash:'server-hash'};
+ const api=new StudioAPI('/studio/api',async(url,options)=>{call={url,options};return new Response(JSON.stringify(receipt),{status:201});});
+ api.csrfToken='csrf';await api.publishCourse('course',211,'server-hash');
+ assert.equal(call.url,'/studio/api/courses/course/publish');assert.deepEqual(JSON.parse(call.options.body),{revision:211,revisionHash:'server-hash'});
+ assert.equal(call.options.credentials,'same-origin');assert.equal(call.options.headers['X-CSRF-Token'],'csrf');
+ assert.equal(call.options.signal.aborted,false);
+});
+test('absent source fence fails before any POST',async()=>{
+ let calls=0;const api=new StudioAPI('/studio/api',async()=>{calls++;});
+ await assert.rejects(api.publishCourse('course',211),e=>e.code==='invalid_publish_fence');assert.equal(calls,0);
+});
+test('bounded final timeout covers both connection and response body without resubmission',async()=>{
+ for(const bodyStalls of [false,true]){
+  let calls=0,signal;
+  const api=new StudioAPI('/studio/api',async(_u,o)=>{calls++;signal=o.signal;
+   if(!bodyStalls)return new Promise(()=>{});
+   return {status:200,ok:true,json:()=>new Promise(()=>{})};
+  });
+  await assert.rejects(api.publishCourse('course',211,'hash',{timeoutMs:10}),e=>e.code==='publish_timeout');
+  assert.equal(calls,1);assert.equal(signal.aborted,true);
+ }
+});
+test('HTTP conflict remains a conflict with human-readable cause',async()=>{
+ const api=new StudioAPI('/studio/api',async()=>new Response(JSON.stringify({error:{code:'revision_conflict',message:'Reload the current course revision and hash'}}),{status:409}));
+ await assert.rejects(api.publishCourse('course',211,'hash'),e=>e.status===409&&e.code==='revision_conflict'&&/revision and hash/.test(e.message));
 });

@@ -230,6 +230,7 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
     assert './studio-api.mjs?v=20260923-chapters' in studio_source
     assert './studio-document.mjs?v=20260923-chapters' in studio_source
+
     assert './studio-engine.mjs?v=20260902-progressive-engine' in studio_source
     assert 'to shared dictionary</button>' in studio_source
     assert 'runSpellcheck({refreshDictionary:false})' in studio_source
@@ -275,6 +276,20 @@ def test_course_studio_dedicated_host_and_legacy_redirect_config():
     assert "location ^~ /.well-known/acme-challenge/" in legacy
     assert "location = /studio" in legacy
     assert "return 308 https://ggm.fablelabs.no/;" in legacy
+
+
+def test_course_hydration_streams_pgn_without_shared_temporary_body_storage():
+    dedicated = (ROOT / "deploy" / "nginx.ggm.conf").read_text()
+    parser = dedicated.split("location ~ ^/api/(parse-pgn|export-pgn)$ {", 1)[1].split("}", 1)[0]
+    assert "proxy_request_buffering off;" in parser
+    assert "proxy_http_version 1.1;" in parser
+    assert "client_max_body_size 8m;" in parser
+    assert "client_body_timeout 30s;" in parser
+    assert "proxy_send_timeout 60s;" in parser
+    assert "proxy_read_timeout 60s;" in parser
+    # Do not disable buffering on unrelated Studio mutation routes.
+    ordinary = dedicated.split("location ^~ /studio/api/ {", 1)[1]
+    assert "proxy_request_buffering on;" in ordinary
 
 
 def test_course_studio_accepts_full_size_course_pgns():
