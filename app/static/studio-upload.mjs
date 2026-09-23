@@ -81,7 +81,7 @@ export class StagedUpload {
   }
   async run({ video, thumbnail, title }) {
     requireValue(!this.busy, "An upload is already running in this tab.");
-    requireValue(paidUploadCourse(this.metadata), FREE_UPLOAD_EXPLANATION);
+    requireValue(this.chapterID || paidUploadCourse(this.metadata), FREE_UPLOAD_EXPLANATION);
     this.busy = true; this.paused = false;
     let record;
     try {

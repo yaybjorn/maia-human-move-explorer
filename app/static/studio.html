@@ -82,7 +82,7 @@
       </section>
 
       <section class="view" data-panel="videos">
-        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p>Add and preview the YouTube videos learners will see.</p></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p id="videos-description">Add and preview the YouTube videos learners will see.</p></div></div>
         <section class="tool-card video-editor-card" aria-labelledby="course-video-heading">
           <div class="card-heading"><div><h2 id="course-video-heading">Course video <span class="optional-label">Optional</span></h2><p>One main video for this course. Leave it empty if you don’t need one.</p></div><button id="add-course-video" class="secondary" type="button">Add course video</button></div>
           <div id="course-video-editor"></div>
@@ -97,7 +97,7 @@
           <p data-upload="status" role="status" aria-live="polite">Private uploads are not enabled.</p>
           <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes"></progress>
           <div class="course-video-actions"><button data-upload="start" class="secondary" type="button" disabled>Stage / resume files</button><button data-upload="check" class="secondary" type="button" disabled>Check saved progress</button><button data-upload="pause" class="secondary" type="button" disabled>Pause</button></div>
-          <p>Stored files remain staged until validation. Staging never saves, selects or publishes course content.</p>
+          <p id="upload-explanation">Stored files remain staged until validation. Staging never saves, selects or publishes course content.</p>
         </section>
         <section class="tool-card extraction-card" aria-labelledby="extraction-heading">
           <div class="card-heading"><div><h2 id="extraction-heading">Extract positions from video</h2><p>Find timestamped board candidates to review alongside the video.</p></div></div>

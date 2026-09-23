@@ -566,7 +566,7 @@ export function validateDocument(document) {
   if (Array.isArray(document.chapterSources)) {
     const results = syncActiveChapter(document).chapterSources.map(chapter => {
       const result = validateDocument(chapterDocument(document, chapter));
-      if (chapter.videoUploadID) result.blockers.push({ area: 'Video', message: 'Video is staged, not ready for publication. Playback validation is pending.' });
+      if (chapter.videoUploadID && !chapter.video) result.blockers.push({ area: 'Video', message: 'Video is staged, not ready for publication. Playback validation is pending.' });
       if (!chapter.title.trim()) result.blockers.push({ area: 'Chapters', message: 'Every chapter needs a name.' });
       if (!trainingPack(chapterDocument(document, chapter)).positions.length) result.blockers.push({ area: 'Chapters', message: 'No training positions at or after the selected start. Choose a learner-turn position on a repertoire line.' });
       return Object.fromEntries(['blockers', 'warnings'].map(key => [key, result[key].map(item => ({ ...item, area: `Chapters / ${chapter.title}`, message: `${chapter.title}: ${item.message}`, chapterID: chapter.id }))]));

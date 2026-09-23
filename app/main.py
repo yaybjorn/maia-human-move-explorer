@@ -17,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .chapter_media import dispatch as dispatch_chapter_media
+from .chapter_media import is_chapter_media_path
 from .chess_state import (
     PositionError,
     export_pgn_tree,
@@ -265,6 +267,9 @@ def studio_path_allowed(path: str, method: str) -> bool:
 
 @app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if is_chapter_media_path(path):
+        return await dispatch_chapter_media(path, request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS,
+                                            STUDIO_PROXY_SECRET, GINGERGM_STUDIO_API_BASE)
     if is_upload_path(path):
         return await proxy_upload(path, request, enabled=STUDIO_PRIVATE_UPLOADS_ENABLED,
                                   base=GINGERGM_STUDIO_API_BASE, secret=STUDIO_PROXY_SECRET,

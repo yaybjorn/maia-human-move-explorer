@@ -157,3 +157,12 @@ upload policy, then test real protected upload/save/reopen/publication. Native
 chapter downloading remains outside this author-tool task. Live backup/cleanup
 also remains blocked until authenticated access is restored; preserve both
 Kilkenny source courses before any mutation. No hint migration UI is included.
+
+## Chapter-first Studio (2026-09-23)
+
+New courses now use independent, ordered chapter PGNs with one training-start
+marker and optional private uploaded video per chapter. Legacy course-wide PGN
+and featured-video documents remain readable/editable until deliberately archived.
+The chapter-first flow does not use position/video timestamps or extraction.
+See [chapter-authoring.md](chapter-authoring.md) for source contract, R2 upload /
+streaming validation architecture, publication metadata and deployment acceptance.

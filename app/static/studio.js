@@ -42,10 +42,11 @@ const uploadPanel = createUploadPanel({ api, root: $("staged-upload-panel"), get
   if (!record.chapterID || state.courseID !== record.courseID) return;
   const next = syncActiveChapter(state.document);
   const chapter = next.chapterSources?.find(item => item.id === record.chapterID);
-  if (!chapter || chapter.videoUploadID === record.uploadID) return;
-  chapter.videoUploadID = record.uploadID;
+  if (!chapter) return;
+  if (chapter.videoUploadID === record.uploadID) return startChapterVideoValidation(record.chapterID);
+  chapter.videoUploadID = record.uploadID; delete chapter.video;
   commit(next);
-  showStatus('Video files staged for this chapter. Save draft to keep the association; playback validation is still required.');
+  if (await saveDraft({quiet:true})) await startChapterVideoValidation(record.chapterID);
 } });
 const pieceAssets = {K:"white-king",Q:"white-queen",R:"white-rook",B:"white-bishop",N:"white-knight",P:"white-pawn",k:"black-king",q:"black-queen",r:"black-rook",b:"black-bishop",n:"black-knight",p:"black-pawn"};
 const pieceNames = {K:"white king",Q:"white queen",R:"white rook",B:"white bishop",N:"white knight",P:"white pawn",k:"black king",q:"black queen",r:"black rook",b:"black bishop",n:"black knight",p:"black pawn"};
@@ -425,12 +426,18 @@ function moveVideo(from, to) {
 function renderVideos() {
   const chapterFirst = Array.isArray(state.document?.chapterSources);
   if (chapterFirst) extractionPanel.suspend();
+  $('videos-description').textContent = chapterFirst ? 'Upload an optional private video for the selected chapter. Supplemental links are separate.' : 'Add and preview the YouTube videos learners will see.';
+  if (chapterFirst) document.querySelector('[data-panel="videos"] .page-heading').after($('staged-upload-panel'));
+  else document.querySelector('[aria-labelledby="extraction-heading"]').before($('staged-upload-panel'));
+  $('staged-upload-heading').textContent = chapterFirst ? 'Private chapter video · Optional' : 'Private course video · Optional';
+  $('upload-explanation').textContent = chapterFirst ? 'Uploading records the file on this chapter draft. Playback is checked before it is ready; Save draft keeps the validated result. Nothing is published automatically.' : 'Stored files remain staged until validation. Staging never saves, selects or publishes course content.';
   if (chapterFirst && !state.document.activeChapterID) uploadPanel.clear(); else uploadPanel.refresh();
-  $('staged-upload-heading').textContent = chapterFirst ? 'Optional chapter video' : 'Private video upload';
+  if ($('chapter-video-actions')) $('chapter-video-actions').hidden = !chapterFirst;
   $('chapter-video-context').hidden = !chapterFirst;
   if (chapterFirst) {
     const active = syncActiveChapter(state.document).chapterSources.find(c => c.id === state.document.activeChapterID);
-    $('chapter-video-context').textContent = active ? `${active.title}: ${active.videoUploadID ? 'files staged; playback validation pending' : 'no video'}. Select another chapter in Chapters.` : 'Add a chapter first.';
+    $('chapter-video-context').textContent = active ? `${active.title}: ${active.video ? 'video ready' : active.videoUploadID ? 'uploaded; playback validation pending' : 'no video'}. Select another chapter in Chapters.` : 'Add a chapter first.';
+    renderChapterVideoControls(active);
   }
   document.querySelector('[aria-labelledby="course-video-heading"]').hidden = chapterFirst;
   document.querySelector('[aria-labelledby="extraction-heading"]').hidden = chapterFirst;
@@ -1027,7 +1034,7 @@ function renderIndependentChapters() {
   $('chapter-board').hidden = true;
   container.innerHTML = chapters.map((chapter, index) => `<section class="studio-chapter independent-chapter" data-independent-chapter="${escapeHTML(chapter.id)}" draggable="true">
     <div class="independent-chapter-heading"><span aria-hidden="true">⠿</span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label><span>${chapter.positions.length} training positions</span></div>
-    <p>${chapter.nodes.length ? 'PGN ready' : 'PGN missing — add moves or import a new chapter'} · ${chapter.videoUploadID ? 'Video staged — validation pending' : 'No video (optional)'}</p>
+    <p>${chapter.nodes.length ? 'PGN ready' : 'PGN missing — add moves or import a new chapter'} · ${chapter.video ? 'Video ready' : chapter.videoUploadID ? 'Video uploaded — validation pending' : 'No video (optional)'}</p>
     <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter</button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">Video</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-export="${escapeHTML(chapter.id)}">Export PGN</button><button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-chapter-shift="-1" data-chapter-index="${index}" ${index===0?'disabled':''} aria-label="Move chapter up">↑</button><button class="secondary" data-chapter-shift="1" data-chapter-index="${index}" ${index===chapters.length-1?'disabled':''} aria-label="Move chapter down">↓</button><button class="danger" data-independent-delete="${escapeHTML(chapter.id)}">Delete</button></div>
     </section>`).join('') || '<div class="empty-state"><h2>Build your course chapter by chapter</h2><p>Import a PGN as a starting point, or add a blank chapter and author its moves here. Video is optional.</p></div>';
   container.querySelectorAll('[data-independent-title]').forEach(input => {
@@ -1042,7 +1049,7 @@ function renderIndependentChapters() {
   container.querySelectorAll('[data-chapter-remove-video]').forEach(button => button.addEventListener('click', () => {
     const next = syncActiveChapter(state.document);
     const chapter = next.chapterSources.find(item => item.id === button.dataset.chapterRemoveVideo);
-    if (chapter) { delete chapter.videoUploadID; commit(next); }
+    if (chapter) { delete chapter.videoUploadID; delete chapter.video; commit(next); }
   }));
   container.querySelectorAll('[data-chapter-open]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterOpen)));
   container.querySelectorAll('[data-chapter-export]').forEach(button => button.addEventListener('click', () => { selectIndependentChapter(button.dataset.chapterExport, 'chapters'); $('export-pgn').click(); }));
@@ -1104,4 +1111,43 @@ async function checkIndependentChapter(id) {
     $('quality-results').innerHTML = [...blockers.map(item => qualityHTML('blocker', item)), ...warnings.map(item => qualityHTML('warning', item))].join('') || qualityHTML('good', { area: chapter.title, message: 'This chapter passes. Publishing still checks every chapter.' });
     showStatus('Chapter checks complete.');
   } catch (error) { showStatus(`Chapter check unavailable: ${error.message}`, true); }
+}
+
+const chapterVideoPolls = new Set();
+function renderChapterVideoControls(chapter) {
+  let box = $('chapter-video-actions');
+  if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; $('chapter-video-context').after(box); }
+  box.innerHTML = chapter?.video
+    ? `<p>Ready · ${(chapter.video.byteLength / 1024**2).toFixed(1)} MB · <a href="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/download">Download chapter video</a></p>`
+    : chapter?.videoUploadID ? '<p>Uploaded. Validate playback before publishing.</p><button id="validate-chapter-video" class="secondary">Check / retry video validation</button>' : '<p>Upload a fast-start MP4 (H.264, optional AAC audio), plus a PNG/JPEG thumbnail. Files stay private. Maximum 2 GB.</p>';
+  if (chapter?.videoUploadID) {
+    const reset = document.createElement('button'); reset.className = 'secondary'; reset.textContent = 'Upload another video';
+    reset.addEventListener('click', () => { try { uploadPanel.startNew(); showStatus('Choose a new file. The current chapter video stays attached until the new upload finishes.'); } catch (error) { showStatus(error.message, true); } }); box.append(reset);
+  }
+  $('validate-chapter-video')?.addEventListener('click', () => startChapterVideoValidation(chapter.id));
+}
+async function startChapterVideoValidation(chapterID) {
+  if (!await saveDraft({quiet:true})) return;
+  const courseID = state.courseID, chapter = syncActiveChapter(state.document).chapterSources.find(c => c.id === chapterID);
+  if (!chapter?.videoUploadID) return;
+  const uploadID = chapter.videoUploadID, key = `${courseID}/${uploadID}`;
+  if (chapterVideoPolls.has(key)) return showStatus('Video validation is running. You can keep editing.');
+  chapterVideoPolls.add(key);
+  try {
+    const path = `/courses/${encodeURIComponent(courseID)}/chapter-media/${encodeURIComponent(uploadID)}`;
+    let status = await api.request(`${path}/validate`, {method:'POST', body:{chapterID, revision:state.revision}});
+    showStatus('Checking video playback. You can keep editing; keep this tab open for the result.');
+    while (status.state === 'validating') {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (state.courseID !== courseID) return;
+      status = await api.request(path);
+    }
+    if (status.state !== 'ready' || !status.video) throw new Error(status.error || 'Video is not ready. Retry validation.');
+    if (state.courseID !== courseID) return;
+    const next = syncActiveChapter(state.document), current = next.chapterSources.find(c => c.id === chapterID);
+    if (!current || current.videoUploadID !== uploadID) return;
+    current.video = status.video; commit(next);
+    showStatus('Chapter video is ready. Save draft to keep it; publishing includes this chapter video.');
+  } catch (error) { showStatus(error.message, true); }
+  finally { chapterVideoPolls.delete(key); }
 }

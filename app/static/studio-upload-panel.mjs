@@ -19,7 +19,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
         : `${record.state === "uploading" ? "Uploading" : "Paused"} · ${bytes.toLocaleString()} of ${total.toLocaleString()} bytes acknowledged. ${record.state === "uploading" ? "" : "Reselect the same files to resume."}`);
   }
   function controls(context) {
-    const paid = context && paidUploadCourse(context.metadata);
+    const paid = context && (context.chapterID || paidUploadCourse(context.metadata));
     for (const id of ["title", "video", "thumbnail", "start"]) find(id).disabled = !paid || busy || Boolean(context?.dirty);
     find("check").disabled = busy || !uploader;
     find("pause").disabled = !busy;
@@ -48,7 +48,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
   find("start").addEventListener("click", async () => {
     if (!enabled || busy || !uploader) return;
     const context = getContext();
-    if (!context || context.dirty || !paidUploadCourse(context.metadata)) return refresh();
+    if (!context || context.dirty || !(context.chapterID || paidUploadCourse(context.metadata))) return refresh();
     busy = true; const current = uploader; controls(context);
     message("Checking file fingerprints… Keep these files available to resume later.");
     try { const record = await current.run({ title: find("title").value, video: find("video").files[0], thumbnail: find("thumbnail").files[0] }); if (current === uploader && record?.state === "staged") await onStaged(record); }
@@ -63,5 +63,12 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     finally { busy = false; controls(getContext()); }
   });
   find("pause").addEventListener("click", () => { uploader?.pause(); message("Pausing after the current operation is reconciled. Acknowledged progress will be kept."); });
-  return { refresh, clear: () => { uploader?.pause(); uploader = null; contextKey = null; root.hidden = true; } };
+  function startNew() {
+    if (busy || !uploader) throw new Error("Wait for the current upload or validation to finish.");
+    const record = uploader.load();
+    if (record && record.state !== "staged") throw new Error("Resume or reconcile the unfinished upload before starting another.");
+    if (record) (storage ?? globalThis.localStorage).removeItem(uploader.key);
+    uploader = null; contextKey = null; refresh();
+  }
+  return { refresh, startNew, clear: () => { uploader?.pause(); uploader = null; contextKey = null; root.hidden = true; } };
 }
