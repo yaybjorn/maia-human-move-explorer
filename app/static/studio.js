@@ -445,10 +445,14 @@ function renderChapterVideo() {
   if ($('chapter-video-actions')) $('chapter-video-actions').hidden = !chapterFirst;
   if (chapterFirst) {
     const active = syncActiveChapter(state.document).chapterSources.find(c => c.id === state.document.activeChapterID);
+    const selector = $('chapter-video-chapter');
+    $('chapter-video-selector').hidden = false;
+    selector.innerHTML = state.document.chapterSources.map(chapter => `<option value="${escapeHTML(chapter.id)}" ${chapter.id===state.document.activeChapterID?'selected':''}>${escapeHTML(chapter.title)}</option>`).join('') || '<option value="">No chapters yet</option>';
+    selector.disabled = !active;
     $('chapter-video-context').textContent = active?.title || 'Select a chapter in Chapters.';
     renderChapterVideoControls(active);
     if (active?.video) $('staged-upload-panel').hidden = true;
-  }
+  } else $('chapter-video-selector').hidden = true;
 }
 
 function renderGameVideos() {
@@ -1211,6 +1215,9 @@ function reorderIndependentChapter(from, to) {
   const [chapter] = next.chapterSources.splice(from, 1); next.chapterSources.splice(to, 0, chapter); commit(next);
 }
 $('active-chapter').addEventListener('change', event => selectIndependentChapter(event.target.value));
+$('chapter-video-chapter').addEventListener('change', event => {
+  if (event.target.value) selectIndependentChapter(event.target.value, 'chapter-video');
+});
 $('set-training-start').addEventListener('click', () => {
   const path = movesToNode(state.document, state.currentNodeID), learnerPly = state.document.metadata.side === 'black' ? 1 : 0;
   if (path.length % 2 !== learnerPly) return showStatus('Choose a position where the learner is to move.', true);
