@@ -83,22 +83,21 @@
       </section>
 
       <section class="view" data-panel="videos">
-        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Videos</h1><p id="videos-description">Add and preview the YouTube videos learners will see.</p></div></div>
-        <section class="tool-card video-editor-card" aria-labelledby="course-video-heading">
+        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>Course Chapter video</h1><p id="chapter-video-context">Select a chapter in Chapters.</p></div></div>
+        <section id="legacy-course-video" class="tool-card video-editor-card" aria-labelledby="course-video-heading" hidden>
           <div class="card-heading"><div><h2 id="course-video-heading">Course video <span class="optional-label">Optional</span></h2><p>One main video for this course. Leave it empty if you don’t need one.</p></div><button id="add-course-video" class="secondary" type="button">Add course video</button></div>
           <div id="course-video-editor"></div>
         </section>
-        <section class="tool-card video-editor-card" aria-labelledby="videos-title">
+        <section id="supplemental-videos" class="tool-card video-editor-card" aria-labelledby="videos-title" hidden>
           <div class="card-heading"><div><h2 id="videos-title">Supplemental videos</h2><p>Extra videos, shown in the order below. Timestamped links can point to individual games.</p></div><button id="add-video" class="secondary" type="button">Add video</button></div>
           <div id="video-list" class="video-list" aria-live="polite"></div>
         </section>
         <section id="staged-upload-panel" class="tool-card video-editor-card" aria-labelledby="staged-upload-heading" hidden>
-          <div class="card-heading"><div><h2 id="staged-upload-heading">Private course video <span class="optional-label">Optional</span></h2><p>Upload a separate video for offline viewing. Existing YouTube links stay unchanged.</p></div></div>
-          <p id="chapter-video-context" hidden></p><div class="video-fields"><label>Video title<input data-upload="title" maxlength="200" disabled></label><label>MP4 video<input data-upload="video" type="file" accept="video/mp4" disabled></label><label>Thumbnail<input data-upload="thumbnail" type="file" accept="image/png,image/jpeg" disabled></label></div>
+          <div class="card-heading"><div><h2 id="staged-upload-heading">Course Chapter video</h2></div></div>
+          <div class="chapter-video-upload"><label class="primary file-action">Upload video<input data-upload="video" type="file" accept="video/mp4" disabled></label><input data-upload="title" type="hidden"><input data-upload="thumbnail" type="hidden"></div>
           <p data-upload="status" role="status" aria-live="polite">Private uploads are not enabled.</p>
-          <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes"></progress>
-          <div class="course-video-actions"><button data-upload="start" class="secondary" type="button" disabled>Stage / resume files</button><button data-upload="check" class="secondary" type="button" disabled>Check saved progress</button><button data-upload="pause" class="secondary" type="button" disabled>Pause</button></div>
-          <p id="upload-explanation">Stored files remain staged until validation. Staging never saves, selects or publishes course content.</p>
+          <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes" hidden></progress>
+          <button data-upload="start" type="button" hidden disabled></button><button data-upload="check" type="button" hidden disabled></button><button data-upload="pause" type="button" hidden disabled></button>
         </section>
         <section class="tool-card extraction-card" aria-labelledby="extraction-heading">
           <div class="card-heading"><div><h2 id="extraction-heading">Extract positions from video</h2><p>Find timestamped board candidates to review alongside the video.</p></div></div>

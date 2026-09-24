@@ -243,8 +243,9 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'id="chapter-pgn-import"' in page.text
     assert 'id="active-chapter"' in page.text
     assert 'id="set-training-start"' in page.text
-    assert 'id="video-list"' in page.text
-    assert 'id="add-video"' in page.text
+    assert "Course Chapter video" in page.text
+    assert 'data-upload="video"' in page.text
+    assert 'id="supplemental-videos" class="tool-card video-editor-card" aria-labelledby="videos-title" hidden' in page.text
     assert 'data-view="videos"' in page.text
     assert 'data-panel="videos"' in page.text
     assert 'view !== "videos" && unmountVideoPreview()' in studio_source

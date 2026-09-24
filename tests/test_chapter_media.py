@@ -120,3 +120,24 @@ def test_ready_proof_recovers_from_saved_draft_when_host_status_cache_is_missing
     response = asyncio.run(media.dispatch(PATH, request("GET"), saved, {"https://studio.test"}, "test-secret", "https://worker.test/v1/studio"))
     assert json.loads(response.body) == {"id": UPLOAD, "state": "ready", "video": video}
     assert list(tmp_path.iterdir()) == []
+
+
+def test_authenticated_ready_video_can_stream_for_author_preview(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_CHAPTER_MEDIA_DIR", str(tmp_path))
+    media.save(tmp_path / f"{UPLOAD}.json", {"id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "actorID": "actor", "state": "ready", "video": {"byteLength": 3}})
+    class Response:
+        def __init__(self):
+            self.status_code = 200
+            self.headers = {"content-length": "3"}
+        async def aiter_bytes(self, _size):
+            yield b"mp4"
+        async def aclose(self):
+            pass
+    class Client:
+        def build_request(self, *_args, **_kwargs): return object()
+        async def send(self, *_args, **_kwargs): return Response()
+        async def aclose(self): pass
+    monkeypatch.setattr(media.httpx, "AsyncClient", lambda **_kwargs: Client())
+    response = asyncio.run(dispatch(PATH + "/play", request("GET")))
+    assert response.media_type == "video/mp4"
+    assert "content-disposition" not in response.headers

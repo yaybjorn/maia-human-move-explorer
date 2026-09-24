@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 MAX_BYTES = 2 * 1024**3
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
-ROUTE = re.compile(r"courses/([a-f0-9-]{36})/chapter-media/([a-f0-9-]{36})(?:/(validate|download))?")
+ROUTE = re.compile(r"courses/([a-f0-9-]{36})/chapter-media/([a-f0-9-]{36})(?:/(validate|download|play))?")
 _tasks: dict[str, asyncio.Task] = {}
 _capacity = asyncio.Semaphore(2)
 
@@ -209,10 +209,15 @@ async def dispatch(path, request, upstream_read, allowed_origins, secret, base):
         if record["state"] == "validating" and (upload_id not in _tasks or _tasks[upload_id].done()):
             record.update(state="failed", error="Validation was interrupted. Retry validation.")
         return JSONResponse(public(record), headers=HEADERS)
-    if request.method == "GET" and action == "download" and record["state"] == "ready":
+    if request.method == "GET" and action in {"download", "play"} and record["state"] == "ready":
+        byte_range = request.headers.get("range", "")
+        if action == "play" and byte_range:
+            if not re.fullmatch(r"bytes=\d*-\d*", byte_range):
+                raise HTTPException(416, "Invalid video range")
+            headers["Range"] = byte_range
         client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), follow_redirects=False)
         response = await client.send(client.build_request("GET", url, headers=headers), stream=True)
-        if response.status_code != 200:
+        if response.status_code not in {200, 206}:
             await response.aclose()
             await client.aclose()
             raise HTTPException(409, "Private video is temporarily unavailable")
@@ -223,8 +228,13 @@ async def dispatch(path, request, upstream_read, allowed_origins, secret, base):
             finally:
                 await response.aclose()
                 await client.aclose()
-        return StreamingResponse(stream(), media_type="video/mp4", headers={**HEADERS,
-            "Content-Length": str(record["video"]["byteLength"]), "Content-Disposition": f'attachment; filename="chapter-{upload_id}.mp4"'})
+        headers = {**HEADERS, "Content-Length": response.headers.get("content-length", str(record["video"]["byteLength"]))}
+        if response.status_code == 206:
+            headers["Content-Range"] = response.headers.get("content-range", "")
+            headers["Accept-Ranges"] = "bytes"
+        if action == "download":
+            headers["Content-Disposition"] = f'attachment; filename="chapter-{upload_id}.mp4"'
+        return StreamingResponse(stream(), media_type="video/mp4", status_code=response.status_code, headers=headers)
     raise HTTPException(405, "Unsupported chapter video operation")
 
 

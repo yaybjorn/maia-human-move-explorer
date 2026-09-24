@@ -12,19 +12,19 @@ test("explicitly disabled panel cannot access storage, send requests or show upl
   panel.refresh(); await nodes.start.listeners.click();
   assert.equal(root.hidden, true); assert.equal(access, 0);
 });
-test("free controls explain restriction; paid dirty draft blocks start without legacy writes", () => {
+test("free controls explain restriction; dirty chapters block upload without legacy writes", () => {
   const { root, nodes } = dom(); let context = { ...paid, metadata: { ...paid.metadata, priceTier: "free" } };
   const before = structuredClone(context);
   const panel = createUploadPanel({ root, api: {}, getContext: () => context, enabled: true, storage: { getItem: () => null } });
   panel.refresh();
   for (const id of ["title", "video", "thumbnail", "start"]) assert.equal(nodes[id].disabled, true);
   assert.match(nodes.status.textContent, /paid courses only/); assert.deepEqual(context, before);
-  context = { ...paid, dirty: true }; panel.refresh(); assert.equal(nodes.start.disabled, true); assert.match(nodes.status.textContent, /Save draft/);
+  context = { ...paid, dirty: true }; panel.refresh(); assert.equal(nodes.video.disabled, true); assert.match(nodes.status.textContent, /Save the chapter/);
 });
-test("reopened staged result is labelled awaiting validation, never ready or selected", () => {
+test("reopened staged result is labelled as checking, never ready or selected", () => {
   const { root, nodes } = dom();
-  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, draftRevision: 207, title: "Lesson", state: "staged" };
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, draftRevision: 207, title: "Lesson", state: "staged", files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
   const panel = createUploadPanel({ root, api: {}, getContext: () => paid, enabled: true, storage: { getItem: () => JSON.stringify(record) } });
-  panel.refresh(); assert.match(nodes.status.textContent, /awaiting validation/); assert.match(nodes.status.textContent, /Not selected/);
+  panel.refresh(); assert.match(nodes.status.textContent, /Checking video/);
   assert.equal(nodes.title.value, "Lesson"); panel.clear(); assert.equal(root.hidden, true);
 });

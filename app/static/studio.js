@@ -39,6 +39,7 @@ const extractionPanel = createExtractionPanel({
 });
 const uploadPanel = createUploadPanel({ api, root: $("staged-upload-panel"), getContext: () => state.user && state.document ? {
   actorID: state.user.id, courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(), chapterID: state.document.activeChapterID || null,
+  chapterTitle: state.document.chapterSources?.find(chapter => chapter.id === state.document.activeChapterID)?.title || "Chapter video",
 } : null, onStaged: async record => {
   if (!record.chapterID || state.courseID !== record.courseID) return;
   const next = syncActiveChapter(state.document);
@@ -436,20 +437,18 @@ function moveVideo(from, to) {
 function renderVideos() {
   const chapterFirst = Array.isArray(state.document?.chapterSources);
   if (chapterFirst) extractionPanel.suspend();
-  $('videos-description').textContent = chapterFirst ? 'Upload an optional private video for the selected chapter. Supplemental links are separate.' : 'Add and preview the YouTube videos learners will see.';
   if (chapterFirst) document.querySelector('[data-panel="videos"] .page-heading').after($('staged-upload-panel'));
   else document.querySelector('[aria-labelledby="extraction-heading"]').before($('staged-upload-panel'));
-  $('staged-upload-heading').textContent = chapterFirst ? 'Private chapter video · Optional' : 'Private course video · Optional';
-  $('upload-explanation').textContent = chapterFirst ? 'Uploading records the file on this chapter draft. Playback is checked before it is ready; Save draft keeps the validated result. Nothing is published automatically.' : 'Stored files remain staged until validation. Staging never saves, selects or publishes course content.';
   if (chapterFirst && !state.document.activeChapterID) uploadPanel.clear(); else uploadPanel.refresh();
   if ($('chapter-video-actions')) $('chapter-video-actions').hidden = !chapterFirst;
-  $('chapter-video-context').hidden = !chapterFirst;
   if (chapterFirst) {
     const active = syncActiveChapter(state.document).chapterSources.find(c => c.id === state.document.activeChapterID);
-    $('chapter-video-context').textContent = active ? `${active.title}: ${active.video ? 'video ready' : active.videoUploadID ? 'uploaded; playback validation pending' : 'no video'}. Select another chapter in Chapters.` : 'Add a chapter first.';
+    $('chapter-video-context').textContent = active?.title || 'Select a chapter in Chapters.';
     renderChapterVideoControls(active);
+    if (active?.video) $('staged-upload-panel').hidden = true;
   }
-  document.querySelector('[aria-labelledby="course-video-heading"]').hidden = chapterFirst;
+  $('legacy-course-video').hidden = true;
+  $('supplemental-videos').hidden = true;
   document.querySelector('[aria-labelledby="extraction-heading"]').hidden = chapterFirst;
   renderCourseVideo();
   const container = $("video-list"); if (!container || !state.document) return;
@@ -1251,13 +1250,15 @@ function renderChapterVideoControls(chapter) {
   let box = $('chapter-video-actions');
   if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; $('chapter-video-context').after(box); }
   box.innerHTML = chapter?.video
-    ? `<p>Ready · ${(chapter.video.byteLength / 1024**2).toFixed(1)} MB · <a href="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/download">Download chapter video</a></p>`
-    : chapter?.videoUploadID ? '<p>Uploaded. Validate playback before publishing.</p><button id="validate-chapter-video" class="secondary">Check / retry video validation</button>' : '<p>Upload a fast-start MP4 (H.264, optional AAC audio), plus a PNG/JPEG thumbnail. Files stay private. Maximum 2 GB.</p>';
-  if (chapter?.videoUploadID) {
-    const reset = document.createElement('button'); reset.className = 'secondary'; reset.textContent = 'Upload another video';
-    reset.addEventListener('click', () => { try { uploadPanel.startNew(); showStatus('Choose a new file. The current chapter video stays attached until the new upload finishes.'); } catch (error) { showStatus(error.message, true); } }); box.append(reset);
-  }
-  $('validate-chapter-video')?.addEventListener('click', () => startChapterVideoValidation(chapter.id));
+    ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
+    : chapter?.videoUploadID ? '<p>Checking video…</p>' : '';
+  $('remove-chapter-video')?.addEventListener('click', async () => {
+    const next = syncActiveChapter(state.document), current = next.chapterSources.find(item => item.id === chapter.id);
+    if (!current) return;
+    delete current.videoUploadID; delete current.video;
+    commit(next);
+    if (await saveDraft({quiet:true})) showStatus('Video removed.');
+  });
 }
 async function startChapterVideoValidation(chapterID) {
   if (!await saveDraft({quiet:true})) return;
@@ -1269,7 +1270,7 @@ async function startChapterVideoValidation(chapterID) {
   try {
     const path = `/courses/${encodeURIComponent(courseID)}/chapter-media/${encodeURIComponent(uploadID)}`;
     let status = await api.request(`${path}/validate`, {method:'POST', body:{chapterID, revision:state.revision}});
-    showStatus('Checking video playback. You can keep editing; keep this tab open for the result.');
+    showStatus('Checking video…');
     while (status.state === 'validating') {
       await new Promise(resolve => setTimeout(resolve, 3000));
       if (state.courseID !== courseID) return;
@@ -1280,7 +1281,7 @@ async function startChapterVideoValidation(chapterID) {
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(c => c.id === chapterID);
     if (!current || current.videoUploadID !== uploadID) return;
     current.video = status.video; commit(next);
-    showStatus('Chapter video is ready. Save draft to keep it; publishing includes this chapter video.');
+    if (await saveDraft({quiet:true})) showStatus('Video ready.');
   } catch (error) { showStatus(error.message, true); }
   finally { chapterVideoPolls.delete(key); }
 }

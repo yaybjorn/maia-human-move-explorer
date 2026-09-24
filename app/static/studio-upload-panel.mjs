@@ -4,19 +4,22 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
   let uploader = null, contextKey = null, busy = false;
   const find = id => root.querySelector(`[data-upload="${id}"]`);
   const message = text => { find("status").textContent = text; };
+  const thumbnail = () => new Blob([
+    new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,8,215,99,248,207,192,240,31,0,5,0,1,255,137,153,61,29,0,0,0,0,73,69,78,68,174,66,96,130])
+  ], { type: "image/png" });
   function renderProgress(record) {
     if (record.progress) {
       find("progress").max = record.progress.video.byteLength + record.progress.thumbnail.byteLength;
       find("progress").value = record.progress.video.offset + record.progress.thumbnail.offset;
     }
-    if (record.state === "staged") return message("Files staged — awaiting validation. Not selected for this course or published.");
+    if (record.state === "staged") return message("Checking video…");
     const p = record.progress;
     const bytes = p ? p.video.offset + p.thumbnail.offset : 0;
     const total = record.files.video.byteLength + record.files.thumbnail.byteLength;
     find("progress").max = total; find("progress").value = bytes;
     message(record.state === "reservation_unconfirmed" ? "Reservation not confirmed. Its outcome must be checked before another upload."
       : record.state === "blocked" ? "Upload needs attention: an operation is uncertain or expired. No operation will be repeated."
-        : `${record.state === "uploading" ? "Uploading" : "Paused"} · ${bytes.toLocaleString()} of ${total.toLocaleString()} bytes acknowledged. ${record.state === "uploading" ? "" : "Reselect the same files to resume."}`);
+        : record.state === "uploading" ? "Uploading video…" : "Choose the same video to continue upload.");
   }
   function controls(context) {
     const paid = context && (context.chapterID || paidUploadCourse(context.metadata));
@@ -24,7 +27,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     find("check").disabled = busy || !uploader;
     find("pause").disabled = !busy;
     if (!paid) message(FREE_UPLOAD_EXPLANATION);
-    else if (context.dirty && !busy) message("Save draft changes before staging a video. Uploads do not save or publish your draft.");
+    else if (context.dirty && !busy) message("Save the chapter before uploading a video.");
   }
   function refresh() {
     root.hidden = !enabled;
@@ -39,22 +42,26 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
           uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
           if (record) { find("title").value = record.title; renderProgress(record); }
-          else message("Stage an MP4 video and PNG or JPEG thumbnail. Validation is required before the course can use them.");
+          else message("Choose an MP4 video to upload.");
         } catch { message("Upload progress storage is unavailable. No upload was started."); }
       }
     }
     controls(context);
   }
-  find("start").addEventListener("click", async () => {
+  async function uploadSelectedVideo() {
     if (!enabled || busy || !uploader) return;
     const context = getContext();
     if (!context || context.dirty || !(context.chapterID || paidUploadCourse(context.metadata))) return refresh();
     busy = true; const current = uploader; controls(context);
-    message("Checking file fingerprints… Keep these files available to resume later.");
-    try { const record = await current.run({ title: find("title").value, video: find("video").files[0], thumbnail: find("thumbnail").files[0] }); if (current === uploader && record?.state === "staged") await onStaged(record); }
+    const video = find("video").files?.[0];
+    if (!video) return;
+    message("Preparing video…");
+    try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") await onStaged(record); }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
-  });
+  }
+  find("start").addEventListener("click", uploadSelectedVideo);
+  find("video").addEventListener("change", uploadSelectedVideo);
   find("check").addEventListener("click", async () => {
     if (!enabled || busy || !uploader) return;
     const current = uploader; busy = true; controls(getContext());

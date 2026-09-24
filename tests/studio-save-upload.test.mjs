@@ -48,12 +48,10 @@ test("confirmed clean production save refreshes and enables upload using the new
   const s = setup(); assert.equal(s.nodes.start.disabled, true);
   const saved = s.save(); await s.saving; s.finish({ draft: { revision: 208 } });
   assert.equal(await saved, true); assert.equal(s.state.revision, 208); assert.equal(s.dirty(), false);
-  assert.equal(s.extractionRefreshes, 1); assert.equal(s.nodes.start.disabled, false);
-  assert.doesNotMatch(s.nodes.status.textContent, /Save draft changes/);
-  s.nodes.title.value = "New staged lesson";
+  assert.equal(s.extractionRefreshes, 1); assert.equal(s.nodes.video.disabled, false);
+  assert.doesNotMatch(s.nodes.status.textContent, /Save the chapter/);
   s.nodes.video.files = [new Blob(["video"], { type: "video/mp4" })];
-  s.nodes.thumbnail.files = [new Blob(["thumbnail"], { type: "image/png" })];
-  await s.nodes.start.listeners.click();
+  await s.nodes.video.listeners.change();
   assert.equal(s.calls.length, 1); assert.equal(s.calls[0].options.body.revision, 208);
   assert.deepEqual(s.state.document.metadata.videos, [{ id: "supplemental-keep" }]);
   assert.deepEqual(s.state.document.metadata.courseVideo, { id: "main-keep" });
@@ -66,8 +64,8 @@ test("edits during production save remain dirty and upload controls stay disable
   assert.equal(await saved, true); assert.equal(s.state.revision, 208); assert.equal(s.dirty(), true);
   assert.equal(s.state.document.metadata.title, "Edited while saving");
   assert.equal(JSON.parse(s.state.savedSnapshot).metadata.title, "Saved title");
-  assert.equal(s.nodes.start.disabled, true); assert.match(s.nodes.status.textContent, /Save draft changes/);
-  await s.nodes.start.listeners.click(); assert.equal(s.calls.length, 0);
+  assert.equal(s.nodes.video.disabled, true); assert.match(s.nodes.status.textContent, /Save the chapter/);
+  await s.nodes.video.listeners.change(); assert.equal(s.calls.length, 0);
 });
 
 test("save refresh pauses the old context without rebinding or clearing its immutable upload record", async () => {
@@ -82,8 +80,7 @@ test("save refresh pauses the old context without rebinding or clearing its immu
     const saved = s.save(); await s.saving; s.finish({ draft: { revision: 208 } }); await saved;
     assert.deepEqual(paused, [207]); assert.deepEqual([...s.storage.entries()], before);
     s.nodes.video.files = [new Blob(["video"], { type: "video/mp4" })];
-    s.nodes.thumbnail.files = [new Blob(["thumbnail"], { type: "image/png" })];
-    await s.nodes.start.listeners.click();
+    await s.nodes.video.listeners.change();
     assert.match(s.nodes.status.textContent, /draft changed/); assert.equal(s.calls.length, 0);
     assert.deepEqual([...s.storage.entries()], before);
   } finally { StagedUpload.prototype.pause = original; }
