@@ -1257,7 +1257,10 @@ function renderChapterVideoControls(chapter) {
     if (!current) return;
     delete current.videoUploadID; delete current.video;
     commit(next);
-    if (await saveDraft({quiet:true})) showStatus('Video removed.');
+    if (await saveDraft({quiet:true})) {
+      uploadPanel.startNew();
+      showStatus('Video removed.');
+    }
   });
 }
 async function startChapterVideoValidation(chapterID) {

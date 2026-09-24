@@ -52,9 +52,9 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     if (!enabled || busy || !uploader) return;
     const context = getContext();
     if (!context || context.dirty || !(context.chapterID || paidUploadCourse(context.metadata))) return refresh();
-    busy = true; const current = uploader; controls(context);
     const video = find("video").files?.[0];
     if (!video) return;
+    busy = true; const current = uploader; controls(context);
     message("Preparing video…");
     try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") await onStaged(record); }
     catch (error) { if (current === uploader) message(error.message); }

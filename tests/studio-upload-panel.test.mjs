@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createUploadPanel } from "../app/static/studio-upload-panel.mjs";
+import { StagedUpload } from "../app/static/studio-upload.mjs?v=20260923-chapters";
 function dom() {
   const nodes = Object.fromEntries(["title", "video", "thumbnail", "start", "check", "pause", "status", "progress"].map(id => [id, { value: "", disabled: false, listeners: {}, addEventListener(event, fn) { this.listeners[event] = fn; } }]));
   return { nodes, root: { hidden: true, querySelector: s => nodes[s.match(/"(\w+)"/)[1]] } };
@@ -27,4 +28,28 @@ test("reopened staged result is labelled as checking, never ready or selected", 
   const panel = createUploadPanel({ root, api: {}, getContext: () => paid, enabled: true, storage: { getItem: () => JSON.stringify(record) } });
   panel.refresh(); assert.match(nodes.status.textContent, /Checking video/);
   assert.equal(nodes.title.value, "Lesson"); panel.clear(); assert.equal(root.hidden, true);
+});
+test("cancelling the chooser leaves the next file selection usable", async () => {
+  const { root, nodes } = dom(); let runs = 0;
+  const original = StagedUpload.prototype.run;
+  StagedUpload.prototype.run = async function () { runs++; return { state: "paused" }; };
+  try {
+    const panel = createUploadPanel({ root, api: {}, getContext: () => ({ ...paid, chapterID: "chapter-a", chapterTitle: "Lesson" }), enabled: true, storage: { getItem: () => null } });
+    panel.refresh();
+    await nodes.video.listeners.change();
+    nodes.video.files = [new Blob(["video"], { type: "video/mp4" })];
+    await nodes.video.listeners.change();
+    assert.equal(runs, 1);
+  } finally { StagedUpload.prototype.run = original; }
+});
+test("clearing a staged chapter upload removes its local identity before replacement", () => {
+  const { root } = dom(), storage = new Map();
+  const context = { ...paid, chapterID: "chapter-a" };
+  const key = `gingergm-staged-upload-v1:${context.actorID}:${context.courseID}:chapter:${context.chapterID}`;
+  storage.set(key, JSON.stringify({ schema: 1, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID,
+    draftRevision: context.revision, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged",
+    files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } }));
+  const panel = createUploadPanel({ root, api: {}, getContext: () => context, enabled: true, storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) } });
+  panel.refresh(); panel.startNew();
+  assert.equal(storage.has(key), false);
 });
