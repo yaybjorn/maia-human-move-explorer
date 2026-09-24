@@ -109,8 +109,14 @@
       </section>
 
       <section class="view editor-view" data-panel="editor">
-        <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Repertoire editor</h1><p>Play moves on the board, then explain what the learner should remember.</p></div><div class="heading-actions"><button id="export-pgn" class="secondary" type="button">Export PGN</button></div></div>
-        <div id="chapter-editor-controls" class="tool-card" hidden><label>Editing chapter<select id="active-chapter"></select></label><p id="chapter-training-start"></p><div class="heading-actions"><button id="set-training-start" type="button">Start training at this position</button><button id="clear-training-start" type="button">Train from beginning</button></div><p class="muted">Full history stays in the PGN. Branches diverging before the selected start remain editable, but are excluded from training.</p></div>
+        <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Repertoire editor</h1></div><div class="heading-actions"><button id="export-pgn" class="secondary" type="button">Export PGN</button></div></div>
+        <div id="chapter-editor-controls" hidden>
+          <label>Chapter<select id="active-chapter"></select></label>
+          <!-- Retain training-start controls and bindings while the feature is hidden. -->
+          <div hidden>
+            <p id="chapter-training-start"></p><div class="heading-actions"><button id="set-training-start" type="button">Start training at this position</button><button id="clear-training-start" type="button">Train from beginning</button></div><p class="muted">Full history stays in the PGN. Branches diverging before the selected start remain editable, but are excluded from training.</p>
+          </div>
+        </div>
         <div class="editor-layout">
           <section class="board-pane">
             <div id="editor-board-stage" class="editor-board-stage">
