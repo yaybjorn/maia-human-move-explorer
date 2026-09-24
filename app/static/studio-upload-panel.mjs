@@ -1,7 +1,7 @@
 import { StagedUpload, PRIVATE_UPLOADS_ENABLED, paidUploadCourse, FREE_UPLOAD_EXPLANATION } from "./studio-upload.mjs?v=20260923-chapters";
 
 export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPLOADS_ENABLED, storage, onStaged = () => {} }) {
-  let uploader = null, contextKey = null, busy = false;
+  let uploader = null, contextKey = null, staged = null, busy = false;
   const find = id => root.querySelector(`[data-upload="${id}"]`);
   const message = text => { find("status").textContent = text; };
   const thumbnail = () => new Blob([
@@ -35,13 +35,14 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     const context = getContext();
     const key = context && `${context.actorID}:${context.courseID}:${context.revision}:${context.chapterID || ""}`;
     if (key !== contextKey) {
+      if (staged && (!context || staged.actorID !== context.actorID || staged.courseID !== context.courseID || staged.chapterID !== (context.chapterID || null))) staged = null;
       uploader?.pause(); uploader = null; contextKey = key;
       find("video").value = ""; find("thumbnail").value = ""; find("title").value = "";
       if (context) {
         try {
           uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
-          if (record) { find("title").value = record.title; renderProgress(record); }
+          if (record) { staged = record.state === "staged" ? { key: uploader.key, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID || null } : null; find("title").value = record.title; renderProgress(record); }
           else message("Choose an MP4 video to upload.");
         } catch { message("Upload progress storage is unavailable. No upload was started."); }
       }
@@ -56,7 +57,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     if (!video) return;
     busy = true; const current = uploader; controls(context);
     message("Preparing video…");
-    try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") await onStaged(record); }
+    try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") { staged = { key: current.key, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID || null }; await onStaged(record); } }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
   }
@@ -74,7 +75,11 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     if (busy || !uploader) throw new Error("Wait for the current upload or validation to finish.");
     const record = uploader.load();
     if (record && record.state !== "staged") throw new Error("Resume or reconcile the unfinished upload before starting another.");
-    if (record) (storage ?? globalThis.localStorage).removeItem(uploader.key);
+    const context = getContext();
+    const matchingStaged = staged && context && staged.actorID === context.actorID && staged.courseID === context.courseID && staged.chapterID === (context.chapterID || null);
+    if (matchingStaged) (storage ?? globalThis.localStorage).removeItem(staged.key);
+    else if (record) (storage ?? globalThis.localStorage).removeItem(uploader.key);
+    staged = null;
     uploader = null; contextKey = null; refresh();
   }
   return { refresh, startNew, clear: () => { uploader?.pause(); uploader = null; contextKey = null; root.hidden = true; } };

@@ -42,14 +42,14 @@ test("cancelling the chooser leaves the next file selection usable", async () =>
     assert.equal(runs, 1);
   } finally { StagedUpload.prototype.run = original; }
 });
-test("clearing a staged chapter upload removes its local identity before replacement", () => {
+test("clearing a staged chapter upload removes its local identity after a save advances the revision", () => {
   const { root } = dom(), storage = new Map();
-  const context = { ...paid, chapterID: "chapter-a" };
+  let context = { ...paid, chapterID: "chapter-a" };
   const key = `gingergm-staged-upload-v1:${context.actorID}:${context.courseID}:chapter:${context.chapterID}`;
   storage.set(key, JSON.stringify({ schema: 1, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID,
     draftRevision: context.revision, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged",
     files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } }));
   const panel = createUploadPanel({ root, api: {}, getContext: () => context, enabled: true, storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) } });
-  panel.refresh(); panel.startNew();
+  panel.refresh(); context = { ...context, revision: 208 }; panel.refresh(); panel.startNew();
   assert.equal(storage.has(key), false);
 });
