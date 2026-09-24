@@ -182,9 +182,9 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     const courseID = payload.course?.id || payload.id || id;
     const currentCourse = payload.course || state.courses.find(course => course.id === courseID) || null;
     const revision = draft.revision ?? payload.revision ?? 0;
-    const document = normalizeDocument(draft.document || draft || payload.document || {});
-    document.metadata.slug = payload.course?.slug || document.metadata.slug;
-    const hydrated = await hydrateSourceDocument(document, courseID, revision);
+    const courseDocument = normalizeDocument(draft.document || draft || payload.document || {});
+    courseDocument.metadata.slug = payload.course?.slug || courseDocument.metadata.slug;
+    const hydrated = await hydrateSourceDocument(courseDocument, courseID, revision);
     state.courseID = courseID;
     state.currentCourse = currentCourse;
     state.revision = revision;
