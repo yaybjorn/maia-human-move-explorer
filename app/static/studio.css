@@ -110,3 +110,17 @@ button{min-height:44px}
 .publish-feedback[data-kind="error"]{border-color:#a52e2e;color:#842525;background:#fff2f2}
 .publish-feedback[data-kind="success"]{border-color:#356748;color:#244c32;background:#f0f8f1}
 .publish-dialog .dialog-actions{flex-wrap:wrap}
+
+/* Chapter overview: compact actions, clear drag affordance. */
+[data-panel="chapters"] .independent-chapter-layout{grid-template-columns:minmax(0,1fr)}
+[data-panel="chapters"] .independent-chapter{cursor:grab}
+[data-panel="chapters"] .independent-chapter .heading-actions{margin-top:16px}
+[data-panel="chapters"] .independent-chapter-heading label{min-width:0}
+[data-panel="chapters"] .chapter-drag-handle{padding:8px 4px;border-radius:6px;color:var(--muted);cursor:grab;user-select:none}
+[data-panel="chapters"] .independent-chapter.dragging,[data-panel="chapters"] .independent-chapter.dragging *{cursor:grabbing!important}
+[data-panel="chapters"] .chapter-button-count{font-weight:400;color:var(--muted)}
+[data-panel="chapters"] .chapter-delete{color:var(--bad);margin-left:auto;background:transparent;border-color:transparent}
+[data-panel="chapters"] button,[data-panel="chapters"] #import-chapter-label{transition:background-color .15s,border-color .15s,color .15s}
+[data-panel="chapters"] button:not(:disabled):hover,[data-panel="chapters"] #import-chapter-label:hover{background:var(--soft);border-color:#bea98b}
+[data-panel="chapters"] .chapter-delete:not(:disabled):hover{background:#f8e9e5;border-color:#e6bcb3;color:#873529}
+[data-panel="chapters"] button:focus-visible,[data-panel="chapters"] .chapter-drag-handle:focus-visible,[data-panel="chapters"] #import-chapter-label:focus-within{outline:2px solid var(--accent);outline-offset:3px}

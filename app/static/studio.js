@@ -896,6 +896,8 @@ function renderChapters(){
   if(!state.document)return;
   if(Array.isArray(state.document.chapterSources)) return renderIndependentChapters();
   $("chapter-board").hidden=false;
+  $("chapter-position").closest("aside").hidden=false;
+  $("studio-chapters").parentElement.classList.remove("independent-chapter-layout");
   const id=state.document.metadata.slug||"draft",slices=chapterSlices(state.document,id),container=$("studio-chapters"),starts=new Set(slices.slice(1).map(chapter=>chapter.startIndex));
   container.classList.toggle("adding",state.chapterAddMode);
   container.innerHTML=slices.map((chapter,index)=>`<section class="studio-chapter"><div class="studio-chapter-head" draggable="${index>0}" data-chapter-drag="${index}"><span aria-hidden="true">⠿</span><input data-chapter-title="${index}" value="${escapeHTML(chapter.title)}" maxlength="80" aria-label="Chapter ${index+1} name"><span class="chapter-count ${chapter.positions.length<16||chapter.positions.length>32?"outside":""}">${chapter.positions.length} positions</span>${index?`<span class="boundary-controls"><button data-boundary-step="-1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position earlier">↑</button><button data-boundary-step="1" data-boundary-chapter="${index}" aria-label="Move ${escapeHTML(chapter.title)} boundary one position later">↓</button></span><button data-delete-chapter="${index}" class="icon-button" aria-label="Delete chapter ${escapeHTML(chapter.title)}">×</button>`:"<span></span><span></span>"}</div>${chapter.positions.map(position=>`${chapterDrop(position.learningOrder,starts.has(position.learningOrder))}<button class="chapter-position-row" data-chapter-position="${escapeHTML(position.id)}"><span>#${position.learningOrder+1} - move ${position.moveNumber} - <strong>${escapeHTML(position.correctMove.san)}</strong></span></button>`).join("")}</section>`).join("");
@@ -1147,10 +1149,11 @@ function renderIndependentChapters() {
   const chapters = chapterSlices(state.document), container = $('studio-chapters');
   container.classList.remove('adding');
   $('chapter-board').hidden = true;
+  $('chapter-position').closest('aside').hidden = true;
+  container.parentElement.classList.add('independent-chapter-layout');
   container.innerHTML = chapters.map((chapter, index) => `<section class="studio-chapter independent-chapter" data-independent-chapter="${escapeHTML(chapter.id)}" draggable="true">
-    <div class="independent-chapter-heading"><span aria-hidden="true">⠿</span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label><span>${chapter.positions.length} training positions</span></div>
-    <p>${chapter.nodes.length ? 'PGN ready' : 'PGN missing — add moves or import a new chapter'} · ${chapter.video ? 'Video ready' : chapter.videoUploadID ? 'Video uploaded — validation pending' : 'No video (optional)'}</p>
-    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter</button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">Video</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-export="${escapeHTML(chapter.id)}">Export PGN</button><button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-chapter-shift="-1" data-chapter-index="${index}" ${index===0?'disabled':''} aria-label="Move chapter up">↑</button><button class="secondary" data-chapter-shift="1" data-chapter-index="${index}" ${index===chapters.length-1?'disabled':''} aria-label="Move chapter down">↓</button><button class="danger" data-independent-delete="${escapeHTML(chapter.id)}">Delete</button></div>
+    <div class="independent-chapter-heading"><span class="chapter-drag-handle" role="button" tabindex="0" aria-label="Reorder chapter ${index+1}: use up and down arrow keys" title="Drag to reorder"><span aria-hidden="true">⠿</span></span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label></div>
+    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter <span class="chapter-button-count">· ${chapter.positions.length} positions</span></button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">${chapter.video || chapter.videoUploadID ? 'Edit video' : 'Add video'}</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary chapter-delete" data-independent-delete="${escapeHTML(chapter.id)}">Delete</button></div>
     </section>`).join('') || '<div class="empty-state"><h2>Build your course chapter by chapter</h2><p>Import a PGN as a starting point, or add a blank chapter and author its moves here. Video is optional.</p></div>';
   container.querySelectorAll('[data-independent-title]').forEach(input => {
     input.addEventListener('input', markPendingInput);
@@ -1167,10 +1170,8 @@ function renderIndependentChapters() {
     if (chapter) { delete chapter.videoUploadID; delete chapter.video; commit(next); }
   }));
   container.querySelectorAll('[data-chapter-open]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterOpen)));
-  container.querySelectorAll('[data-chapter-export]').forEach(button => button.addEventListener('click', () => { selectIndependentChapter(button.dataset.chapterExport, 'chapters'); $('export-pgn').click(); }));
   container.querySelectorAll('[data-chapter-check]').forEach(button => button.addEventListener('click', () => checkIndependentChapter(button.dataset.chapterCheck)));
   container.querySelectorAll('[data-chapter-preview]').forEach(button => button.addEventListener('click', () => { state.previewChapter = Number(button.dataset.chapterPreview); state.previewIndex = 0; state.previewAttempt = null; switchView('preview'); }));
-  container.querySelectorAll('[data-chapter-shift]').forEach(button => button.addEventListener('click', () => reorderIndependentChapter(Number(button.dataset.chapterIndex), Number(button.dataset.chapterIndex) + Number(button.dataset.chapterShift))));
   container.querySelectorAll('[data-independent-delete]').forEach(button => button.addEventListener('click', () => {
     if (!confirm('Delete this chapter and its authored moves? Export its PGN first if you want to keep a copy. The saved course remains unchanged until Save draft.')) return;
     const next = syncActiveChapter(state.document);
@@ -1179,12 +1180,29 @@ function renderIndependentChapters() {
     refreshPosition();
   }));
   container.querySelectorAll('[data-independent-chapter]').forEach((row, index) => {
-    row.addEventListener('dragstart', event => { if (event.target.closest('input,button')) { event.preventDefault(); return; } state.chapterDrag = index; });
-    row.addEventListener('dragover', event => event.preventDefault());
+    const handle = row.querySelector('.chapter-drag-handle');
+    handle.addEventListener('keydown', event => {
+      if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const target = index + (event.key === 'ArrowUp' ? -1 : 1);
+      if (target < 0 || target >= chapters.length) return;
+      reorderIndependentChapter(index, target);
+      container.querySelectorAll('.chapter-drag-handle')[target]?.focus();
+    });
+    row.addEventListener('dragstart', event => {
+      if (event.target.closest('input,button')) { event.preventDefault(); return; }
+      state.chapterDrag = index;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.dataset.independentChapter);
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragover', event => {
+      if (state.chapterDrag === null) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+    });
     row.addEventListener('drop', event => { event.preventDefault(); if (state.chapterDrag !== null) reorderIndependentChapter(state.chapterDrag, index); state.chapterDrag = null; });
-    row.addEventListener('dragend', () => { state.chapterDrag = null; });
+    row.addEventListener('dragend', () => { state.chapterDrag = null; row.classList.remove('dragging'); });
   });
-  $('chapter-position').innerHTML = '<p>Each chapter keeps its full move history. Choose its training start in the editor. Branches that diverge before that point remain editable and exportable but do not become exercises.</p>';
 }
 function reorderIndependentChapter(from, to) {
   const next = syncActiveChapter(state.document);
