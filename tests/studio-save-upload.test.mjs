@@ -17,7 +17,7 @@ function setup(record = null) {
   const nodes = Object.fromEntries(["title", "video", "thumbnail", "start", "check", "pause", "status", "progress"].map(id => [id, {
     value: "", listeners: {}, addEventListener(event, listener) { this.listeners[event] = listener; },
   }]));
-  const state = { user: { id: "fixture-owner" }, courseID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 207, view: "videos",
+  const state = { user: { id: "fixture-owner" }, courseID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 207, view: "game-videos",
     document: { metadata: { slug: "cowboy-kilkenny", priceTier: "usd-4.99", title: "Saved title", videos: [{ id: "supplemental-keep" }], courseVideo: { id: "main-keep" } }, sourcePGN: "fixture" }, savedSnapshot: "older draft" };
   const dirty = () => JSON.stringify(state.document) !== state.savedSnapshot;
   let entered, finish;

@@ -245,10 +245,13 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert 'id="set-training-start"' in page.text
     assert "Course Chapter video" in page.text
     assert 'data-upload="video"' in page.text
-    assert 'id="supplemental-videos" class="tool-card video-editor-card" aria-labelledby="videos-title" hidden' in page.text
-    assert 'data-view="videos"' in page.text
-    assert 'data-panel="videos"' in page.text
-    assert 'view !== "videos" && unmountVideoPreview()' in studio_source
+    assert 'id="supplemental-videos" class="tool-card video-editor-card" aria-labelledby="videos-title"' in page.text
+    assert 'data-view="game-videos"' in page.text
+    assert 'data-panel="game-videos"' in page.text
+    assert 'data-view="chapter-video"' in page.text
+    assert 'data-panel="chapter-video"' in page.text
+    assert 'if (view === "videos") view = "game-videos"' in studio_source
+    assert 'view !== "game-videos" && unmountVideoPreview()' in studio_source
     assert 'function unmountVideoPreview()' in studio_source
     assert 'aria-controls="video-preview-' in studio_source
     assert 'referrerpolicy="strict-origin-when-cross-origin"' in studio_source

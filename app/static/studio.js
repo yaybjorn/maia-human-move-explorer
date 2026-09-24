@@ -200,7 +200,9 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     $("course-title").textContent = state.document.metadata.title;
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
     $("save").hidden = false; $("publish").hidden = false;
-    renderAll(); await refreshPosition(); switchView("editor");
+    renderAll(); await refreshPosition();
+    const requestedView = location.hash.slice(1);
+    switchView(requestedView === "videos" ? "game-videos" : document.querySelector(`[data-panel="${CSS.escape(requestedView)}"]`) ? requestedView : "editor");
     return true;
   } catch (error) { showStatus(error.message, true); return false; }
 }
@@ -355,7 +357,7 @@ async function performSaveDraft() {
     state.revision = saved.revision ?? payload.revision ?? startingRevision + 1;
     state.savedSnapshot = JSON.stringify(savedDocument);
     uploadPanel.refresh();
-    if (state.view === "videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
+    if (state.view === "game-videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
     if (!dirty()) clearCrashRecovery();
     else saveCrashRecovery();
     updateSaveState();
@@ -380,11 +382,12 @@ function flushActiveEditor() {
 function markPendingInput(){if(!state.document)return;invalidateDiagnostics();extractionPanel.contextChanged();$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"}
 
 function switchView(view) {
-  if (view !== "videos") extractionPanel.suspend();
+  if (view === "videos") view = "game-videos"; // Legacy deep link: course-level YouTube game videos.
+  if (view !== "chapter-video") extractionPanel.suspend();
   if (view === "analysis") view = "editor";
   if (view !== "dashboard" && !state.document) view = "dashboard";
-  if (view !== "videos" && unmountVideoPreview()) {
-    renderVideos();
+  if (view !== "game-videos" && unmountVideoPreview()) {
+    renderGameVideos();
   }
   state.view = view;
   document.querySelectorAll(".view").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === view));
@@ -393,8 +396,8 @@ function switchView(view) {
   $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "history") loadHistory();
   if (view === "quality") renderQuality();
-  if (["chapters","videos","preview"].includes(view)) renderAll();
-  if (view === "videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
+  if (["chapters","game-videos","chapter-video","preview"].includes(view)) renderAll();
+  if (view === "game-videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
   if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
   else { editorEngine.cancel(); stopEditorMaia(); }
 }
@@ -402,7 +405,7 @@ function renderAll() {
   if (!state.document) return;
   extractionPanel.contextChanged();
   renderChapterSelector();
-  renderDetails(); renderVideos(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
+  renderDetails(); renderGameVideos(); renderChapterVideo(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
@@ -434,11 +437,10 @@ function moveVideo(from, to) {
   if (from === to || from < 0 || to < 0 || from >= videos.length || to >= videos.length) return;
   const [video] = videos.splice(from, 1); videos.splice(to, 0, video); replaceVideos(videos);
 }
-function renderVideos() {
+function renderChapterVideo() {
   const chapterFirst = Array.isArray(state.document?.chapterSources);
   if (chapterFirst) extractionPanel.suspend();
-  if (chapterFirst) document.querySelector('[data-panel="videos"] .page-heading').after($('staged-upload-panel'));
-  else document.querySelector('[aria-labelledby="extraction-heading"]').before($('staged-upload-panel'));
+  document.querySelector('[data-panel="chapter-video"] .page-heading').after($('staged-upload-panel'));
   if (chapterFirst && !state.document.activeChapterID) uploadPanel.clear(); else uploadPanel.refresh();
   if ($('chapter-video-actions')) $('chapter-video-actions').hidden = !chapterFirst;
   if (chapterFirst) {
@@ -447,9 +449,9 @@ function renderVideos() {
     renderChapterVideoControls(active);
     if (active?.video) $('staged-upload-panel').hidden = true;
   }
-  $('legacy-course-video').hidden = true;
-  $('supplemental-videos').hidden = true;
-  document.querySelector('[aria-labelledby="extraction-heading"]').hidden = chapterFirst;
+}
+
+function renderGameVideos() {
   renderCourseVideo();
   const container = $("video-list"); if (!container || !state.document) return;
   const videos = videoItems();
@@ -502,7 +504,7 @@ function renderCourseVideo() {
   }
   $("preview-course-video").addEventListener("click", () => {
     const next = !state.courseVideoPreview; unmountVideoPreview(); state.courseVideoPreview = next;
-    renderVideos(); $("preview-course-video").focus();
+    renderGameVideos(); $("preview-course-video").focus();
   });
   $("remove-course-video").addEventListener("click", () => {
     state.courseVideoPreview = false;
@@ -524,7 +526,7 @@ function toggleVideoPreview(index) {
   if (!video) return;
   const next = state.videoPreviewID === video.id ? null : video.id;
   unmountVideoPreview(); state.videoPreviewID = next;
-  renderVideos();
+  renderGameVideos();
   document.querySelector(`[data-video-preview="${index}"]`)?.focus();
 }
 
@@ -962,7 +964,7 @@ function uniqueChecks(items){const seen=new Set();return items.map(normalizeChec
 function renderQuality(validation=state.validation){const checks=combinedValidation(validation),count=checks.blockers.length;$("quality-count").textContent=count||"";$("quality-summary").innerHTML=`<div class="stat"><strong>${checks.blockers.length}</strong><span>Publish blockers</span></div><div class="stat"><strong>${checks.warnings.length}</strong><span>Warnings to review</span></div><div class="stat"><strong>${trainingPack(state.document,state.document.metadata.slug||"draft").positions.length}</strong><span>Training positions</span></div>`;$("quality-results").innerHTML=[...checks.blockers.map(item=>qualityHTML("blocker",item,true)),...checks.warnings.map(item=>qualityHTML("warning",item,true))].join("")||qualityHTML("good",{area:"Ready to publish",message:"No blockers or warnings found."});$("quality-results").querySelectorAll("[data-quality-area]").forEach(button=>button.addEventListener("click",()=>reviewQualityItem(button)));return checks;}
 function qualityHTML(type,item,navigate=false){return`<article class="quality-item ${type}"><span class="quality-icon">${type==="good"?"✓":type==="blocker"?"×":"!"}</span><div><h3>${escapeHTML(item.area)}</h3><p>${escapeHTML(item.message)}</p>${navigate?`<div class="quality-actions"><button data-quality-area="${escapeHTML(item.area)}"${item.chapterID?` data-quality-chapter="${escapeHTML(item.chapterID)}"`:""}${item.nodeID?` data-quality-node="${escapeHTML(item.nodeID)}"`:""}>Review this area</button></div>`:""}</div></article>`}
 function reviewQualityItem(button){if(button.dataset.qualityChapter)selectIndependentChapter(button.dataset.qualityChapter,button.dataset.qualityNode?"editor":"chapters");else switchView(areaView(button.dataset.qualityArea));if(button.dataset.qualityNode)navigate(button.dataset.qualityNode)}
-function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("video"))return"videos";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
+function areaView(area){const value=String(area).toLowerCase();if(value.includes("chapter"))return"chapters";if(value.includes("writing")||value.includes("feedback"))return"writing";if(value.includes("video"))return"game-videos";if(value.includes("detail")||value.includes("metadata"))return"details";return"editor"}
 async function runQuality({forPublish=false}={}){
   const button=$("refresh-quality");setBusy(button,true,"Checking…");
   try{
@@ -1102,7 +1104,7 @@ $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$(
 document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
 document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]");if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&state.view==="editor"){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
 window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
-window.addEventListener("hashchange",()=>{const view=location.hash.slice(1);if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
+window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
 boot();
 
@@ -1162,7 +1164,7 @@ function renderIndependentChapters() {
       commit(next);
     });
   });
-  container.querySelectorAll('[data-chapter-video]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterVideo, 'videos')));
+  container.querySelectorAll('[data-chapter-video]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterVideo, 'chapter-video')));
   container.querySelectorAll('[data-chapter-remove-video]').forEach(button => button.addEventListener('click', () => {
     const next = syncActiveChapter(state.document);
     const chapter = next.chapterSources.find(item => item.id === button.dataset.chapterRemoveVideo);
