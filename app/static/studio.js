@@ -1283,6 +1283,7 @@ async function startChapterVideoValidation(chapterID) {
     if (state.courseID !== courseID) return;
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(c => c.id === chapterID);
     if (!current || current.videoUploadID !== uploadID) return;
+    uploadPanel.clear();
     current.video = status.video; commit(next);
     if (await saveDraft({quiet:true})) showStatus('Video ready.');
   } catch (error) { showStatus(error.message, true); }
