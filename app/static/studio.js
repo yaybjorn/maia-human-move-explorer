@@ -449,7 +449,6 @@ function renderChapterVideo() {
     $('chapter-video-selector').hidden = false;
     selector.innerHTML = state.document.chapterSources.map(chapter => `<option value="${escapeHTML(chapter.id)}" ${chapter.id===state.document.activeChapterID?'selected':''}>${escapeHTML(chapter.title)}</option>`).join('') || '<option value="">No chapters yet</option>';
     selector.disabled = !active;
-    $('chapter-video-context').textContent = active?.title || 'Select a chapter in Chapters.';
     renderChapterVideoControls(active);
     if (active?.video) $('staged-upload-panel').hidden = true;
   } else $('chapter-video-selector').hidden = true;
@@ -1257,7 +1256,7 @@ async function checkIndependentChapter(id) {
 const chapterVideoPolls = new Set();
 function renderChapterVideoControls(chapter) {
   let box = $('chapter-video-actions');
-  if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; $('chapter-video-context').after(box); }
+  if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; document.querySelector('[data-panel="chapter-video"] .page-heading').after(box); }
   box.innerHTML = chapter?.video
     ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
     : chapter?.videoUploadID ? '<p>Checking video…</p>' : '';
