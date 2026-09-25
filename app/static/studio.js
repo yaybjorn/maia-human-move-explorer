@@ -707,7 +707,7 @@ function recordingArrowConfig(items = []) {
     // Chessground requires every brush to carry a stable key: it uses the key
     // for the SVG marker id. Without it, its native renderer throws while
     // creating the marker, leaving a successful Maia response arrowless.
-    brushes[brush] = { key: brush, color: "#4f775f", opacity: 0.24 + probability * 0.66, lineWidth: 5 + probability * 13 };
+    brushes[brush] = { key: brush, color: "#357edd", opacity: 0.34 + probability * 0.60, lineWidth: 5 + probability * 13 };
     shapes.push({ orig: move.uci.slice(0, 2), dest: move.uci.slice(2, 4), brush });
   }
   return { shapes, brushes };
@@ -727,7 +727,7 @@ function renderRecording() {
   const toggle = $("recording-maia-toggle");
   toggle.setAttribute("aria-pressed", String(state.recordingMaiaEnabled));
   toggle.textContent = state.recordingMaiaEnabled ? "Hide top Maia moves" : "Show top Maia moves";
-  if (!state.recordingMaiaEnabled) $("recording-message").textContent = "Maia arrows are hidden.";
+  if (!state.recordingMaiaEnabled) $("recording-message").textContent = "";
   if (state.recordingMaiaEnabled && state.view === "recording" && !state.recordingMaiaAbort && !state.recordingSuggestions.length) queueRecordingMaia();
 }
 function clearRecordingMaia() {
