@@ -762,6 +762,7 @@ function recordingArrowConfig(items = []) {
 function renderRecordingBoard() {
   const { shapes, brushes } = recordingArrowConfig(state.recordingSuggestions);
   recordingBoard.render(state.position, { interactive: false, flipped: state.flipped, locked: true, suggestionShapes: shapes, suggestionBrushes: brushes });
+  if ($("recording-harry-effect").classList.contains("active")) applyRecordingHarryTarget();
 }
 function renderRecording() {
   if (!state.document) return;
@@ -786,6 +787,8 @@ function clearRecordingMaia() {
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
   const effect = $("recording-effect"); effect.classList.remove("active", "recording-viking-active"); effect.style.backgroundImage = "";
+  const harry = $("recording-harry-effect"); harry.classList.remove("active"); harry.style.backgroundImage = ""; delete harry.dataset.square;
+  $("recording-board").querySelectorAll("piece.harry-hidden").forEach(piece => piece.classList.remove("harry-hidden"));
   const pipe = $("recording-pipe-effect"); pipe.pause(); pipe.currentTime = 0; pipe.classList.remove("active");
 }
 function playRecordingExplosion() {
@@ -805,6 +808,33 @@ function playRecordingViking() {
   void effect.offsetWidth;
   effect.classList.add("active", "recording-viking-active");
   state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, duration);
+}
+function recordingWhiteHPawnSquare(fen = "") {
+  const pieces = pieceMap(fen);
+  return [1, 2, 3, 4, 5, 6, 7, 8].map(rank => `h${rank}`).find(square => pieces[square] === "P") || null;
+}
+function applyRecordingHarryTarget() {
+  const harry = $("recording-harry-effect"), square = harry.dataset.square;
+  $("recording-board").querySelectorAll("piece.harry-hidden").forEach(piece => piece.classList.remove("harry-hidden"));
+  if (!square) return;
+  const piece = [...$("recording-board").querySelectorAll("piece.white.pawn")].find(candidate => candidate.cgKey === square);
+  if (!piece) return;
+  const rank = Number(square[1]);
+  harry.style.left = `${state.flipped ? 0 : 87.5}%`;
+  harry.style.top = `${(state.flipped ? rank - 1 : 8 - rank) * 12.5}%`;
+  piece.classList.add("harry-hidden");
+}
+function playRecordingHarry() {
+  const square = recordingWhiteHPawnSquare(state.position?.fen);
+  if (!square) return;
+  clearRecordingEffect();
+  const harry = $("recording-harry-effect");
+  harry.dataset.square = square;
+  harry.style.backgroundImage = `url("${recordingVikingSource}?play=${Date.now()}")`;
+  applyRecordingHarryTarget();
+  void harry.offsetWidth;
+  harry.classList.add("active");
+  state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, 3000);
 }
 function playRecordingPipe() {
   clearRecordingEffect();
@@ -836,7 +866,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { closeRecordingChoice(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
+function navigate(id) { closeRecordingChoice(); clearRecordingEffect(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1247,7 +1277,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="pipe")playRecordingPipe();event.target.value="";});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="harry")playRecordingHarry();if(event.target.value==="pipe")playRecordingPipe();event.target.value="";});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
