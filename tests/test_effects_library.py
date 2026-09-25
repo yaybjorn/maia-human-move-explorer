@@ -1,9 +1,13 @@
 import asyncio
 import concurrent.futures
 import json
+import multiprocessing
+import os
+import re
 import subprocess
 import threading
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import effects_library as effects
@@ -12,6 +16,40 @@ from app import main
 
 async def author(_request, _path):
     return {"authenticated": True, "csrfToken": "csrf", "user": {"id": "author", "roles": ["superadmin"]}}
+
+
+class ProcessRequest:
+    """Small picklable request double for real child-process mutation calls."""
+
+    def __init__(self, method, headers, payload=b"", body=None):
+        self.method, self.headers, self.payload, self.body = method, {key.lower(): value for key, value in headers.items()}, payload, body
+
+    async def stream(self):
+        if self.payload:
+            yield self.payload
+
+    async def json(self):
+        return self.body
+
+
+def _process_mutation(directory, action, effect_id, payload, start, results):
+    """Execute an actual dispatch mutation in a fresh Python process."""
+    os.environ["STUDIO_EFFECTS_DIR"] = directory
+    start.wait(timeout=5)
+    base = {"Origin": "https://studio.test", "X-CSRF-Token": "csrf"}
+    if action == "rename":
+        request = ProcessRequest("PUT", {**base, "Content-Type": "application/json"}, body={"name": "Renamed in another process"})
+    elif action == "replace":
+        request = ProcessRequest("PUT", {**base, "Content-Type": "video/webm"}, payload=payload)
+    else:
+        request = ProcessRequest("DELETE", base)
+    try:
+        response = asyncio.run(effects.dispatch(f"effects/{effect_id}", request, author, {"https://studio.test"}))
+        results.put((action, response.status_code))
+    except HTTPException as error:
+        results.put((action, error.status_code))
+    except (OSError, RuntimeError) as error:
+        results.put((action, type(error).__name__, str(error)))
 
 
 def headers():
@@ -182,3 +220,93 @@ def test_transcode_admission_serializes_excess_work(tmp_path, monkeypatch):
         assert await first == await second == 200
 
     asyncio.run(exercise())
+
+
+def test_cancelled_transcode_keeps_admission_and_transaction_until_worker_reaps(tmp_path, monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    active = 0
+    maximum = 0
+    source = tmp_path / "upload.webm"
+    webm(source)
+    payload = source.read_bytes()
+
+    def blocked_normalize(_source, target):
+        nonlocal active, maximum
+        active += 1; maximum = max(maximum, active); entered.set()
+        release.wait(timeout=2)
+        target.write_bytes(b"normalized")
+        active -= 1
+        return 200
+
+    monkeypatch.setenv("STUDIO_EFFECTS_DIR", str(tmp_path))
+    monkeypatch.setattr(effects, "inspect_and_normalize", blocked_normalize)
+    monkeypatch.setattr(effects, "_process_mutation_lock", asyncio.Lock())
+
+    async def exercise():
+        effects._transcode_admission = asyncio.Semaphore(1)
+        request_headers = {"Origin": "https://studio.test", "X-CSRF-Token": "csrf", "Content-Type": "video/webm", "X-Effect-Name": "Cancelled"}
+        first = asyncio.create_task(effects.dispatch("effects", ProcessRequest("POST", request_headers, payload), author, {"https://studio.test"}))
+        await asyncio.to_thread(entered.wait, 1)
+        first.cancel()
+        second = asyncio.create_task(effects.dispatch("effects", ProcessRequest("POST", {**request_headers, "X-Effect-Name": "After cancellation"}, payload), author, {"https://studio.test"}))
+        await asyncio.sleep(0.02)
+        assert maximum == 1
+        assert not first.done()
+        release.set()
+        try:
+            await first
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("cancelled normalization completed normally")
+        assert (await second).status_code == 201
+
+    asyncio.run(exercise())
+    # The request handler's finally block removes staging after the reaped
+    # worker, including the request cancelled while its encode was in flight.
+    assert not list(tmp_path.glob(".effects-*"))
+
+
+def test_cross_process_mixed_mutations_keep_index_and_media_reachable(tmp_path, monkeypatch):
+    source, replacement = tmp_path / "source.webm", tmp_path / "replacement.webm"
+    webm(source)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=32x32:d=0.5", "-an", "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0", str(replacement)], check=True)
+    payload = source.read_bytes()
+    replacement_payload = replacement.read_bytes()
+    client = configured_client(tmp_path, monkeypatch)
+
+    def seed(name):
+        with client:
+            return create(client, payload, name).json()["effect"]
+
+    def race(effect_id, *actions):
+        context = multiprocessing.get_context("spawn")
+        start, results = context.Event(), context.Queue()
+        processes = [context.Process(target=_process_mutation, args=(str(tmp_path), action, effect_id, replacement_payload, start, results)) for action in actions]
+        for process in processes: process.start()
+        start.set()
+        for process in processes: process.join(timeout=15); assert process.exitcode == 0
+        return dict(results.get(timeout=2) for _ in processes)
+
+    renamed_replaced = seed("Rename then replace")
+    outcomes = race(renamed_replaced["id"], "rename", "replace")
+    assert outcomes == {"rename": 200, "replace": 200}
+    index = {item["id"]: item for item in json.loads((tmp_path / "index.json").read_text())}
+    assert index[renamed_replaced["id"]]["name"] == "Renamed in another process"
+    assert index[renamed_replaced["id"]]["durationMilliseconds"] > 400
+
+    renamed_deleted = seed("Rename then delete")
+    outcomes = race(renamed_deleted["id"], "rename", "delete")
+    assert set(outcomes) == {"rename", "delete"}
+    assert set(outcomes.values()) <= {200, 204, 404}
+
+    replaced_deleted = seed("Replace then delete")
+    outcomes = race(replaced_deleted["id"], "replace", "delete")
+    assert set(outcomes) == {"replace", "delete"}
+    assert set(outcomes.values()) <= {200, 204, 404}
+
+    index = {item["id"] for item in json.loads((tmp_path / "index.json").read_text())}
+    media_ids = {path.stem for path in tmp_path.glob("*.webm") if re.fullmatch(r"[a-f0-9-]{36}", path.stem)}
+    assert media_ids == index
+    assert renamed_deleted["id"] not in index and replaced_deleted["id"] not in index
+    assert not list(tmp_path.glob(".effects-*"))

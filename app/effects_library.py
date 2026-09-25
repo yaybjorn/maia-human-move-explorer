@@ -120,7 +120,21 @@ def inspect_and_normalize(source: Path, target: Path) -> int:
 
 async def normalize_with_admission(source: Path, target: Path) -> int:
     async with _transcode_admission:
-        return await asyncio.to_thread(inspect_and_normalize, source, target)
+        # Cancelling the awaiting request does not cancel ``to_thread`` or its
+        # FFmpeg child process.  Keep both the admission permit and the outer
+        # mutation transaction until that worker has actually completed, so a
+        # disconnect cannot admit another encode while the first is still live.
+        worker = asyncio.create_task(asyncio.to_thread(inspect_and_normalize, source, target))
+        cancelled = False
+        while True:
+            try:
+                result = await asyncio.shield(worker)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
 
 
 def _temporary(folder: Path, suffix: str) -> Path:
