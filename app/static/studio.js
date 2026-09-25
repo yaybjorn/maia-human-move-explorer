@@ -707,7 +707,7 @@ function recordingArrowConfig(items = []) {
     // Chessground requires every brush to carry a stable key: it uses the key
     // for the SVG marker id. Without it, its native renderer throws while
     // creating the marker, leaving a successful Maia response arrowless.
-    brushes[brush] = { key: brush, color: "#357edd", opacity: 0.34 + probability * 0.60, lineWidth: 5 + probability * 13 };
+    brushes[brush] = { key: brush, color: "#dc2626", opacity: 0.34 + probability * 0.60, lineWidth: 5 + probability * 13 };
     shapes.push({ orig: move.uci.slice(0, 2), dest: move.uci.slice(2, 4), brush });
   }
   return { shapes, brushes };
