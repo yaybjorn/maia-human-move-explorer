@@ -52,3 +52,8 @@ test("keeps Recording continuation choices local to the current navigation conte
   assert.match(javascript, /function selectIndependentChapter\(id, view = 'editor'\) \{\n  closeRecordingChoice\(\);/);
   assert.match(javascript, /async function openCourse\(id, \{ discardUnsaved = false \} = \{\}\) \{\n  if \(dirty\(\).*\n  closeRecordingChoice\(\);/);
 });
+
+test("makes the Recording grid track the rendered board width", async () => {
+  const css = await readFile(new URL("../app/static/studio.css", import.meta.url), "utf8");
+  assert.match(css, /\.recording-layout\{[^}]*grid-template-columns:fit-content\(610px\) minmax\(340px,1fr\);gap:16px/);
+});
