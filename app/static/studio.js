@@ -695,6 +695,48 @@ function moveButton(id, label) {
   button.addEventListener("click", () => navigate(id)); return button;
 }
 function renderRecordingTree() { renderMoveTree($("recording-move-tree")); }
+function scrollRecordingCurrentIntoView() {
+  const tree = $("recording-move-tree"), current = tree.querySelector(".move-chip.current");
+  if (!current) return;
+  const treeRect = tree.getBoundingClientRect(), moveRect = current.getBoundingClientRect();
+  if (moveRect.top < treeRect.top) tree.scrollTop += moveRect.top - treeRect.top;
+  else if (moveRect.bottom > treeRect.bottom) tree.scrollTop += moveRect.bottom - treeRect.bottom;
+}
+function closeRecordingChoice({ restoreFocus = false } = {}) {
+  const choice = $("recording-choice");
+  if (choice.hidden) return;
+  const restore = choice._restoreFocus;
+  choice.hidden = true; choice._options = null; choice._selectedIndex = 0; choice._restoreFocus = null;
+  if (restoreFocus && restore?.isConnected) restore.focus();
+}
+function selectRecordingChoice(index) {
+  const choice = $("recording-choice"), options = choice._options || [];
+  if (!options.length) return;
+  choice._selectedIndex = (index + options.length) % options.length;
+  choice.querySelectorAll(".recording-choice-option").forEach((button, optionIndex) => {
+    const selected = optionIndex === choice._selectedIndex;
+    button.setAttribute("aria-selected", String(selected));
+    if (selected) button.focus();
+  });
+}
+function confirmRecordingChoice() {
+  const choice = $("recording-choice"), node = choice._options?.[choice._selectedIndex];
+  if (!node) return;
+  closeRecordingChoice(); navigate(node.id);
+}
+function advanceRecording(initiator) {
+  const options = childrenOf(state.document, state.currentNodeID);
+  if (options.length < 2) { if (options[0]) navigate(options[0].id); return; }
+  const choice = $("recording-choice"), list = $("recording-choice-options");
+  choice._options = options; choice._selectedIndex = 0; choice._restoreFocus = initiator || document.activeElement;
+  list.innerHTML = "";
+  options.forEach((node, index) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "recording-choice-option";
+    button.setAttribute("role", "option"); button.setAttribute("aria-selected", String(index === 0)); button.textContent = moveLabel(node);
+    button.addEventListener("click", () => { choice._selectedIndex = index; confirmRecordingChoice(); }); list.append(button);
+  });
+  choice.hidden = false; selectRecordingChoice(0);
+}
 
 function recordingArrowConfig(items = []) {
   const brushes = {}, shapes = [];
@@ -770,7 +812,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); refreshPosition(); }
+function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1181,7 +1223,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();event.target.value="";});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();event.target.value="";});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
@@ -1194,7 +1236,7 @@ $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=awai
 $("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
 $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$("conflict-reload").addEventListener("click",async()=>{$("conflict-dialog").close();await openCourse(state.courseID,{discardUnsaved:true})});
 document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
-document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]");if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
+document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]"), choiceOpen=!$("recording-choice").hidden;if(choiceOpen){if(["ArrowUp","ArrowDown","Enter","ArrowRight","Escape"].includes(event.key))event.preventDefault();if(event.key==="ArrowUp")selectRecordingChoice($("recording-choice")._selectedIndex-1);if(event.key==="ArrowDown")selectRecordingChoice($("recording-choice")._selectedIndex+1);if(event.key==="Enter"||event.key==="ArrowRight")confirmRecordingChoice();if(event.key==="Escape")closeRecordingChoice({restoreFocus:true});return}if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"){if(state.view==="recording")advanceRecording($("recording-go-forward"));else if(nextNode())navigate(nextNode().id)}}});
 window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
