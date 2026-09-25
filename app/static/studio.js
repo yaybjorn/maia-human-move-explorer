@@ -28,7 +28,7 @@ const state = {
   ignoredWords: [], diagnosticGeneration: 0, writingRequest: 0, coverageRequest: 0,
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
-  recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [],
+  recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null,
   sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
@@ -408,7 +408,7 @@ function switchView(view) {
   if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
   else { editorEngine.cancel(); stopEditorMaia(); }
   if (view === "recording") renderRecording();
-  else clearRecordingMaia();
+  else { clearRecordingMaia(); clearRecordingEffect(); }
 }
 function renderAll() {
   if (!state.document) return;
@@ -726,7 +726,8 @@ function renderRecording() {
   renderRecordingTree(); renderRecordingBoard();
   const toggle = $("recording-maia-toggle");
   toggle.setAttribute("aria-pressed", String(state.recordingMaiaEnabled));
-  toggle.textContent = state.recordingMaiaEnabled ? "Hide top Maia moves" : "Show top Maia moves";
+  const maiaToggleLabel = state.recordingMaiaEnabled ? "Hide top Maia moves" : "Show top Maia moves";
+  toggle.setAttribute("aria-label", maiaToggleLabel); toggle.title = maiaToggleLabel;
   if (!state.recordingMaiaEnabled) $("recording-message").textContent = "";
   if (state.recordingMaiaEnabled && state.view === "recording" && !state.recordingMaiaAbort && !state.recordingSuggestions.length) queueRecordingMaia();
 }
@@ -734,6 +735,17 @@ function clearRecordingMaia() {
   state.recordingMaiaAbort?.abort(); state.recordingMaiaAbort = null;
   state.recordingMaiaToken += 1; state.recordingSuggestions = [];
   if (state.view === "recording") renderRecordingBoard();
+}
+function clearRecordingEffect() {
+  clearTimeout(state.recordingEffectTimer); state.recordingEffectTimer = null;
+  $("recording-effect").classList.remove("active");
+}
+function playRecordingExplosion() {
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  clearRecordingEffect();
+  void effect.offsetWidth;
+  effect.classList.add("active");
+  state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, reduced ? 450 : 2000);
 }
 async function queueRecordingMaia() {
   if (!state.recordingMaiaEnabled || state.view !== "recording" || !state.document || !state.position) return;
@@ -1169,7 +1181,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();event.target.value="";});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
