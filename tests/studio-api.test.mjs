@@ -29,6 +29,19 @@ test("login and logout use the canonical routes without browser tokens", async (
   assert.deepEqual(urls, ["/studio/api/login", "/studio/api/logout"]);
 });
 
+test("user games use the authenticated, cursor-paginated Studio route", async () => {
+  const calls = [];
+  const api = new StudioAPI("/studio/api", async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ submissions: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  await api.userGames("10000000-0000-4000-8000-000000000001", { limit: 50, cursor: "20000000-0000-4000-8000-000000000001" });
+  assert.equal(calls[0].url, "/studio/api/courses/10000000-0000-4000-8000-000000000001/user-games?limit=50&cursor=20000000-0000-4000-8000-000000000001");
+  assert.equal(calls[0].options.method, "GET");
+  assert.equal(calls[0].options.credentials, "same-origin");
+  assert.equal(calls[0].options.headers["X-CSRF-Token"], undefined);
+});
+
 test("surfaces edit conflicts without discarding response details", async () => {
   const api = new StudioAPI("/studio/api", async () => new Response(JSON.stringify({
     error: {

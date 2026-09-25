@@ -257,6 +257,8 @@ def studio_path_allowed(path: str, method: str) -> bool:
         return method == "POST"
     if len(parts) == 2 and parts[0] == "courses":
         return method == "GET"
+    if len(parts) == 3 and parts[0] == "courses" and parts[2] == "user-games":
+        return method == "GET"
     if len(parts) == 3 and parts[0] == "courses" and parts[2] in {
         "draft", "validate", "publish", "versions"
     }:

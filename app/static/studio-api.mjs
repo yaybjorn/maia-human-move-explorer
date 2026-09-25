@@ -11,6 +11,11 @@ const ROUTES = Object.freeze({
   publish: id => `/courses/${encodeURIComponent(id)}/publish`,
   versions: id => `/courses/${encodeURIComponent(id)}/versions`,
   restore: (id, versionID) => `/courses/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionID)}/restore`,
+  userGames: (id, { limit = 50, cursor } = {}) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return `/courses/${encodeURIComponent(id)}/user-games?${query}`;
+  },
   effects: "/effects",
   effect: id => `/effects/${encodeURIComponent(id)}`,
 });
@@ -148,6 +153,7 @@ export class StudioAPI {
   restoreVersion(id, versionID, revision) {
     return this.request(ROUTES.restore(id, versionID), { method: "POST", body: { revision } });
   }
+  userGames(id, options) { return this.request(ROUTES.userGames(id, options)); }
   effects() { return this.request(ROUTES.effects); }
   renameEffect(id, name) { return this.request(ROUTES.effect(id), { method: "PUT", body: { name } }); }
   deleteEffect(id) { return this.request(ROUTES.effect(id), { method: "DELETE" }); }

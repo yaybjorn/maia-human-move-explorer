@@ -56,6 +56,7 @@
           <button class="nav-item" data-view="chapters" title="Chapters"><span aria-hidden="true">☷</span><span class="nav-text">Chapters</span></button>
           <button class="nav-item" data-view="game-videos" title="Game videos"><span aria-hidden="true">▶</span><span class="nav-text">Game videos</span></button>
           <button class="nav-item" data-view="chapter-video" title="Chapter video"><span aria-hidden="true">▣</span><span class="nav-text">Chapter video</span></button>
+          <button class="nav-item" data-view="user-games" title="User games"><span aria-hidden="true">♙</span><span class="nav-text">User games</span></button>
           <button class="nav-item" data-view="preview" title="Learner preview"><span aria-hidden="true">▷</span><span class="nav-text">Learner preview</span></button>
           <p class="nav-label">Release</p>
           <button class="nav-item" data-view="quality" title="Quality checks"><span aria-hidden="true">◇</span><span class="nav-text">Quality checks</span><i id="quality-count"></i></button>
@@ -119,6 +120,12 @@
           <progress data-upload="progress" value="0" max="1" aria-label="Acknowledged upload bytes" hidden></progress>
           <button data-upload="start" type="button" hidden disabled></button><button data-upload="check" type="button" hidden disabled></button><button data-upload="pause" type="button" hidden disabled></button>
         </section>
+      </section>
+
+      <section class="view" data-panel="user-games">
+        <div class="page-heading"><div><p class="eyebrow">Course</p><h1>User games</h1><p>Games submitted by learners for this course. Links open on the original chess site.</p></div></div>
+        <div id="user-games-list" class="user-games-list" aria-live="polite"><div class="loading-card">Open a course to view submitted games.</div></div>
+        <div class="user-games-actions"><button id="load-more-user-games" class="secondary" type="button" hidden>Load more</button></div>
       </section>
 
       <section class="view editor-view" data-panel="editor">

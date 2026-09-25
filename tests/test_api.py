@@ -267,6 +267,13 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert ".sidebar .nav-item[data-view=details],.sidebar .nav-item[data-view=history]{display:grid}" in css.text
 
 
+def test_user_games_proxy_is_a_read_only_allowlisted_studio_operation():
+    course_id = "10000000-0000-4000-8000-000000000001"
+    assert studio_path_allowed(f"courses/{course_id}/user-games", "GET") is True
+    assert studio_path_allowed(f"courses/{course_id}/user-games", "POST") is False
+    assert studio_path_allowed(f"courses/{course_id}/user-games", "DELETE") is False
+
+
 def test_course_studio_dedicated_host_and_legacy_redirect_config():
     dedicated = (ROOT / "deploy" / "nginx.ggm.conf").read_text()
     legacy = (ROOT / "deploy" / "nginx.conf").read_text()

@@ -33,6 +33,7 @@ const state = {
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
   recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null, recordingEffectFrame: null,
   sidebarCollapsed: false, effects: [], effectPreviewURL: null,
+  userGames: [], userGamesCursor: null, userGamesCourseID: null, userGamesLoading: false, userGamesError: null,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
 const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
@@ -408,6 +409,7 @@ function switchView(view) {
   location.hash = view;
   $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "history") loadHistory();
+  if (view === "user-games") loadUserGames();
   if (view === "effects") loadEffects();
   if (view === "quality") renderQuality();
   if (["chapters","game-videos","chapter-video","preview"].includes(view)) renderAll();
@@ -416,6 +418,60 @@ function switchView(view) {
   else { editorEngine.cancel(); stopEditorMaia(); }
   if (view === "recording") renderRecording();
   else { clearRecordingMaia(); clearRecordingEffect(); }
+}
+
+function safeUserGameURL(value) {
+  try {
+    const url = new URL(String(value));
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    return url.protocol === "https:" && !url.username && !url.password && ["lichess.org", "chess.com"].includes(host) ? url.href : null;
+  } catch { return null; }
+}
+function userGameProviderLabel(provider) {
+  return provider === "chess.com" ? "Chess.com" : provider === "lichess" ? "Lichess" : "Chess game";
+}
+function renderUserGames() {
+  const list = $("user-games-list");
+  const loadMore = $("load-more-user-games");
+  loadMore.hidden = !state.userGamesCursor;
+  loadMore.disabled = state.userGamesLoading;
+  if (!state.courseID) {
+    list.innerHTML = '<div class="loading-card">Open a course to view submitted games.</div>';
+    return;
+  }
+  if (!state.userGames.length) {
+    if (state.userGamesError) {
+      list.innerHTML = `<div class="loading-card">${escapeHTML(state.userGamesError)}</div>`;
+      return;
+    }
+    list.innerHTML = state.userGamesLoading ? '<div class="loading-card">Loading submitted games…</div>' : '<div class="loading-card"><strong>No games submitted yet.</strong><p>Submitted Lichess and Chess.com games will appear here.</p></div>';
+    return;
+  }
+  list.innerHTML = state.userGames.map(submission => {
+    const url = safeUserGameURL(submission.gameURL);
+    const link = url ? `<a class="user-game-link" href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer">Open on ${escapeHTML(userGameProviderLabel(submission.provider))}</a>` : '<span class="user-game-link unavailable">Game link unavailable</span>';
+    const message = typeof submission.message === "string" && submission.message.trim()
+      ? `<p class="user-game-message">${escapeHTML(submission.message)}</p>` : "";
+    return `<article class="user-game-row"><div><div class="user-game-heading"><h2>${escapeHTML(userGameProviderLabel(submission.provider))}</h2><span class="tag">Submitted ${escapeHTML(formatDate(submission.submittedAt))}</span></div>${message}</div>${link}</article>`;
+  }).join("");
+}
+async function loadUserGames({ append = false } = {}) {
+  if (!state.courseID || state.userGamesLoading) return;
+  const courseChanged = state.userGamesCourseID !== state.courseID;
+  if (courseChanged) { state.userGames = []; state.userGamesCursor = null; state.userGamesError = null; state.userGamesCourseID = state.courseID; append = false; }
+  if (append && !state.userGamesCursor) return;
+  const courseID = state.courseID;
+  state.userGamesLoading = true; renderUserGames();
+  try {
+    const payload = await api.userGames(courseID, { limit: 50, ...(append ? { cursor: state.userGamesCursor } : {}) });
+    if (state.courseID !== courseID) return;
+    const submissions = Array.isArray(payload?.submissions) ? payload.submissions : [];
+    state.userGames = append ? [...state.userGames, ...submissions] : submissions;
+    state.userGamesCursor = typeof payload?.nextCursor === "string" ? payload.nextCursor : null;
+  } catch (error) {
+    if (!append) state.userGamesError = error.message;
+    else showStatus(error.message, true);
+  } finally { state.userGamesLoading = false; renderUserGames(); }
 }
 function renderAll() {
   if (!state.document) return;
@@ -1286,6 +1342,7 @@ $("logout").addEventListener("click",async()=>{try{await api.logout()}finally{ed
 function setAccountMenu(open){$("account-menu").hidden=!open;$("account-button").setAttribute("aria-expanded",String(open));if(open)$("logout").focus()}
 $("account-button").addEventListener("click",()=>setAccountMenu($("account-menu").hidden));
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>switchView(item.dataset.view)));
+$("load-more-user-games").addEventListener("click",()=>loadUserGames({append:true}));
 $("toggle-sidebar").addEventListener("click",()=>setSidebarCollapsed(!state.sidebarCollapsed));
 document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventListener("click",()=>switchView("editor")));
 $("new-course").addEventListener("click",()=>{$("create-form").reset();delete $("create-form").elements.slug.dataset.edited;$("create-dialog").showModal()});

@@ -27,6 +27,18 @@ test("offers a desktop icon-only sidebar mode", () => {
   assert.match(html, /class="nav-text">Repertoire editor</);
 });
 
+test("keeps submitted user games course-scoped, paginated and safely external", async () => {
+  const css = await readFile(new URL("../app/static/studio.css", import.meta.url), "utf8");
+  assert.match(html, /data-view="user-games"/);
+  assert.match(html, /data-panel="user-games"/);
+  assert.match(html, /id="load-more-user-games"/);
+  assert.match(javascript, /api\.userGames\(courseID, \{ limit: 50/);
+  assert.match(javascript, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(javascript, /safeUserGameURL/);
+  assert.match(javascript, /escapeHTML\(submission\.message\)/);
+  assert.match(css, /\.user-game-row\{display:grid/);
+});
+
 test("distinguishes Maia moves already present in the repertoire", () => {
   assert.match(javascript, /existing\?"Show line":"Add line"/);
   assert.match(javascript, /data-existing-node/);
