@@ -799,7 +799,7 @@ function playRecordingExplosion() {
   state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, duration);
 }
 function playRecordingViking() {
-  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 2700;
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 3000;
   clearRecordingEffect();
   effect.style.backgroundImage = `url("${recordingVikingSource}?play=${Date.now()}")`;
   void effect.offsetWidth;
