@@ -17,6 +17,13 @@ import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessgrou
 
 const api = new StudioAPI();
 const $ = id => document.getElementById(id);
+// Twenty small alpha sheets keep the full 256 px / 20 fps explosion reliable
+// through the static path. Each sheet contains four consecutive frames.
+const recordingExplosionSheets = Array.from(
+  { length: 20 },
+  (_, index) => `/static/media/recording-explosion-${String(index).padStart(2, "0")}.webp`,
+);
+let recordingExplosionPreload = null;
 const state = {
   user: null, courses: [], currentCourse: null, courseID: null, revision: null, document: null,
   savedSnapshot: "", undo: [], redo: [], currentNodeID: null, position: null,
@@ -762,6 +769,7 @@ function renderRecordingBoard() {
 }
 function renderRecording() {
   if (!state.document) return;
+  preloadRecordingExplosion();
   const independent = Array.isArray(state.document.chapterSources);
   $("recording-chapter-controls").hidden = !independent;
   if (independent) {
@@ -782,18 +790,30 @@ function clearRecordingMaia() {
 }
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
-  const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundPosition = "0 0";
+  const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundImage = ""; effect.style.backgroundPosition = "0 0";
+}
+function preloadRecordingExplosion() {
+  if (recordingExplosionPreload) return recordingExplosionPreload;
+  recordingExplosionPreload = Promise.all(recordingExplosionSheets.map(source => new Promise(resolve => {
+    const image = new Image(); image.onload = image.onerror = resolve; image.src = source;
+  })));
+  return recordingExplosionPreload;
 }
 function playRecordingExplosion() {
-  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000, frameCount = 20, frameRate = 5;
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000, frameCount = 80, frameRate = 20;
+  preloadRecordingExplosion();
   clearRecordingEffect();
   void effect.offsetWidth;
   effect.classList.add("active");
   const started = performance.now();
   const renderFrame = now => {
     const frame = Math.min(frameCount - 1, Math.floor((now - started) / 1000 * frameRate));
-    const column = frame % 5, row = Math.floor(frame / 5);
-    effect.style.backgroundPosition = `${-column * effect.clientWidth}px ${-row * effect.clientHeight}px`;
+    const sheet = Math.floor(frame / 4), column = frame % 4;
+    if (effect.dataset.sheet !== String(sheet)) {
+      effect.dataset.sheet = String(sheet);
+      effect.style.backgroundImage = `url("${recordingExplosionSheets[sheet]}")`;
+    }
+    effect.style.backgroundPosition = `${-column * effect.clientWidth}px 0`;
     if (now - started < duration) state.recordingEffectFrame = requestAnimationFrame(renderFrame);
   };
   state.recordingEffectFrame = requestAnimationFrame(renderFrame);
