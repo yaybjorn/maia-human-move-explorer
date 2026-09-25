@@ -704,7 +704,10 @@ function recordingArrowConfig(items = []) {
     // while both opacity and line width rise monotonically with likelihood.
     const probability = Math.max(0.100001, Math.min(1, Number(move.probability)));
     const brush = `maia-${index}`;
-    brushes[brush] = { color: "#4f775f", opacity: 0.24 + probability * 0.66, lineWidth: 5 + probability * 13 };
+    // Chessground requires every brush to carry a stable key: it uses the key
+    // for the SVG marker id. Without it, its native renderer throws while
+    // creating the marker, leaving a successful Maia response arrowless.
+    brushes[brush] = { key: brush, color: "#4f775f", opacity: 0.24 + probability * 0.66, lineWidth: 5 + probability * 13 };
     shapes.push({ orig: move.uci.slice(0, 2), dest: move.uci.slice(2, 4), brush });
   }
   return { shapes, brushes };
