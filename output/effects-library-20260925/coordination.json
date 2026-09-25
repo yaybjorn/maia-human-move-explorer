@@ -1,1 +1,46 @@
-{"task_id":"studio-effects-library","release_id":"effects-library-20260925-1534","owner":"/root/effects_library","model":"gpt-5.6-terra","context":"isolated","runtime_model":"unknown","verification_tier":"release-significant","checkpoint":"a1711b2e-bca6-48f7-bf6b-263300120570","phase":"implementation","endpoint":"reviewed deployed shared Effects library, live upload and playback verified","exclusions":"no course writes, Harry behavior unchanged, no shared infrastructure changes","expected_minutes":"30-60","acceptance":["shared durable WebM upload/name/preview/rename/replace/delete","Recording dropdown reflects library","existing effects and source alpha preserved","Harry unchanged","independent review PASS before deployment","authenticated live lifecycle and fixed-board playback verified"]}
+{
+  "task_id": "studio-effects-library",
+  "release_id": "effects-library-20260925-1534",
+  "owner": "/root/effects_library_repair_recovery",
+  "model": "gpt-5.6-terra",
+  "context": "isolated",
+  "runtime_model": "unknown",
+  "verification_tier": "release-significant",
+  "checkpoint": "a1711b2e-bca6-48f7-bf6b-263300120570",
+  "phase": "candidate-ready-for-independent-rereview",
+  "endpoint": "reviewed deployed shared Effects library, live upload and playback verified",
+  "exclusions": "no course writes, Harry behavior unchanged, no shared infrastructure changes",
+  "expected_minutes": "30-60",
+  "acceptance": [
+    "shared durable WebM upload/name/preview/rename/replace/delete",
+    "Recording dropdown reflects library",
+    "existing effects and source alpha preserved",
+    "Harry unchanged",
+    "independent review PASS before deployment",
+    "authenticated live lifecycle and fixed-board playback verified"
+  ],
+  "reviewer": "/root/effects_library_review",
+  "candidate": "96f03f49be17bc5b7399035e4db720ead8d5f742",
+  "reviewer_model": "gpt-5.6-sol",
+  "implementation_owner": "/root/effects_library_repair_recovery",
+  "runtime_owner": "/root/effects_library_runtime",
+  "review_verdict": "pending independent Sol re-review",
+  "result": "M1 cancellation now retains transcode admission and the complete mutation transaction until the to_thread worker has completed; H2 now has spawned cross-process mixed rename/replace, rename/delete, and replace/delete coverage.",
+  "remaining_checks": [
+    "independent Sol re-review of 96f03f49be17bc5b7399035e4db720ead8d5f742",
+    "no deployment or runtime acceptance until that verdict is PASS"
+  ],
+  "evidence": [
+    ".venv/bin/pytest -q tests/test_effects_library.py: 11 passed",
+    ".venv/bin/ruff check app/effects_library.py tests/test_effects_library.py: passed",
+    "git diff --check: passed",
+    "new cancellation test holds a cancelled upload's worker, mutation lock, and admission permit until reap, then confirms staging cleanup",
+    "new spawn-process mixed mutation test leaves index IDs exactly equal to durable media IDs and no .effects-* files"
+  ],
+  "accepted_findings": [
+    "H1",
+    "H2",
+    "M1",
+    "M2"
+  ]
+}

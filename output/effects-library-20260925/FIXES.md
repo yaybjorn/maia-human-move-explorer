@@ -1,4 +1,4 @@
-# Effects library review fixes — candidate `80a105d`
+# Effects library review fixes — candidate `96f03f49be17bc5b7399035e4db720ead8d5f742`
 
 ## Closed ledger
 
@@ -9,11 +9,16 @@
 - **H2:** Every create, rename, replacement, and delete holds an in-process
   async lock plus an advisory `flock` file lock for the entire staged-media and
   index transaction. Index state is freshly read only while held. All staging
-  names are `mkstemp`-unique. Parallel-create coverage verifies both entries
-  and both media files persist with no staging leftovers.
+  names are `mkstemp`-unique. Spawned-process mixed-mutation coverage runs
+  rename/replace, rename/delete, and replace/delete against the same durable
+  directory and verifies no resurrection, lost retained rename, orphaned media,
+  or staging files. Parallel-create coverage remains in place.
 - **M1:** Transcoding has a dedicated bounded admission semaphore (default one
   encode; host-configurable maximum two) and FFmpeg is explicitly limited to
-  two encoder threads (bounded to four).
+  two encoder threads (bounded to four). A cancelled request now shields and
+  awaits the active `to_thread` worker before it releases the admission permit
+  or outer mutation transaction; the cancellation regression proves a second
+  encode cannot enter early and handler staging is cleaned afterward.
 - **M2:** Interrupted streams remove their staging files. Create rolls back
   installed media on index failure. Replacement copies old media to a private
   rollback file and restores it if index commit fails. Delete moves media to a
@@ -22,15 +27,16 @@
 
 ## Focused evidence
 
-- `.venv/bin/pytest -q tests/test_effects_library.py` — **9 passed**.
+- `.venv/bin/pytest -q tests/test_effects_library.py` — **11 passed**.
 - `.venv/bin/ruff check app/effects_library.py tests/test_effects_library.py`
   — **passed**.
 - `git diff --check` — **passed**.
 
 The tests cover alpha preservation, concurrent creates, interrupted stream
-cleanup, create index-write failure, replacement index-write rollback, and
-delete unlink rollback, and transcode admission serialization. Existing non-Effects diagnostics were not rerun;
-their baseline failures remain unrelated to this candidate.
+cleanup, create index-write failure, replacement index-write rollback, delete
+unlink rollback, cancellation worker lifetime/staging cleanup, and real
+cross-process mixed mutations. Existing non-Effects diagnostics were not
+rerun; their baseline failures remain unrelated to this candidate.
 
 ## Outstanding constraints
 
