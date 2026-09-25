@@ -18,7 +18,8 @@ import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessgrou
 const api = new StudioAPI();
 const $ = id => document.getElementById(id);
 const recordingExplosionSource = "/static/media/recording-explosion.webp";
-const recordingVikingSource = "/static/media/recording-viking.webm";
+const recordingVikingSource = "/static/media/recording-viking.webp";
+const recordingPipeSource = "/static/media/recording-pipe.webm";
 const state = {
   user: null, courses: [], currentCourse: null, courseID: null, revision: null, document: null,
   savedSnapshot: "", undo: [], redo: [], currentNodeID: null, position: null,
@@ -785,7 +786,7 @@ function clearRecordingMaia() {
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
   const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundImage = "";
-  const viking = $("recording-viking-effect"); viking.pause(); viking.currentTime = 0; viking.classList.remove("active"); viking.style.mixBlendMode = "";
+  const pipe = $("recording-pipe-effect"); pipe.pause(); pipe.currentTime = 0; pipe.classList.remove("active");
 }
 function playRecordingExplosion() {
   const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000;
@@ -798,14 +799,21 @@ function playRecordingExplosion() {
   state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, duration);
 }
 function playRecordingViking() {
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 3000;
   clearRecordingEffect();
-  const viking = $("recording-viking-effect");
-  viking.src = recordingVikingSource;
-  // Chromium exposes the clip's VP9 alpha as an opaque black matte; screen
-  // compositing preserves the supplied source while keeping that matte clear.
-  viking.style.mixBlendMode = "screen";
-  viking.classList.add("active");
-  viking.play().catch(() => clearRecordingEffect());
+  // The WebP has a real alpha channel, so source-over compositing keeps the
+  // Viking opaque without changing its colours with a matte blend mode.
+  effect.style.backgroundImage = `url("${recordingVikingSource}?play=${Date.now()}")`;
+  void effect.offsetWidth;
+  effect.classList.add("active");
+  state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, duration);
+}
+function playRecordingPipe() {
+  clearRecordingEffect();
+  const pipe = $("recording-pipe-effect");
+  pipe.src = recordingPipeSource;
+  pipe.classList.add("active");
+  pipe.play().catch(() => clearRecordingEffect());
 }
 async function queueRecordingMaia() {
   if (!state.recordingMaiaEnabled || state.view !== "recording" || !state.document || !state.position) return;
@@ -1241,7 +1249,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-viking-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();event.target.value="";});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="pipe")playRecordingPipe();event.target.value="";});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
