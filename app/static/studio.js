@@ -785,14 +785,14 @@ function clearRecordingEffect() {
   const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundPosition = "0 0";
 }
 function playRecordingExplosion() {
-  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000, frameCount = 80, frameRate = 20;
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000, frameCount = 20, frameRate = 5;
   clearRecordingEffect();
   void effect.offsetWidth;
   effect.classList.add("active");
   const started = performance.now();
   const renderFrame = now => {
     const frame = Math.min(frameCount - 1, Math.floor((now - started) / 1000 * frameRate));
-    const column = frame % 8, row = Math.floor(frame / 8);
+    const column = frame % 5, row = Math.floor(frame / 5);
     effect.style.backgroundPosition = `${-column * effect.clientWidth}px ${-row * effect.clientHeight}px`;
     if (now - started < duration) state.recordingEffectFrame = requestAnimationFrame(renderFrame);
   };
