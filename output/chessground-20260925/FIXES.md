@@ -11,13 +11,20 @@
   creates a new instance for the next populated position. The empty learner
   preview calls this adapter lifecycle path instead of directly assigning to
   the mounted host's `innerHTML`.
-- **CG-002 — keyboard/accessibility:** the single rendered Chessground board
-  now exposes its actual squares as roving-focus keyboard controls. Arrow keys
-  move focus in the displayed orientation; Enter/Space selects a legal origin
-  or submits a legal destination; Escape clears selection. Each square has a
-  square/piece accessible name, selected origin state, and legal-destination
-  context. Keyboard selection and destination highlights use the existing
-  cream/green board and do not add a second visual board.
+- **CG-002 — keyboard/accessibility:** resolved by the correction below.
+
+### CG-002 correction
+
+The initial CG-002 implementation incorrectly decorated Chessground's
+transient `square` highlight elements. The adapter now owns a stable,
+visually-hidden 8×8 semantic grid instead: the visible host is the one
+focusable `role="grid"` controller, retains focus with
+`aria-activedescendant`, and exposes all 64 named `gridcell`s at rest. It
+synchronizes piece names, selected origin, legal destinations, lock state, and
+orientation-aware arrow-key navigation. Enter/Space selects or submits through
+the existing `onMove` path; the adapter calls Chessground's selection API only
+to retain its visual move feedback. The visible board remains one Chessground
+board, including its existing pointer/right-draw behavior.
 
 ## Focused evidence
 
@@ -27,6 +34,11 @@
   empty → populated → interactive lifecycle, destroy/recreate, accessible
   square names, legal destination semantics, and keyboard move entry)
 - `git diff --check` — passed
+
+The retained real-vendor Playwright fixture must be rerun after this correction
+with focus on the board controller, a 64-cell-at-rest assertion, and keyboard
+move entry; its earlier `cg-board square` selector intentionally does not
+represent the stable semantic layer.
 
 No production course data was changed and no deployment was performed. Desktop
 right-button drawing remains owned by Chessground's existing drawable

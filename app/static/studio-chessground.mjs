@@ -39,6 +39,7 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
   let positionKey = null;
   let board = null, currentPosition = null, options = {}, keyboardSelected = null, keyboardFocus = "e4";
   const initialClassName = element.className;
+  const keyboardID = `chessground-keyboard-${Math.random().toString(36).slice(2)}`;
 
   function createBoard() {
     if (board) return board;
@@ -59,12 +60,43 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
     // destroying it, so a later populated render always gets a fresh adapter.
     element.replaceChildren();
     element.className = initialClassName;
+    element.removeAttribute("role");
+    element.removeAttribute("tabindex");
+    element.removeAttribute("aria-activedescendant");
     positionKey = null;
     currentPosition = null;
     keyboardSelected = null;
   }
 
-  function decorateSquares() {
+  function keyboardCells() {
+    return element.querySelectorAll("[data-chessground-keyboard-square]");
+  }
+
+  function ensureKeyboardLayer() {
+    if (element.querySelector("[data-chessground-keyboard-layer]")) return;
+    const document = element.ownerDocument || globalThis.document;
+    if (!document?.createElement) return;
+    const layer = document.createElement("div");
+    layer.className = "visually-hidden chessground-keyboard-grid";
+    layer.dataset.chessgroundKeyboardLayer = "";
+    for (let rank = 8; rank >= 1; rank -= 1) {
+      const row = document.createElement("div");
+      row.setAttribute("role", "row");
+      for (const file of "abcdefgh") {
+        const square = `${file}${rank}`, cell = document.createElement("span");
+        cell.id = `${keyboardID}-${square}`;
+        cell.dataset.chessgroundKeyboardSquare = square;
+        cell.setAttribute("role", "gridcell");
+        row.append(cell);
+      }
+      layer.append(row);
+    }
+    element.append(layer);
+    element.setAttribute("role", "grid");
+    element.setAttribute("tabindex", "0");
+  }
+
+  function updateKeyboardLayer() {
     if (!currentPosition?.fen) return;
     const pieces = {};
     let file = 0;
@@ -76,18 +108,15 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
       }
     });
     const legal = new Set((currentPosition.legal_moves || []).filter(move => move.from === keyboardSelected).map(move => move.to));
-    element.querySelector("cg-board")?.setAttribute("role", "grid");
-    element.querySelectorAll("cg-board square").forEach(square => {
-      const key = square.cgKey || square.getAttribute("data-key");
-      if (!key) return;
+    ensureKeyboardLayer();
+    keyboardCells().forEach(square => {
+      const key = square.dataset.chessgroundKeyboardSquare;
       const selected = key === keyboardSelected, destination = legal.has(key);
-      square.setAttribute("role", "button");
-      square.setAttribute("tabindex", key === keyboardFocus ? "0" : "-1");
-      square.setAttribute("aria-pressed", String(selected));
+      square.setAttribute("aria-selected", String(selected));
       square.setAttribute("aria-label", squareAccessibleName(key, pieces[key], { selected, destinationFrom: destination ? keyboardSelected : null }));
-      square.classList.toggle("keyboard-selected", selected);
-      square.classList.toggle("keyboard-destination", destination);
+      square.setAttribute("aria-disabled", String(options.locked || !options.interactive));
     });
+    element.setAttribute("aria-activedescendant", `${keyboardID}-${keyboardFocus}`);
   }
 
   function selectKeyboardSquare(square) {
@@ -96,22 +125,20 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
     const candidate = keyboardSelected && moves.find(move => move.from === keyboardSelected && move.to === square);
     if (candidate) {
       keyboardSelected = null;
+      board?.selectSquare?.(null);
       onMove(candidate.from, candidate.to);
     } else {
       keyboardSelected = moves.some(move => move.from === square) ? square : null;
-      decorateSquares();
+      board?.selectSquare?.(keyboardSelected);
+      updateKeyboardLayer();
     }
   }
 
   element.addEventListener("keydown", event => {
-    const square = event.target?.cgKey || event.target?.getAttribute?.("data-key") || keyboardFocus;
+    const square = keyboardFocus;
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
       keyboardFocus = keyboardSquareAfter(square, event.key, options.flipped);
-      decorateSquares();
-      element.querySelectorAll("cg-board square").forEach(item => {
-        const key = item.cgKey || item.getAttribute("data-key");
-        if (key === keyboardFocus) item.focus();
-      });
+      updateKeyboardLayer();
       event.preventDefault();
     } else if (event.key === "Enter" || event.key === " ") {
       keyboardFocus = square;
@@ -119,7 +146,8 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
       event.preventDefault();
     } else if (event.key === "Escape") {
       keyboardSelected = null;
-      decorateSquares();
+      board?.selectSquare?.(null);
+      updateKeyboardLayer();
       event.preventDefault();
     }
   });
@@ -134,8 +162,9 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
       currentPosition = nextPosition;
       options = { interactive, flipped, locked };
       createBoard().set(boardConfig(nextPosition, { interactive, flipped, locked, clearShapes: changed, onMove }));
-      // Keep the keyboard semantics on Chessground's single rendered board.
-      decorateSquares();
+      // The stable semantic grid belongs to this adapter, not Chessground's
+      // transient move/check highlight nodes.
+      updateKeyboardLayer();
     },
     destroy() { reset(); },
   };

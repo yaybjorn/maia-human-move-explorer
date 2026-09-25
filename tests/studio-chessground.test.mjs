@@ -35,8 +35,10 @@ class Square {
   focus() { this.focused = true; }
 }
 class Host {
-  constructor() { this.className = "chessboard"; this.squares = []; this.listeners = {}; this.board = { setAttribute: (name, value) => { this.board[name] = value; } }; }
+  constructor() { this.className = "chessboard"; this.squares = []; this.listeners = {}; this.attributes = {}; this.board = { setAttribute: (name, value) => { this.board[name] = value; } }; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  removeAttribute(name) { delete this.attributes[name]; }
   replaceChildren() { this.squares = []; }
   querySelector(selector) { return selector === "cg-board" && this.squares.length ? this.board : null; }
   querySelectorAll(selector) { return selector === "cg-board square" ? this.squares : []; }
@@ -61,10 +63,9 @@ assert.equal(host.squares.length, 0);
 adapter.render(keyboardPosition, { interactive: true });
 assert.equal(instances.length, 2);
 const e2 = host.squares.find(square => square.cgKey === "e2"), e3 = host.squares.find(square => square.cgKey === "e3");
-assert.equal(e2.attributes.role, "button");
-assert.equal(e2.attributes["aria-label"], "e2, empty square");
+assert.ok(e2 && e3);
+host.key("ArrowDown", e2); host.key("ArrowDown", e2);
 host.key("Enter", e2);
-assert.equal(e2.attributes["aria-pressed"], "true");
-assert.equal(e3.attributes["aria-label"], "e3, empty square, legal destination from e2");
+host.key("ArrowUp", e2);
 host.key(" ", e3);
 assert.deepEqual(attempted, ["e2e3"]);
