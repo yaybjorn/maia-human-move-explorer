@@ -3,8 +3,11 @@ import { Chessground } from "./vendor/chessground/chessground-9.2.1.min.js";
 export function legalDestinations(legalMoves = []) {
   const destinations = new Map();
   for (const move of legalMoves) {
-    if (!destinations.has(move.from)) destinations.set(move.from, new Set());
-    destinations.get(move.from).add(move.to);
+    if (!destinations.has(move.from)) destinations.set(move.from, []);
+    // Chessground's pointer path checks destinations with Array#includes().
+    // Keep promotion variants collapsed onto one target without passing a Set,
+    // which renders highlights but rejects the actual pointer move.
+    if (!destinations.get(move.from).includes(move.to)) destinations.get(move.from).push(move.to);
   }
   return destinations;
 }

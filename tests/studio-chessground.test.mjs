@@ -6,9 +6,9 @@ const destinations = legalDestinations([
   { from: "e5", to: "d6", uci: "e5d6" }, { from: "a7", to: "a8", uci: "a7a8q" },
   { from: "a7", to: "a8", uci: "a7a8n" },
 ]);
-assert.deepEqual([...destinations.get("e1")].sort(), ["c1", "g1"]);
-assert.deepEqual([...destinations.get("e5")], ["d6"]);
-assert.deepEqual([...destinations.get("a7")], ["a8"]);
+assert.deepEqual(destinations.get("e1").sort(), ["c1", "g1"]);
+assert.deepEqual(destinations.get("e5"), ["d6"]);
+assert.deepEqual(destinations.get("a7"), ["a8"]);
 assert.equal(destinations.has("b2"), false);
 
 const position = { fen: "8/8/8/8/8/8/8/8 b - - 0 1", legal_moves: [{ from: "e5", to: "d6" }] };
