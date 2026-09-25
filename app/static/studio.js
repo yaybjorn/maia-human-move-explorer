@@ -929,7 +929,7 @@ function previewChapters(){return chapterSlices(state.document,state.document.me
 async function renderPreview(){
   if(!state.document)return;
   const chapters=previewChapters();
-  if(!chapters.length||!chapters.some(chapter=>chapter.positions.length)){$("preview-board").innerHTML="";$("preview-card").innerHTML='<div class="empty-state"><p>Add learner moves before previewing the course.</p></div>';return;}
+  if(!chapters.length||!chapters.some(chapter=>chapter.positions.length)){previewBoard.render(null);$("preview-card").innerHTML='<div class="empty-state"><p>Add learner moves before previewing the course.</p></div>';return;}
   state.previewChapter=Math.max(0,Math.min(state.previewChapter,chapters.length-1));
   const chapter=chapters[state.previewChapter],positions=chapter.positions;
   state.previewIndex=Math.max(0,Math.min(state.previewIndex,positions.length-1));
