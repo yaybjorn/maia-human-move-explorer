@@ -40,6 +40,17 @@ with focus on the board controller, a 64-cell-at-rest assertion, and keyboard
 move entry; its earlier `cg-board square` selector intentionally does not
 represent the stable semantic layer.
 
+### Real-vendor DOM regression (local)
+
+Using Playwright Chromium against the local `127.0.0.1:8931` app server, a
+temporary adapter-mounted board was rendered with the actual vendored
+Chessground module. At rest it had **64** adapter semantic cells, **zero**
+Chessground `cg-board square` highlight elements, `role="grid"`, a tab stop,
+and an `aria-activedescendant` at `e4`. Focusing the board then entering
+ArrowDown, ArrowDown, Space, ArrowUp, ArrowUp, Enter emitted the legal
+`e2e4` move through `onMove`. This verifies the stable layer rather than the
+former fabricated-square harness.
+
 No production course data was changed and no deployment was performed. Desktop
 right-button drawing remains owned by Chessground's existing drawable
 configuration; palette and move handling remain unchanged.
