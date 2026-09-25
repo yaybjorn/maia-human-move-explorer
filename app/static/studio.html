@@ -46,6 +46,7 @@
       <button id="toggle-sidebar" class="sidebar-toggle" type="button" title="Collapse menu" aria-label="Collapse menu" aria-pressed="false"><span aria-hidden="true">«</span></button>
       <nav aria-label="Course Studio">
         <button class="nav-item active" data-view="dashboard" title="Courses"><span aria-hidden="true">▦</span><span class="nav-text">Courses</span></button>
+        <button class="nav-item" data-view="effects" title="Effects library"><span aria-hidden="true">✦</span><span class="nav-text">Effects</span></button>
         <div id="course-navigation" hidden>
           <p class="nav-label">Author</p>
           <button class="nav-item" data-view="details" title="Course details"><span aria-hidden="true">◫</span><span class="nav-text">Course details</span></button>
@@ -70,6 +71,12 @@
         <div class="page-heading"><div><p class="eyebrow">Library</p><h1>Your courses</h1><p>Create, improve and publish opening courses.</p></div><div class="heading-actions"><label class="secondary file-action">Import PGN<input id="dashboard-import" type="file" accept=".pgn,application/x-chess-pgn,text/plain"></label><button id="new-course" class="primary" type="button">New course</button></div></div>
         <div id="course-stats" class="stat-strip"></div>
         <div id="course-list" class="course-grid" aria-live="polite"><div class="loading-card">Loading courses…</div></div>
+      </section>
+
+      <section class="view" data-panel="effects">
+        <div class="page-heading"><div><p class="eyebrow">Shared library</p><h1>Effects</h1><p>Recording effects available in every course.</p></div></div>
+        <section class="tool-card effects-upload"><div class="effects-upload-row"><label>Name<input id="effect-name" maxlength="80" placeholder="Effect name"></label><label class="secondary file-action">Choose WebM<input id="effect-file" type="file" accept="video/webm"></label><button id="effect-save" class="primary" type="button" disabled>Save effect</button></div><div id="effect-preview" class="effect-preview" hidden><div class="effect-preview-board" aria-hidden="true"></div><video id="effect-preview-video" muted playsinline loop></video></div><p id="effect-error" class="form-error" role="alert"></p></section>
+        <div id="effects-list" class="effects-list" aria-live="polite"></div>
       </section>
 
       <section class="view" data-panel="details">

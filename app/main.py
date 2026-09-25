@@ -26,6 +26,8 @@ from .chess_state import (
     parse_pgn_tree,
     replay,
 )
+from .effects_library import dispatch as dispatch_effects
+from .effects_library import is_effect_path
 from .engine import engine
 from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
@@ -265,8 +267,12 @@ def studio_path_allowed(path: str, method: str) -> bool:
     )
 
 
-@app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT"])
+@app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if is_effect_path(path):
+        return await dispatch_effects(path, request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS)
+    if request.method == "DELETE":
+        raise HTTPException(405, "Method not allowed")
     if is_chapter_media_path(path):
         return await dispatch_chapter_media(path, request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS,
                                             STUDIO_PROXY_SECRET, GINGERGM_STUDIO_API_BASE)

@@ -32,7 +32,7 @@ const state = {
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
   recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null, recordingEffectFrame: null,
-  sidebarCollapsed: false,
+  sidebarCollapsed: false, effects: [], effectPreviewURL: null,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
 const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
@@ -141,6 +141,7 @@ async function showApp() {
   restoreSidebarPreference();
   await Promise.all([
     loadCourses(),
+    loadEffects().catch(error=>showStatus(`Effects library unavailable: ${error.message}`,true)),
     refreshIgnoredWords().catch(error=>showStatus(`Shared dictionary unavailable: ${error.message}`,true)),
   ]);
 }
@@ -397,7 +398,7 @@ function switchView(view) {
   if (view !== "recording") closeRecordingChoice();
   if (view !== "chapter-video") extractionPanel.suspend();
   if (view === "analysis") view = "editor";
-  if (view !== "dashboard" && !state.document) view = "dashboard";
+  if (!["dashboard", "effects"].includes(view) && !state.document) view = "dashboard";
   if (view !== "game-videos" && unmountVideoPreview()) {
     renderGameVideos();
   }
@@ -407,6 +408,7 @@ function switchView(view) {
   location.hash = view;
   $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "history") loadHistory();
+  if (view === "effects") loadEffects();
   if (view === "quality") renderQuality();
   if (["chapters","game-videos","chapter-video","preview"].includes(view)) renderAll();
   if (view === "game-videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
@@ -791,6 +793,32 @@ function clearRecordingEffect() {
   $("recording-board").querySelectorAll("piece.harry-hidden").forEach(piece => piece.classList.remove("harry-hidden"));
   const pipe = $("recording-pipe-effect"); pipe.pause(); pipe.currentTime = 0; pipe.classList.remove("active");
 }
+function playRecordingLibraryEffect(item) {
+  clearRecordingEffect();
+  const pipe = $("recording-pipe-effect");
+  pipe.src = `${item.url}${item.url.includes("?") ? "&" : "?"}play=${Date.now()}`;
+  pipe.classList.add("active");
+  pipe.play().catch(() => clearRecordingEffect());
+}
+async function loadEffects() {
+  try { state.effects = (await api.effects()).effects || []; renderEffects(); renderRecordingEffects(); }
+  catch (error) { $("effects-list").textContent = error.message; }
+}
+function renderRecordingEffects() {
+  const select = $("recording-effects"), value = select.value;
+  const builtins = `<option value="">Effects</option><option value="explosion">Explosion</option><option value="viking">Viking</option><option value="harry">harry</option><option value="pipe">pipe</option>`;
+  select.innerHTML = builtins + state.effects.map(item => `<option value="library:${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join("");
+  select.value = value;
+}
+function renderEffects() {
+  const list = $("effects-list");
+  list.innerHTML = state.effects.map(item => `<article class="tool-card effect-row" data-effect-id="${escapeHTML(item.id)}"><video muted playsinline loop src="${escapeHTML(item.url)}"></video><strong>${escapeHTML(item.name)}</strong><span>${(item.durationMilliseconds / 1000).toFixed(1)}s</span><button class="secondary" data-effect-rename>Rename</button><label class="secondary file-action">Replace<input type="file" accept="video/webm" data-effect-replace></label><button class="secondary danger" data-effect-delete>Delete</button></article>`).join("") || `<div class="empty-state"><p>No saved effects yet.</p></div>`;
+  list.querySelectorAll("video").forEach(video => { video.play().catch(() => {}); });
+  list.querySelectorAll("[data-effect-rename]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id), name = prompt("Effect name", item?.name || ""); if (name === null) return; try { await api.renameEffect(id, name); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+  list.querySelectorAll("[data-effect-delete]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId; if (!confirm("Delete this shared effect?")) return; try { await api.deleteEffect(id); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+  list.querySelectorAll("[data-effect-replace]").forEach(input => input.addEventListener("change", async () => { const file = input.files[0]; if (!file) return; try { await api.uploadEffect("", file, input.closest("[data-effect-id]").dataset.effectId); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+}
+function previewEffectFile() { const file = $("effect-file").files[0]; if (state.effectPreviewURL) URL.revokeObjectURL(state.effectPreviewURL); state.effectPreviewURL = file ? URL.createObjectURL(file) : null; $("effect-preview-video").src = state.effectPreviewURL || ""; $("effect-preview").hidden = !file; $("effect-save").disabled = !(file && $("effect-name").value.trim()); }
 function playRecordingExplosion() {
   const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000;
   clearRecordingEffect();
@@ -1277,7 +1305,8 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="harry")playRecordingHarry();if(event.target.value==="pipe")playRecordingPipe();event.target.value="";});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{const item=state.effects.find(effect=>event.target.value===`library:${effect.id}`);if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="harry")playRecordingHarry();if(event.target.value==="pipe")playRecordingPipe();if(item)playRecordingLibraryEffect(item);event.target.value="";});
+$("effect-file").addEventListener("change", previewEffectFile);$("effect-name").addEventListener("input", previewEffectFile);$("effect-save").addEventListener("click", async () => { const file=$("effect-file").files[0], name=$("effect-name").value.trim(); if(!file||!name)return; $("effect-error").textContent=""; try { await api.uploadEffect(name,file); $("effect-file").value=""; $("effect-name").value=""; previewEffectFile(); await loadEffects(); } catch(error) { $("effect-error").textContent=error.message; } });
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);

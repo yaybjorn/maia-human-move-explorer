@@ -11,6 +11,8 @@ const ROUTES = Object.freeze({
   publish: id => `/courses/${encodeURIComponent(id)}/publish`,
   versions: id => `/courses/${encodeURIComponent(id)}/versions`,
   restore: (id, versionID) => `/courses/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionID)}/restore`,
+  effects: "/effects",
+  effect: id => `/effects/${encodeURIComponent(id)}`,
 });
 
 export class StudioAPIError extends Error {
@@ -136,6 +138,16 @@ export class StudioAPI {
   versions(id) { return this.request(ROUTES.versions(id)); }
   restoreVersion(id, versionID, revision) {
     return this.request(ROUTES.restore(id, versionID), { method: "POST", body: { revision } });
+  }
+  effects() { return this.request(ROUTES.effects); }
+  renameEffect(id, name) { return this.request(ROUTES.effect(id), { method: "PUT", body: { name } }); }
+  deleteEffect(id) { return this.request(ROUTES.effect(id), { method: "DELETE" }); }
+  async uploadEffect(name, file, id = null) {
+    const headers = { "Content-Type": "video/webm" }; if (this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken; if (!id) headers["X-Effect-Name"] = name;
+    const response = await this.fetcher(`${this.base}${id ? ROUTES.effect(id) : ROUTES.effects}`, { method: id ? "PUT" : "POST", headers, body: file, credentials: "same-origin", cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new StudioAPIError(data?.detail || "Effect upload failed.", { status: response.status });
+    return data;
   }
 }
 
