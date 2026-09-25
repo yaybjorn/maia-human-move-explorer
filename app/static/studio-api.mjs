@@ -15,6 +15,14 @@ const ROUTES = Object.freeze({
   effect: id => `/effects/${encodeURIComponent(id)}`,
 });
 
+const STAGED_UPLOAD_FAILURE_MESSAGES = new Map([
+  ["503:upload_unavailable", "Upload paused: the upload service is temporarily unavailable (HTTP 503). Check progress before retrying."],
+]);
+
+function stagedUploadFailureMessage(status, code) {
+  return STAGED_UPLOAD_FAILURE_MESSAGES.get(`${status}:${code}`) || "Upload paused. Check progress before retrying.";
+}
+
 export class StudioAPIError extends Error {
   constructor(message, { status = 0, code = "request_failed", details = null } = {}) {
     super(message);
@@ -75,7 +83,8 @@ export class StudioAPI {
     } catch { throw new StudioAPIError("Upload acknowledgement was interrupted. Check progress before retrying.", { code: "network_error" }); }
     const data = await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new StudioAPIError("Upload paused. Check progress before retrying.", { status: response.status, code: data?.error?.code });
+      const code = data?.error?.code;
+      const error = new StudioAPIError(stagedUploadFailureMessage(response.status, code), { status: response.status, code });
       if (response.status === 401 && this.onUnauthorized) this.onUnauthorized(error);
       throw error;
     }

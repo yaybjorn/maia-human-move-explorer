@@ -117,6 +117,19 @@ test("binary execution forwards exact headers/no JSON and rejects fake success, 
   await assert.rejects(api.executeStagedOperation("/test", 2)); assert.equal(unauthorized, true);
 });
 
+test("staged PUT preserves the bounded 503 upload-unavailable diagnostic without exposing response text", async () => {
+  const api = new StudioAPI("/studio/api", async () => new Response(JSON.stringify({
+    error: { code: "upload_unavailable", message: "provider secret response", details: "raw provider body" },
+  }), { status: 503 }));
+  await assert.rejects(api.executeStagedOperation("/test", 2), error => {
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "upload_unavailable");
+    assert.equal(error.message, "Upload paused: the upload service is temporarily unavailable (HTTP 503). Check progress before retrying.");
+    assert.doesNotMatch(error.message, /provider|secret|raw/i);
+    return true;
+  });
+});
+
 test("retained completed files remain inspectable after write expiry without authorizing new effects", async () => {
   const s = setup();
   await s.make().run(s.inputs);
