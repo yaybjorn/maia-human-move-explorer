@@ -13,6 +13,7 @@ import {
 } from "./studio-document.mjs?v=20260923-chapters";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
+import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
 
 const api = new StudioAPI();
 const $ = id => document.getElementById(id);
@@ -30,6 +31,8 @@ const state = {
   sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
+const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
+const previewBoard = createStudioBoard($("preview-board"), { onMove: tryPreviewMove });
 const extractionPanel = createExtractionPanel({
   api,
   getContext: () => state.user && state.document ? {
@@ -585,7 +588,7 @@ async function refreshPosition() {
   try {
     const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
     if (token !== state.requestToken) return;
-    state.position = position; renderBoard($("studio-board"), position, { interactive: true, selected: state.selectedSquare });
+    state.position = position; renderStudioBoard();
     const status = $("board-status");
     status.textContent = position.game_over ? "This line ends here." : "";
     status.hidden = !position.game_over;
@@ -645,8 +648,9 @@ function boardSquare(square, map) {
   const candidates = state.selectedSquare ? state.position.legal_moves.filter(move => move.from === state.selectedSquare && move.to === square) : [];
   if (candidates.length) { chooseBoardMove(candidates); return; }
   state.selectedSquare = map[square] && state.position.legal_moves.some(move => move.from === square) ? square : null;
-  renderBoard($("studio-board"), state.position, { interactive: true, selected: state.selectedSquare });
+  renderStudioBoard();
 }
+function renderStudioBoard(){studioBoard.render(state.position,{interactive:true,flipped:state.flipped,locked:Boolean(state.position?.game_over)});}
 function tryBoardMove(from, to) {
   const candidates = state.position?.legal_moves.filter(move => move.from === from && move.to === to) || [];
   if (candidates.length) chooseBoardMove(candidates);
@@ -939,7 +943,7 @@ async function renderPreview(){
     renderPreviewBoard();renderPreviewCard(position,chapter);
   }catch(error){showStatus(error.message,true)}
 }
-function renderPreviewBoard(){renderBoard($("preview-board"),state.previewPosition,{interactive:true,selected:state.previewSelectedSquare,onSquare:previewSquare,onMove:tryPreviewMove})}
+function renderPreviewBoard(){previewBoard.render(state.previewPosition,{interactive:true,flipped:state.flipped,locked:Boolean(state.previewAttempt?.correct)})}
 function previewSquare(square,map){
   if(!state.previewPosition||state.previewAttempt?.correct)return;
   const candidates=state.previewSelectedSquare?state.previewPosition.legal_moves.filter(move=>move.from===state.previewSelectedSquare&&move.to===square):[];
@@ -1092,7 +1096,7 @@ $("add-course-video").addEventListener("click", () => {
 });
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
-$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderBoard($("studio-board"),state.position,{interactive:true,selected:state.selectedSquare});renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
