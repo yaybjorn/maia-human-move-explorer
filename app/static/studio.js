@@ -28,7 +28,7 @@ const state = {
   ignoredWords: [], diagnosticGeneration: 0, writingRequest: 0, coverageRequest: 0,
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
-  recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null,
+  recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null, recordingEffectFrame: null,
   sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
@@ -781,15 +781,23 @@ function clearRecordingMaia() {
   if (state.view === "recording") renderRecordingBoard();
 }
 function clearRecordingEffect() {
-  clearTimeout(state.recordingEffectTimer); state.recordingEffectTimer = null;
-  $("recording-effect").classList.remove("active");
+  clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
+  const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundPosition = "0 0";
 }
 function playRecordingExplosion() {
-  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000, frameCount = 80, frameRate = 20;
   clearRecordingEffect();
   void effect.offsetWidth;
   effect.classList.add("active");
-  state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, reduced ? 450 : 2000);
+  const started = performance.now();
+  const renderFrame = now => {
+    const frame = Math.min(frameCount - 1, Math.floor((now - started) / 1000 * frameRate));
+    const column = frame % 8, row = Math.floor(frame / 8);
+    effect.style.backgroundPosition = `${-column * effect.clientWidth}px ${-row * effect.clientHeight}px`;
+    if (now - started < duration) state.recordingEffectFrame = requestAnimationFrame(renderFrame);
+  };
+  state.recordingEffectFrame = requestAnimationFrame(renderFrame);
+  state.recordingEffectTimer = window.setTimeout(clearRecordingEffect, duration);
 }
 async function queueRecordingMaia() {
   if (!state.recordingMaiaEnabled || state.view !== "recording" || !state.document || !state.position) return;
