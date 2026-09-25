@@ -28,11 +28,15 @@ const state = {
   ignoredWords: [], diagnosticGeneration: 0, writingRequest: 0, coverageRequest: 0,
   editorEngineEnabled: false, editorEngineEvaluation: null,
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
+  recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [],
   sidebarCollapsed: false,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
 const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
 const previewBoard = createStudioBoard($("preview-board"), { onMove: tryPreviewMove });
+// Recording shares Chessground's native arrow tools, but never supplies an
+// onMove callback that can mutate the course document.
+const recordingBoard = createStudioBoard($("recording-board"), { onMove: () => {} });
 const extractionPanel = createExtractionPanel({
   api,
   getContext: () => state.user && state.document ? {
@@ -403,12 +407,15 @@ function switchView(view) {
   if (view === "game-videos" && !Array.isArray(state.document.chapterSources)) extractionPanel.refresh();
   if (view === "editor") { queueEditorEngineAnalysis(); queueEditorMaiaAnalysis(); }
   else { editorEngine.cancel(); stopEditorMaia(); }
+  if (view === "recording") renderRecording();
+  else clearRecordingMaia();
 }
 function renderAll() {
   if (!state.document) return;
   extractionPanel.contextChanged();
   renderChapterSelector();
   renderDetails(); renderGameVideos(); renderChapterVideo(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
+  renderRecording();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
@@ -589,6 +596,7 @@ async function refreshPosition() {
     const position = await analysisAPI.position(movesToNode(state.document, state.currentNodeID));
     if (token !== state.requestToken) return;
     state.position = position; renderStudioBoard();
+    if (state.view === "recording") { renderRecordingBoard(); queueRecordingMaia(); }
     const status = $("board-status");
     status.textContent = position.game_over ? "This line ends here." : "";
     status.hidden = !position.game_over;
@@ -666,8 +674,8 @@ function chooseBoardMove(candidates) {
   commit(result.document, { navigateTo: result.node.id }); state.selectedSquare = null; refreshPosition();
 }
 
-function renderMoveTree() {
-  const container = $("move-tree"); container.innerHTML = "";
+function renderMoveTree(container = $("move-tree")) {
+  container.innerHTML = "";
   const start = moveButton(null, "Start"); start.classList.add("start"); container.append(start);
   appendChildren(null, container);
   function appendChildren(parentID, target) {
@@ -686,7 +694,68 @@ function moveButton(id, label) {
   const button = document.createElement("button"); button.type = "button"; button.className = `move-chip${state.currentNodeID === id ? " current" : ""}`; button.textContent = label;
   button.addEventListener("click", () => navigate(id)); return button;
 }
-function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderInspector(); refreshPosition(); }
+function renderRecordingTree() { renderMoveTree($("recording-move-tree")); }
+
+function recordingArrowConfig(items = []) {
+  const brushes = {}, shapes = [];
+  for (const [index, move] of items.entries()) {
+    if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move.uci || "")) continue;
+    // One native Chessground brush per probability: colour remains uniform,
+    // while both opacity and line width rise monotonically with likelihood.
+    const probability = Math.max(0.100001, Math.min(1, Number(move.probability)));
+    const brush = `maia-${index}`;
+    brushes[brush] = { color: "#4f775f", opacity: 0.24 + probability * 0.66, lineWidth: 5 + probability * 13 };
+    shapes.push({ orig: move.uci.slice(0, 2), dest: move.uci.slice(2, 4), brush });
+  }
+  return { shapes, brushes };
+}
+function renderRecordingBoard() {
+  const { shapes, brushes } = recordingArrowConfig(state.recordingSuggestions);
+  recordingBoard.render(state.position, { interactive: false, flipped: state.flipped, locked: true, suggestionShapes: shapes, suggestionBrushes: brushes });
+}
+function renderRecording() {
+  if (!state.document) return;
+  const independent = Array.isArray(state.document.chapterSources);
+  $("recording-chapter-controls").hidden = !independent;
+  if (independent) {
+    $("recording-active-chapter").innerHTML = state.document.chapterSources.map(chapter => `<option value="${escapeHTML(chapter.id)}" ${chapter.id === state.document.activeChapterID ? "selected" : ""}>${escapeHTML(chapter.title)}</option>`).join("") || "<option>No chapters yet</option>";
+  }
+  renderRecordingTree(); renderRecordingBoard();
+  const toggle = $("recording-maia-toggle");
+  toggle.setAttribute("aria-pressed", String(state.recordingMaiaEnabled));
+  toggle.textContent = state.recordingMaiaEnabled ? "Hide top Maia moves" : "Show top Maia moves";
+  if (!state.recordingMaiaEnabled) $("recording-message").textContent = "Maia arrows are hidden.";
+  if (state.recordingMaiaEnabled && state.view === "recording" && !state.recordingMaiaAbort && !state.recordingSuggestions.length) queueRecordingMaia();
+}
+function clearRecordingMaia() {
+  state.recordingMaiaAbort?.abort(); state.recordingMaiaAbort = null;
+  state.recordingMaiaToken += 1; state.recordingSuggestions = [];
+  if (state.view === "recording") renderRecordingBoard();
+}
+async function queueRecordingMaia() {
+  if (!state.recordingMaiaEnabled || state.view !== "recording" || !state.document || !state.position) return;
+  clearRecordingMaia();
+  const abort = new AbortController(), token = ++state.recordingMaiaToken;
+  state.recordingMaiaAbort = abort;
+  const moves = movesToNode(state.document, state.currentNodeID), positionKey = moves.join(" ");
+  $("recording-message").textContent = "Maia is considering likely human moves…";
+  try {
+    const data = await analysisAPI.maia(moves, 1500, 1500, { signal: abort.signal });
+    const current = !abort.signal.aborted && state.recordingMaiaEnabled && state.view === "recording" && token === state.recordingMaiaToken && movesToNode(state.document, state.currentNodeID).join(" ") === positionKey;
+    if (!current) return;
+    state.recordingSuggestions = [...(data?.suggestions || [])]
+      .filter(move => Number(move.probability) > 0.10)
+      .sort((left, right) => Number(right.probability) - Number(left.probability))
+      .slice(0, 5);
+    renderRecordingBoard();
+    $("recording-message").textContent = state.recordingSuggestions.length ? `Showing ${state.recordingSuggestions.length} likely Maia move${state.recordingSuggestions.length === 1 ? "" : "s"}.` : "No Maia moves cleared the 10% threshold.";
+  } catch (error) {
+    if (!abort.signal.aborted && token === state.recordingMaiaToken) $("recording-message").textContent = error.message;
+  } finally {
+    if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
+  }
+}
+function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1097,6 +1166,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
 $("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
@@ -1109,7 +1179,7 @@ $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=awai
 $("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
 $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$("conflict-reload").addEventListener("click",async()=>{$("conflict-dialog").close();await openCourse(state.courseID,{discardUnsaved:true})});
 document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
-document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]");if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&state.view==="editor"){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
+document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]");if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"&&nextNode())navigate(nextNode().id)}});
 window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
@@ -1218,6 +1288,7 @@ function reorderIndependentChapter(from, to) {
   const [chapter] = next.chapterSources.splice(from, 1); next.chapterSources.splice(to, 0, chapter); commit(next);
 }
 $('active-chapter').addEventListener('change', event => selectIndependentChapter(event.target.value));
+$('recording-active-chapter').addEventListener('change', event => selectIndependentChapter(event.target.value, 'recording'));
 $('chapter-video-chapter').addEventListener('change', event => {
   if (event.target.value) selectIndependentChapter(event.target.value, 'chapter-video');
 });

@@ -32,3 +32,16 @@ test("distinguishes Maia moves already present in the repertoire", () => {
   assert.match(javascript, /data-existing-node/);
   assert.match(javascript, /navigate\(button\.dataset\.existingNode\)/);
 });
+
+test("keeps Recording separate from authoring and uses read-only Maia arrows", () => {
+  assert.match(html, /data-panel="recording"/);
+  assert.match(html, /id="recording-board"/);
+  assert.match(html, /id="recording-maia-toggle"/);
+  const recordingStart = html.indexOf('data-panel="recording"');
+  const recording = html.slice(recordingStart, html.indexOf('</section>', recordingStart));
+  assert.doesNotMatch(recording, /Export PGN|Copy FEN|Human play|Selected move|raw-pgn/);
+  assert.match(javascript, /analysisAPI\.maia\(moves, 1500, 1500/);
+  assert.match(javascript, /filter\(move => Number\(move\.probability\) > 0\.10\)/);
+  assert.match(javascript, /\.slice\(0, 5\)/);
+  assert.match(javascript, /suggestionShapes: shapes, suggestionBrushes: brushes/);
+});

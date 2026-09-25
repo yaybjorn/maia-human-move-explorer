@@ -12,15 +12,19 @@ export function legalDestinations(legalMoves = []) {
   return destinations;
 }
 
-export function boardConfig(position, { interactive = false, flipped = false, locked = false, clearShapes = false, onMove } = {}) {
+export function boardConfig(position, { interactive = false, flipped = false, locked = false, clearShapes = false, suggestionShapes = [], suggestionBrushes = {}, onMove } = {}) {
   return {
     fen: position.fen, orientation: flipped ? "black" : "white",
     turnColor: position.fen.split(" ")[1] === "b" ? "black" : "white",
+    draggable: { enabled: interactive && !locked, showGhost: interactive && !locked },
     movable: { color: interactive && !locked ? "both" : undefined, free: false,
       dests: interactive && !locked ? legalDestinations(position.legal_moves) : new Map(),
       showDests: interactive && !locked, events: { after: onMove } },
     selectable: { enabled: interactive && !locked },
-    drawable: clearShapes ? { enabled: true, eraseOnClick: false, shapes: [] } : { enabled: true, eraseOnClick: false },
+    // autoShapes are deliberately separate from author markings. This lets a
+    // read-only board add Maia arrows without replacing native user arrows.
+    drawable: { enabled: true, eraseOnClick: false, ...(clearShapes ? { shapes: [] } : {}),
+      autoShapes: suggestionShapes, ...(Object.keys(suggestionBrushes).length ? { brushes: suggestionBrushes } : {}) },
   };
 }
 
@@ -156,7 +160,7 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
   });
 
   return {
-    render(nextPosition, { interactive = false, flipped = false, locked = false } = {}) {
+    render(nextPosition, { interactive = false, flipped = false, locked = false, suggestionShapes = [], suggestionBrushes = {} } = {}) {
       if (!nextPosition?.fen) { reset(); return; }
       const changed = positionKey !== nextPosition.fen;
       positionKey = nextPosition.fen;
@@ -164,7 +168,7 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
       keyboardFocus ||= "e4";
       currentPosition = nextPosition;
       options = { interactive, flipped, locked };
-      createBoard().set(boardConfig(nextPosition, { interactive, flipped, locked, clearShapes: changed, onMove }));
+      createBoard().set(boardConfig(nextPosition, { interactive, flipped, locked, clearShapes: changed, suggestionShapes, suggestionBrushes, onMove }));
       // The stable semantic grid belongs to this adapter, not Chessground's
       // transient move/check highlight nodes.
       updateKeyboardLayer();

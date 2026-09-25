@@ -50,6 +50,7 @@
           <p class="nav-label">Author</p>
           <button class="nav-item" data-view="details" title="Course details"><span aria-hidden="true">◫</span><span class="nav-text">Course details</span></button>
           <button class="nav-item" data-view="editor" title="Repertoire editor"><span aria-hidden="true">♟</span><span class="nav-text">Repertoire editor</span></button>
+          <button class="nav-item" data-view="recording" title="Recording view"><span aria-hidden="true">●</span><span class="nav-text">Recording</span></button>
           <button class="nav-item" data-view="writing" title="Writing"><span aria-hidden="true">✓</span><span class="nav-text">Writing</span></button>
           <button class="nav-item" data-view="chapters" title="Chapters"><span aria-hidden="true">☷</span><span class="nav-text">Chapters</span></button>
           <button class="nav-item" data-view="game-videos" title="Game videos"><span aria-hidden="true">▶</span><span class="nav-text">Game videos</span></button>
@@ -140,6 +141,19 @@
             <article id="editor-maia-card" class="tool-card accent-maia collapsible-card"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia moves</h2></div><div class="card-heading-actions"><label>Rating <select id="maia-rating"><option>1000</option><option>1500</option><option>2000</option><option>2500</option></select></label><button class="collapse-button" type="button" data-editor-panel-toggle="maia" aria-expanded="false" aria-controls="maia-results" aria-label="Expand Maia moves" title="Expand Maia moves"><span aria-hidden="true">⌄</span></button></div></div><div id="maia-results" class="suggestion-list" hidden><div class="empty-state"><p>Expand to see likely human moves.</p></div></div></article>
             <button id="raw-pgn" class="secondary" type="button">View or edit raw PGN</button>
           </section>
+        </div>
+      </section>
+
+      <section class="view recording-view" data-panel="recording">
+        <div class="page-heading compact"><div><p class="eyebrow">Author</p><h1>Recording</h1><p>Read-only course navigation with optional Maia move arrows.</p></div></div>
+        <div id="recording-chapter-controls" class="recording-chapter-controls" hidden><label>Chapter<select id="recording-active-chapter" aria-label="Recording chapter"></select></label></div>
+        <div class="recording-layout">
+          <section class="recording-board-pane">
+            <div id="recording-board" class="chessboard recording-board" role="group" aria-label="Read-only course board; right-drag squares to draw arrows"></div>
+            <div class="board-controls recording-controls"><button id="recording-go-start" title="Start" aria-label="Start">⇇</button><button id="recording-go-back" title="Previous move" aria-label="Previous move">←</button><button id="recording-go-forward" title="Next move" aria-label="Next move">→</button><button id="recording-go-end" title="End" aria-label="End">⇉</button><button id="recording-flip-board" title="Flip board" aria-label="Flip board">⇅</button><button id="recording-maia-toggle" type="button" aria-pressed="false">Show top Maia moves</button></div>
+            <p id="recording-message" class="recording-message" role="status" aria-live="polite">Maia arrows are hidden.</p>
+          </section>
+          <section class="tool-card recording-tree-card"><div class="card-heading"><div><h2>Variation tree</h2><p>Choose a move to set the board position.</p></div></div><div id="recording-move-tree" class="move-tree recording-move-tree"></div></section>
         </div>
       </section>
 

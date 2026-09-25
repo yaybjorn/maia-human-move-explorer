@@ -20,6 +20,11 @@ assert.deepEqual(config.drawable.shapes, []);
 const locked = boardConfig(position, { interactive: true, locked: true });
 assert.equal(locked.selectable.enabled, false);
 assert.equal(locked.movable.dests.size, 0);
+assert.equal(locked.draggable.enabled, false);
+const recording = boardConfig(position, { suggestionShapes: [{ orig: "e5", dest: "d6", brush: "maia-0" }], suggestionBrushes: { "maia-0": { color: "#4f775f", opacity: .8, lineWidth: 12 } } });
+assert.equal(recording.movable.color, undefined);
+assert.equal(recording.draggable.enabled, false);
+assert.deepEqual(recording.drawable.autoShapes, [{ orig: "e5", dest: "d6", brush: "maia-0" }]);
 
 assert.equal(keyboardSquareAfter("e4", "ArrowUp"), "e5");
 assert.equal(keyboardSquareAfter("e4", "ArrowUp", true), "e3");
