@@ -117,7 +117,7 @@ test("binary execution forwards exact headers/no JSON and rejects fake success, 
   await assert.rejects(api.executeStagedOperation("/test", 2)); assert.equal(unauthorized, true);
 });
 
-test("staged PUT preserves the bounded 503 upload-unavailable diagnostic without exposing response text", async () => {
+test("staged PUT preserves the bounded 503 diagnostic without exposing response text", async () => {
   const api = new StudioAPI("/studio/api", async () => new Response(JSON.stringify({
     error: { code: "upload_unavailable", message: "provider secret response", details: "raw provider body" },
   }), { status: 503 }));
@@ -126,6 +126,17 @@ test("staged PUT preserves the bounded 503 upload-unavailable diagnostic without
     assert.equal(error.code, "upload_unavailable");
     assert.equal(error.message, "Upload paused: the upload service is temporarily unavailable (HTTP 503). Check progress before retrying.");
     assert.doesNotMatch(error.message, /provider|secret|raw/i);
+    return true;
+  });
+});
+
+test("staged PUT maps a non-Studio 503 without exposing raw response content", async () => {
+  const api = new StudioAPI("/studio/api", async () => new Response("<html>provider secret response</html>", { status: 503 }));
+  await assert.rejects(api.executeStagedOperation("/test", 2), error => {
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "request_failed");
+    assert.equal(error.message, "Upload paused: the upload service is temporarily unavailable (HTTP 503). Check progress before retrying.");
+    assert.doesNotMatch(error.message, /provider|secret|raw|html/i);
     return true;
   });
 });
