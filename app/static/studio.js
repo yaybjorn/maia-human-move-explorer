@@ -785,7 +785,7 @@ function clearRecordingMaia() {
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
   const effect = $("recording-effect"); effect.classList.remove("active"); effect.style.backgroundImage = "";
-  const viking = $("recording-viking-effect"); viking.pause(); viking.currentTime = 0; viking.classList.remove("active"); viking.style.animation = ""; viking.style.opacity = ""; viking.style.mixBlendMode = "";
+  const viking = $("recording-viking-effect"); viking.pause(); viking.currentTime = 0; viking.classList.remove("active"); viking.style.mixBlendMode = "";
 }
 function playRecordingExplosion() {
   const effect = $("recording-effect"), reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches, duration = reduced ? 450 : 4000;
@@ -801,8 +801,6 @@ function playRecordingViking() {
   clearRecordingEffect();
   const viking = $("recording-viking-effect");
   viking.src = recordingVikingSource;
-  viking.style.animation = "none";
-  viking.style.opacity = "1";
   // Chromium exposes the clip's VP9 alpha as an opaque black matte; screen
   // compositing preserves the supplied source while keeping that matte clear.
   viking.style.mixBlendMode = "screen";
