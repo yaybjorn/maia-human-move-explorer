@@ -33,7 +33,7 @@ const state = {
   editorPanels: { tree: true, inspector: true, maia: false }, editorMaiaAbort: null,
   recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null, recordingEffectFrame: null,
   sidebarCollapsed: false, effects: [], effectPreviewURL: null,
-  userGames: [], userGamesCursor: null, userGamesCourseID: null, userGamesLoading: false, userGamesError: null,
+  userGames: [], userGamesCursor: null, userGamesCourseID: null, userGamesLoading: false, userGamesError: null, userGamesRequest: 0,
   videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
 };
 const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
@@ -199,6 +199,7 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     courseDocument.metadata.slug = payload.course?.slug || courseDocument.metadata.slug;
     const hydrated = await hydrateSourceDocument(courseDocument, courseID, revision);
     state.courseID = courseID;
+    resetUserGames(courseID);
     state.currentCourse = currentCourse;
     state.revision = revision;
     invalidateDiagnostics();
@@ -430,6 +431,18 @@ function safeUserGameURL(value) {
 function userGameProviderLabel(provider) {
   return provider === "chess.com" ? "Chess.com" : provider === "lichess" ? "Lichess" : "Chess game";
 }
+function resetUserGames(courseID) {
+  // Course changes invalidate every in-flight request before its handlers run.
+  state.userGamesRequest += 1;
+  state.userGames = [];
+  state.userGamesCursor = null;
+  state.userGamesError = null;
+  state.userGamesCourseID = courseID || null;
+  state.userGamesLoading = false;
+}
+function userGamesRequestIsCurrent(request, courseID) {
+  return state.userGamesRequest === request && state.courseID === courseID && state.userGamesCourseID === courseID;
+}
 function renderUserGames() {
   const list = $("user-games-list");
   const loadMore = $("load-more-user-games");
@@ -456,22 +469,28 @@ function renderUserGames() {
   }).join("");
 }
 async function loadUserGames({ append = false } = {}) {
-  if (!state.courseID || state.userGamesLoading) return;
-  const courseChanged = state.userGamesCourseID !== state.courseID;
-  if (courseChanged) { state.userGames = []; state.userGamesCursor = null; state.userGamesError = null; state.userGamesCourseID = state.courseID; append = false; }
+  if (!state.courseID) return;
+  if (state.userGamesCourseID !== state.courseID) { resetUserGames(state.courseID); append = false; }
+  if (state.userGamesLoading) return;
   if (append && !state.userGamesCursor) return;
   const courseID = state.courseID;
+  const request = ++state.userGamesRequest;
   state.userGamesLoading = true; renderUserGames();
   try {
     const payload = await api.userGames(courseID, { limit: 50, ...(append ? { cursor: state.userGamesCursor } : {}) });
-    if (state.courseID !== courseID) return;
+    if (!userGamesRequestIsCurrent(request, courseID)) return;
     const submissions = Array.isArray(payload?.submissions) ? payload.submissions : [];
     state.userGames = append ? [...state.userGames, ...submissions] : submissions;
     state.userGamesCursor = typeof payload?.nextCursor === "string" ? payload.nextCursor : null;
   } catch (error) {
+    if (!userGamesRequestIsCurrent(request, courseID)) return;
     if (!append) state.userGamesError = error.message;
     else showStatus(error.message, true);
-  } finally { state.userGamesLoading = false; renderUserGames(); }
+  } finally {
+    if (!userGamesRequestIsCurrent(request, courseID)) return;
+    state.userGamesLoading = false;
+    renderUserGames();
+  }
 }
 function renderAll() {
   if (!state.document) return;
