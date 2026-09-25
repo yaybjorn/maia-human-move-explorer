@@ -180,6 +180,7 @@ function renderDashboard() {
 
 async function openCourse(id, { discardUnsaved = false } = {}) {
   if (dirty() && !discardUnsaved && !confirm("Discard your unsaved changes and open another course?")) return false;
+  closeRecordingChoice();
   invalidateDiagnostics();
   stopEditorMaia(); state.analysisToken += 1;
   showStatus("Opening course…");
@@ -390,6 +391,7 @@ function markPendingInput(){if(!state.document)return;invalidateDiagnostics();ex
 
 function switchView(view) {
   if (view === "videos") view = "game-videos"; // Legacy deep link: course-level YouTube game videos.
+  if (view !== "recording") closeRecordingChoice();
   if (view !== "chapter-video") extractionPanel.suspend();
   if (view === "analysis") view = "editor";
   if (view !== "dashboard" && !state.document) view = "dashboard";
@@ -812,7 +814,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
+function navigate(id) { closeRecordingChoice(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1253,6 +1255,7 @@ async function exportAllChapterSources(document) {
   return activateChapter({ ...next, chapterSources, activeChapterID: null }, next.activeChapterID);
 }
 function selectIndependentChapter(id, view = 'editor') {
+  closeRecordingChoice();
   flushActiveEditor();
   invalidateDiagnostics();
   state.document = activateChapter(state.document, id);

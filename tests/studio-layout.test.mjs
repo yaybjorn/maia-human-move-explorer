@@ -45,3 +45,10 @@ test("keeps Recording separate from authoring and uses read-only Maia arrows", (
   assert.match(javascript, /\.slice\(0, 5\)/);
   assert.match(javascript, /suggestionShapes: shapes, suggestionBrushes: brushes/);
 });
+
+test("keeps Recording continuation choices local to the current navigation context", () => {
+  assert.match(javascript, /function navigate\(id\) \{ closeRecordingChoice\(\);/);
+  assert.match(javascript, /if \(view !== "recording"\) closeRecordingChoice\(\);/);
+  assert.match(javascript, /function selectIndependentChapter\(id, view = 'editor'\) \{\n  closeRecordingChoice\(\);/);
+  assert.match(javascript, /async function openCourse\(id, \{ discardUnsaved = false \} = \{\}\) \{\n  if \(dirty\(\).*\n  closeRecordingChoice\(\);/);
+});
