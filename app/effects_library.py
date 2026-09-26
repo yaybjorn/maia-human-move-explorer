@@ -216,12 +216,20 @@ async def dispatch(path, request, upstream_read, allowed_origins):
                 if media.exists(): media.replace(tombstone)
                 try:
                     save_index([candidate for candidate in index if candidate["id"] != item["id"]])
-                    tombstone.unlink(missing_ok=True)
+                    try:
+                        tombstone.unlink(missing_ok=True)
+                    except OSError as error:
+                        # The index and media are one durable state: roll back
+                        # both if cleanup cannot complete.
+                        save_index(index)
+                        if tombstone.exists(): tombstone.replace(media)
+                        raise HTTPException(503, "Built-in effect reset could not be completed") from error
                 except BaseException:
-                    if tombstone.exists(): tombstone.replace(media)
+                    if tombstone.exists() and not media.exists(): tombstone.replace(media)
                     raise
                 finally:
-                    tombstone.unlink(missing_ok=True)
+                    try: tombstone.unlink(missing_ok=True)
+                    except OSError: pass
                 return JSONResponse({}, status_code=204, headers=HEADERS)
             tombstone = _temporary(root(), ".delete.webm")
             try:

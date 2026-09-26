@@ -206,11 +206,11 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     state.currentCourse = currentCourse;
     state.revision = revision;
     invalidateDiagnostics();
-    state.document = hydrated.document;
+    setEffectivePosition(hydrated.document, null);
     state.reconciliationError = hydrated.reconciliationError;
     state.validation = hydrated.validation;
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
-    state.currentNodeID = null; state.previewIndex = 0; state.previewChapter = 0;
+    state.previewIndex = 0; state.previewChapter = 0;
     state.previewAttempt = null; state.previewPosition = null; state.previewSelectedSquare = null;
     state.videoPreviewID = null; state.courseVideoPreview = false; state.publishCandidate = null;
     if (discardUnsaved) clearCrashRecovery(); else restoreCrashRecovery();
@@ -271,8 +271,7 @@ function commit(next, { navigateTo } = {}) {
   if (!value) return;
   if (JSON.stringify(value) === JSON.stringify(state.document)) {
     if (navigateTo !== undefined && navigateTo !== state.currentNodeID) {
-      disableRecordingMaiaForPositionChange();
-      state.currentNodeID = navigateTo;
+      setEffectivePosition(state.document, navigateTo);
       renderAll();
     }
     updateSaveState();
@@ -280,9 +279,7 @@ function commit(next, { navigateTo } = {}) {
   }
   invalidateDiagnostics();
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
-  state.redo = []; state.document = syncActiveChapter(value); state.validation = null; state.publishCandidate = null;
-  if (navigateTo !== undefined && navigateTo !== state.currentNodeID) disableRecordingMaiaForPositionChange();
-  if (navigateTo !== undefined) state.currentNodeID = navigateTo;
+  state.redo = []; setEffectivePosition(syncActiveChapter(value), navigateTo === undefined ? state.currentNodeID : navigateTo); state.validation = null; state.publishCandidate = null;
   saveCrashRecovery(); renderAll(); updateSaveState();
 }
 
@@ -297,21 +294,20 @@ function restoreCrashRecovery() {
   if (!recovery?.document || JSON.stringify(recovery.document) === state.savedSnapshot) return;
   if (confirm(`Unsaved browser recovery from ${formatDate(recovery.savedAt)} was found. Restore it?`)) {
     invalidateDiagnostics();
-    state.document = normalizeDocument(recovery.document, { allowIncompleteCourseVideo: true });
+    setEffectivePosition(normalizeDocument(recovery.document, { allowIncompleteCourseVideo: true }));
     showStatus("Recovered unsaved browser work. Save the draft when ready.");
   } else clearCrashRecovery();
 }
 function undo() {
   const previous = state.undo.pop(); if (!previous) return;
   invalidateDiagnostics();
-  state.redo.push(structuredClone(state.document)); state.document = previous;
-  if (state.currentNodeID && !nodeByID(state.document, state.currentNodeID)) state.currentNodeID = null;
+  state.redo.push(structuredClone(state.document)); setEffectivePosition(previous, state.currentNodeID && nodeByID(previous, state.currentNodeID) ? state.currentNodeID : null);
   saveCrashRecovery(); renderAll(); refreshPosition();
 }
 function redo() {
   const next = state.redo.pop(); if (!next) return;
   invalidateDiagnostics();
-  state.undo.push(structuredClone(state.document)); state.document = next;
+  state.undo.push(structuredClone(state.document)); setEffectivePosition(next, state.currentNodeID && nodeByID(next, state.currentNodeID) ? state.currentNodeID : null);
   saveCrashRecovery(); renderAll(); refreshPosition();
 }
 function updateSaveState(saving = false) {
@@ -866,6 +862,16 @@ function clearRecordingMaia() {
   state.recordingMaiaToken += 1; state.recordingSuggestions = [];
   if (state.view === "recording") renderRecordingBoard();
 }
+function recordingPositionKey(document = state.document, nodeID = state.currentNodeID) {
+  return `${document?.activeChapterID || ""}:${document ? movesToNode(document, nodeID).join(" ") : ""}`;
+}
+function setEffectivePosition(document, nodeID = state.currentNodeID) {
+  // This is the sole effective-position boundary for navigation and document
+  // replacement. Invalidate before assignment so an already pending Maia reply
+  // cannot paint arrows for the position we are leaving.
+  if (recordingPositionKey(document, nodeID) !== recordingPositionKey()) disableRecordingMaiaForPositionChange();
+  state.document = document; state.currentNodeID = nodeID;
+}
 function disableRecordingMaiaForPositionChange() {
   // Maia arrows are temporary position-specific marks.  Invalidate the
   // request before changing node so a late response cannot redraw them.
@@ -981,7 +987,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { if (id === state.currentNodeID) return; closeRecordingChoice(); clearRecordingEffect(); disableRecordingMaiaForPositionChange(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
+function navigate(id) { if (id === state.currentNodeID) return; closeRecordingChoice(); clearRecordingEffect(); setEffectivePosition(state.document, id); state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1362,7 +1368,7 @@ function showPublicationHistory(){
 }
 
 async function loadHistory({throwOnError=false}={}){if(!state.courseID)return;try{const payload=await api.versions(state.courseID);state.versions=payload.versions||[];const publications=state.versions.map((version,index)=>{const summary=version.validation?.summary||{};return`<article class="history-row"><div><h2>${escapeHTML(version.version||version.id||`Version ${state.versions.length-index}`)} ${index===0?'<span class="tag live">Live</span>':""}</h2><p>${escapeHTML(version.notes||"No release notes")}</p><p>${Number(summary.positionCount||0)} positions · ${Number(summary.chapterCount||0)} chapters · draft revision ${Number(version.documentRevision||0)}</p><p>Published ${escapeHTML(formatDate(version.publishedAt||version.createdAt))} by ${escapeHTML(version.publishedBy?.name||version.author||"Author")}</p></div><button class="secondary" data-restore="${escapeHTML(version.id||version.version)}">Restore as draft</button></article>`}).join("");const revisions=(payload.revisions||[]).slice(0,12).map(revision=>`<article class="history-row"><div><h2>Draft revision ${Number(revision.revision)}</h2><p>${escapeHTML(revision.reason||"save")} · ${escapeHTML(formatDate(revision.createdAt))}</p></div><span class="tag draft">Draft activity</span></article>`).join("");$("history-list").innerHTML=`${publications||'<div class="loading-card">No published versions yet.</div>'}${revisions?`<div class="page-heading compact"><div><h2>Recent draft activity</h2></div></div>${revisions}`:""}`;$("history-list").querySelectorAll("[data-restore]").forEach(button=>button.addEventListener("click",()=>restoreVersion(button.dataset.restore)));}catch(error){$("history-list").innerHTML=`<div class="loading-card">${escapeHTML(error.message)}</div>`;if(throwOnError)throw error;}}
-async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;const revision=raw?.revision??payload.revision,hydrated=await hydrateSourceDocument(draft,state.courseID,revision);invalidateDiagnostics();state.revision=revision;state.document=hydrated.document;state.reconciliationError=hydrated.reconciliationError;state.validation=hydrated.validation;state.savedSnapshot=JSON.stringify(state.document);state.publishCandidate=null;clearCrashRecovery();state.undo=[];state.redo=[];state.currentNodeID=null;renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
+async function restoreVersion(versionID){if(dirty()&&!confirm("Restoring will replace this unsaved draft. Continue?"))return;if(!confirm("Restore this published version as a new draft? The live course will not change until you publish again."))return;try{const payload=await api.restoreVersion(state.courseID,versionID,state.revision),raw=payload.draft||payload.document,draft=normalizeDocument(raw);draft.metadata.slug=payload.course?.slug||draft.metadata.slug;const revision=raw?.revision??payload.revision,hydrated=await hydrateSourceDocument(draft,state.courseID,revision);invalidateDiagnostics();state.revision=revision;setEffectivePosition(hydrated.document,null);state.reconciliationError=hydrated.reconciliationError;state.validation=hydrated.validation;state.savedSnapshot=JSON.stringify(state.document);state.publishCandidate=null;clearCrashRecovery();state.undo=[];state.redo=[];renderAll();refreshPosition();switchView("editor");showStatus("Version restored and rehydrated as a new draft.");}catch(error){showStatus(error.message,true)}}
 
 
 async function importPGN(file) {if(!file)return;try{const pgn=await file.text(),preview=await api.importPGN(pgn),title=preview.inferredTitle&&preview.inferredTitle!=="?"?preview.inferredTitle:file.name.replace(/\.pgn$/i,"");state.pendingImport={pgn,fileName:file.name,moveCount:preview.moveCount};const form=$("import-form");form.reset();delete form.elements.slug.dataset.edited;form.elements.title.value=title;form.elements.slug.value=slugify(title);$("import-file-name").textContent=`${file.name} · ${Number(preview.moveCount||0)} moves`;$("import-dialog").showModal();}catch(error){showStatus(error.message,true)}}
@@ -1427,10 +1433,8 @@ function selectIndependentChapter(id, view = 'editor') {
   closeRecordingChoice();
   flushActiveEditor();
   invalidateDiagnostics();
-  const positionChanged = state.document.activeChapterID !== id || state.currentNodeID !== null;
-  if (positionChanged) disableRecordingMaiaForPositionChange();
-  state.document = activateChapter(state.document, id);
-  state.currentNodeID = null; state.previewAttempt = null; state.analysisToken += 1;
+  setEffectivePosition(activateChapter(state.document, id), null);
+  state.previewAttempt = null; state.analysisToken += 1;
   stopEditorMaia(); editorEngine.cancel();
   renderAll(); refreshPosition(); switchView(view);
 }

@@ -128,6 +128,28 @@ def test_builtins_are_managed_library_records_and_reset_without_touching_static_
         assert not (tmp_path / "builtin-explosion.webm").exists()
 
 
+def test_builtin_reset_unlink_failure_restores_override_index_and_media(tmp_path, monkeypatch):
+    source = tmp_path / "input.webm"; webm(source)
+    client = configured_client(tmp_path, monkeypatch)
+    with client:
+        client.put("/studio/api/effects/builtin-explosion", headers={"Origin": "https://studio.test", "X-CSRF-Token": "csrf"}, json={"name": "Big bang"})
+        assert client.put("/studio/api/effects/builtin-explosion", headers=headers(), content=source.read_bytes()).status_code == 200
+        media = tmp_path / "builtin-explosion.webm"; before_media = media.read_bytes(); before_index = (tmp_path / "index.json").read_text()
+        original_unlink = effects.Path.unlink
+
+        def fail_reset_tombstone_unlink(path, *args, **kwargs):
+            if path.suffixes[-2:] == [".reset", ".webm"] and path.stat().st_size:
+                raise OSError("unlink failed")
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(effects.Path, "unlink", fail_reset_tombstone_unlink)
+        assert client.delete("/studio/api/effects/builtin-explosion", headers=headers()).status_code == 503
+    assert media.read_bytes() == before_media
+    assert (tmp_path / "index.json").read_text() == before_index
+    restored = {item["id"]: item for item in client.get("/studio/api/effects").json()["effects"]}["builtin-explosion"]
+    assert restored["name"] == "Big bang" and restored["url"].endswith("/builtin-explosion/media")
+
+
 def test_normalization_preserves_known_nonopaque_alpha(tmp_path):
     source, target = tmp_path / "source.webm", tmp_path / "normalized.webm"
     alpha_webm(source)

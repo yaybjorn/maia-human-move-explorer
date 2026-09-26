@@ -9,7 +9,8 @@ const source = readFileSync(new URL('../app/static/studio.js', import.meta.url),
 const names = ['invalidateDiagnostics','diagnosticContext','diagnosticIsCurrent','requireCurrentDiagnostic',
   'writingIssueIsCurrent','writingSources','loadIgnoredWords','runSpellcheck','applyWritingFix','applyWritingFixAll',
   'runGapCheck','gapSuggestionID','nodeIDForHistory','pgnHistory','addGapMove','jumpToFinding',
-  'selectIndependentChapter','commit','undo','redo'];
+  'selectIndependentChapter','commit','undo','redo','recordingPositionKey','setEffectivePosition',
+  'clearRecordingMaia','disableRecordingMaiaForPositionChange','queueRecordingMaia','navigate'];
 function functionSource(name) {
   const start = source.search(new RegExp(`^(?:async )?function ${name}\\(`, 'm'));
   assert.ok(start >= 0, name);
@@ -28,11 +29,14 @@ function harness() {
     return elements.get(id);
   };
   const state = {document,courseID:'course',diagnosticGeneration:0,writingRequest:0,coverageRequest:0,
-    ignoredWords:[],undo:[],redo:[],analysisToken:0};
+    ignoredWords:[],undo:[],redo:[],analysisToken:0,view:'editor',position:{fen:'start'},currentNodeID:null,
+    recordingMaiaEnabled:false,recordingMaiaAbort:null,recordingMaiaToken:0,recordingSuggestions:[]};
   const noop = () => {};
   const sandbox = {...doc,state,$,structuredClone, console,
     setBusy:noop,flushActiveEditor:noop,showStatus:noop,renderAll:noop,refreshPosition:noop,switchView:noop,
-    stopEditorMaia:noop,editorEngine:{cancel:noop},saveCrashRecovery:noop,updateSaveState:noop,navigate:noop,
+    stopEditorMaia:noop,editorEngine:{cancel:noop},saveCrashRecovery:noop,updateSaveState:noop,closeRecordingChoice:noop,
+    clearRecordingEffect:noop,renderMoveTree:noop,renderRecordingTree:noop,renderInspector:noop,renderRecordingBoard:noop,
+    requestAnimationFrame:noop,scrollRecordingCurrentIntoView:noop,AbortController,
     moveLabel:()=> 'e4',refreshIgnoredWords:async()=>{},checkWriting:async()=>[],
     renderWriting:(issues)=>{sandbox.rendered=issues},exportSource:async()=> '1. e4 *',
     analysisAPI:{repertoireGaps:async()=>({findings:[]})},escapeHTML:String,qualityHTML:()=> 'clean'};
@@ -104,6 +108,21 @@ test('undo/redo invalidate diagnostics even when the old source is restored',()=
   const h=harness(),issue=h.issue();h.commit(doc.updateNode(h.state.document,'1',{hint:'new'}));h.undo();
   assert.equal(h.diagnosticIsCurrent(issue.context),false);
   const context=h.diagnosticContext();h.redo();h.undo();assert.equal(h.diagnosticIsCurrent(context),false);
+});
+test('Recording Maia turns off and a pending reply cannot render after navigation or undo/redo',async()=>{
+  for (const transition of ['navigate','undo','redo']) {
+    const h=harness(),wait=deferred();
+    h.state.view='recording';h.state.recordingMaiaEnabled=true;h.state.currentNodeID=null;
+    h.analysisAPI.maia=()=>wait.promise;
+    if (transition==='undo') { const previous=structuredClone(h.state.document);previous.nodes=[];h.state.undo.push(previous);h.state.currentNodeID='1'; }
+    if (transition==='redo') { const next=structuredClone(h.state.document);next.nodes[0].uci='d2d4';h.state.currentNodeID='1';h.state.redo.push(next); }
+    const pending=h.queueRecordingMaia();await Promise.resolve();
+    if (transition==='navigate') h.navigate('1'); else h[transition]();
+    assert.equal(h.state.recordingMaiaEnabled,false,transition);
+    const token=h.state.recordingMaiaToken;wait.resolve({suggestions:[{probability:.9,uci:'e7e5'}]});await pending;
+    assert.equal(h.state.recordingMaiaToken,token,transition);
+    assert.equal(h.state.recordingSuggestions.length,0,transition);
+  }
 });
 test('bulk applies multiple current offsets from right to left without overwriting unrelated chapter',()=>{
   const h=harness();h.commit(doc.updateNode(h.state.document,'1',{comment:'teh teh'}));
