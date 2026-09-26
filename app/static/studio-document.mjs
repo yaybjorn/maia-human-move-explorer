@@ -112,8 +112,13 @@ export function splitHintDirective(rawComment = "") {
 }
 
 export function normalizeHint(value = "") {
-  const hint = String(value).normalize("NFKC").replace(/\s+/g, " ").trim();
-  if (/[\u0000-\u001F\u007F]/.test(String(value))) throw new Error("Hints cannot contain control characters.");
+  const source = String(value);
+  // NFKC is intentional for the rest of the authoring surface, but it treats
+  // the prose ellipsis as a compatibility character and expands it to "...".
+  // Normalise each non-ellipsis run instead so a writing fix remains fixed
+  // through the save/export/reload path.
+  const hint = source.split("…").map(part => part.normalize("NFKC")).join("…").replace(/\s+/g, " ").trim();
+  if (/[\u0000-\u001F\u007F]/.test(source)) throw new Error("Hints cannot contain control characters.");
   if (/[\[\]{}]/.test(hint)) throw new Error("Hints cannot contain PGN brackets or comment braces.");
   if (hint.length > MAX_POSITION_HINT_LENGTH) {
     throw new Error(`Hints cannot exceed ${MAX_POSITION_HINT_LENGTH} characters.`);

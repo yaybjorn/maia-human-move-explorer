@@ -115,6 +115,16 @@ def test_pgn_round_trip_preserves_comments_nags_directives_and_nested_variations
     assert semantics(reparsed.json()["nodes"]) == semantics(nodes)
 
 
+def test_pgn_round_trip_preserves_unicode_hint_ellipses():
+    source = '[Event "Hints"]\n\n1. e4 {Keep 1... Nf6 notation. [%hint Find the break…]} e5 *'
+    parsed = client.post("/api/parse-pgn", json={"pgn": source})
+    exported = client.post("/api/export-pgn", json={"nodes": parsed.json()["nodes"], "headers": parsed.json()["headers"]})
+    reparsed = client.post("/api/parse-pgn", json={"pgn": exported.json()["pgn"]})
+    assert exported.status_code == 200
+    assert reparsed.status_code == 200
+    assert any(node["comment"] == "Keep 1... Nf6 notation. [%hint Find the break…]" for node in reparsed.json()["nodes"])
+
+
 def test_portsmouth_rejects_wrong_move_with_authored_feedback():
     response = client.post("/api/portsmouth/play", json={"moves": [], "uci": "f2f3"})
     assert response.status_code == 200

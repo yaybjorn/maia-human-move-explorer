@@ -112,6 +112,24 @@ test('bulk applies multiple current offsets from right to left without overwriti
   assert.equal(h.state.document.nodes[0].comment,'the the');
   h.selectIndependentChapter('b');assert.equal(h.state.document.nodes[0].comment,'Keep centre');
 });
+test('Fix all ellipses survives the production apply, save-payload, and reload hydration boundary',()=>{
+  const h=harness();
+  h.state.document=doc.normalizeDocument({metadata:{title:'Ellipses',slug:'ellipses',side:'white'},nodes:Array.from({length:16},(_,index)=>({
+    id:`node-${index + 1}`,parentId:index ? `node-${index}` : null,uci:index % 2 ? 'e7e5' : 'e2e4',san:index % 2 ? 'e5' : 'e4',ply:index + 1,
+    ...(index % 2 === 0 ? {hint:`Hint ${index / 2 + 1}...`} : {}),comment:index === 0 ? 'Keep 1... Nf6 notation.' : '',nags:index === 0 ? [1] : [],
+  }))});
+  const context=h.diagnosticContext();
+  const issues=h.state.document.nodes.filter(node=>node.hint).map(node=>({sourceId:`hint:${node.id}`,comment:node.hint,start:node.hint.indexOf('...'),end:node.hint.length,problem:'...',context}));
+  h.applyWritingFixAll(issues,'…');
+  assert.deepEqual(h.state.document.nodes.filter(node=>node.hint).map(node=>node.hint),Array.from({length:8},(_,index)=>`Hint ${index + 1}…`));
+  const serialized=doc.serializeForPGN(h.state.document);
+  const saved=doc.normalizeDocument(doc.documentForStorage(h.state.document,'1. e4 e5 *'));
+  const parsed={headers:{},nodes:serialized.map((node,index)=>({...node,parent_id:index ? index : null,uci:index % 2 ? 'e7e5' : 'e2e4',san:index % 2 ? 'e5' : 'e4',ply:index + 1}))};
+  const reloaded=doc.hydrateRestoredDocument(parsed,saved);
+  assert.deepEqual(reloaded.nodes.filter(node=>node.hint).map(node=>node.hint),Array.from({length:8},(_,index)=>`Hint ${index + 1}…`));
+  assert.equal(reloaded.nodes[0].comment,'Keep 1... Nf6 notation.');
+  assert.deepEqual(reloaded.nodes[0].nags,[1]);
+});
 test('newer Writing request wins even when older response returns last for the same source',async()=>{
   const h=harness(),first=deferred(),second=deferred();let count=0;
   h.checkWriting=()=>++count===1?first.promise:second.promise;

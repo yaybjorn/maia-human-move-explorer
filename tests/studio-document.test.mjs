@@ -5,7 +5,7 @@ import {
   addMove, chapterSlices, childrenOf, importParsedPGN, movesToNode, normalizeDocument,
   commentWithHint,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID, normalizeCourseVideos, pgnHasMoves, promoteVariation, removeBranch,
-  reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
+  normalizeHint, reorderVariation, serializeForPGN, splitHintDirective, trainingPack, updateNode, validateDocument,
   youtubeEmbedURL,
 } from "../app/static/studio-document.mjs";
 
@@ -281,6 +281,10 @@ test("validates hint directive syntax, placement, length, and plain-text safety"
   assert.equal(nodeByID(misplaced, "main").hint, "Not here.");
   assert.equal(nodeByID(misplaced, "wrong").hint, "");
   assert.equal(validateDocument(misplaced).blockers.some(item => /correct learner move/.test(item.message)), false);
+});
+
+test("keeps prose ellipses while retaining NFKC and whitespace normalisation for hints", () => {
+  assert.equal(normalizeHint("  Ａ…\u00a0Ｂ  "), "A… B");
 });
 
 test("moves an imported position hint from a wrong sibling to the correct main move", () => {
