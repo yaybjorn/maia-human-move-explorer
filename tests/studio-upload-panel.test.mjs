@@ -29,6 +29,16 @@ test("reopened staged result is labelled as checking, never ready or selected", 
   panel.refresh(); assert.match(nodes.status.textContent, /Checking video/);
   assert.equal(nodes.title.value, "Lesson"); panel.clear(); assert.equal(root.hidden, true);
 });
+test("blocked saved upload exposes only the read-only progress check", () => {
+  const { root, nodes } = dom();
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, draftRevision: 207, title: "Lesson", state: "blocked",
+    files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
+  const panel = createUploadPanel({ root, api: {}, getContext: () => paid, enabled: true, storage: { getItem: () => JSON.stringify(record) } });
+  panel.refresh();
+  assert.equal(nodes.check.hidden, false);
+  assert.equal(nodes.check.disabled, false);
+  assert.match(nodes.status.textContent, /No operation will be repeated/);
+});
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
   const original = StagedUpload.prototype.run;

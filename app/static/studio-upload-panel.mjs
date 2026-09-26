@@ -8,6 +8,9 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,8,215,99,248,207,192,240,31,0,5,0,1,255,137,153,61,29,0,0,0,0,73,69,78,68,174,66,96,130])
   ], { type: "image/png" });
   function renderProgress(record) {
+    // Reconciliation is deliberately read-only. Show it only while there is
+    // saved unfinished work; it cannot create or repeat an upload operation.
+    find("check").hidden = !["reservation_unconfirmed", "paused", "blocked", "uploading"].includes(record.state);
     if (record.progress) {
       find("progress").max = record.progress.video.byteLength + record.progress.thumbnail.byteLength;
       find("progress").value = record.progress.video.offset + record.progress.thumbnail.offset;
@@ -43,7 +46,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
           uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
           if (record) { staged = record.state === "staged" ? { key: uploader.key, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID || null } : null; find("title").value = record.title; renderProgress(record); }
-          else message("Choose an MP4 video to upload.");
+          else { find("check").hidden = true; message("Choose an MP4 video to upload."); }
         } catch { message("Upload progress storage is unavailable. No upload was started."); }
       }
     }
