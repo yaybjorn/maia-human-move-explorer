@@ -35,7 +35,7 @@ function harness() {
   const sandbox = {...doc,state,$,structuredClone, console,
     setBusy:noop,flushActiveEditor:noop,showStatus:noop,renderAll:noop,refreshPosition:noop,switchView:noop,
     stopEditorMaia:noop,editorEngine:{cancel:noop},saveCrashRecovery:noop,updateSaveState:noop,closeRecordingChoice:noop,
-    clearRecordingEffect:noop,renderMoveTree:noop,renderRecordingTree:noop,renderInspector:noop,renderRecordingBoard:noop,
+    clearRecordingEffect:noop,renderMoveTree:noop,renderRecordingTree:noop,renderInspector:noop,renderRecording:noop,renderRecordingBoard:noop,
     requestAnimationFrame:noop,scrollRecordingCurrentIntoView:noop,AbortController,
     moveLabel:()=> 'e4',refreshIgnoredWords:async()=>{},checkWriting:async()=>[],
     renderWriting:(issues)=>{sandbox.rendered=issues},exportSource:async()=> '1. e4 *',

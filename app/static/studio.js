@@ -877,6 +877,9 @@ function disableRecordingMaiaForPositionChange() {
   // request before changing node so a late response cannot redraw them.
   state.recordingMaiaEnabled = false;
   clearRecordingMaia();
+  // Board-only redraws do not update the toggle's pressed state. Keep the
+  // visible control aligned with the invalidated Recording session.
+  if (state.view === "recording") renderRecording();
 }
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
