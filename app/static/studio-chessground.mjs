@@ -23,7 +23,7 @@ export function boardConfig(position, { interactive = false, flipped = false, lo
     selectable: { enabled: interactive && !locked },
     // autoShapes are deliberately separate from author markings. This lets a
     // read-only board add Maia arrows without replacing native user arrows.
-    drawable: { enabled: true, eraseOnClick: false, ...(clearShapes ? { shapes: [] } : {}),
+    drawable: { enabled: true, eraseOnClick: false, defaultBrush: "red", ...(clearShapes ? { shapes: [] } : {}),
       autoShapes: suggestionShapes, ...(Object.keys(suggestionBrushes).length ? { brushes: suggestionBrushes } : {}) },
   };
 }
@@ -55,7 +55,7 @@ export function createStudioBoard(element, { onMove, chessground = Chessground }
       draggable: { enabled: true, showGhost: true },
       movable: { color: "both", free: false, showDests: true, events: { after: onMove } },
       selectable: { enabled: true },
-      drawable: { enabled: true, eraseOnClick: false, shapes: [] },
+      drawable: { enabled: true, eraseOnClick: false, defaultBrush: "red", shapes: [] },
     });
     return board;
   }

@@ -17,6 +17,7 @@ assert.equal(config.orientation, "black");
 assert.equal(config.turnColor, "black");
 assert.equal(config.movable.color, "both");
 assert.deepEqual(config.drawable.shapes, []);
+assert.equal(config.drawable.defaultBrush, "red");
 const locked = boardConfig(position, { interactive: true, locked: true });
 assert.equal(locked.selectable.enabled, false);
 assert.equal(locked.movable.dests.size, 0);

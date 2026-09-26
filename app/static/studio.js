@@ -271,6 +271,7 @@ function commit(next, { navigateTo } = {}) {
   if (!value) return;
   if (JSON.stringify(value) === JSON.stringify(state.document)) {
     if (navigateTo !== undefined && navigateTo !== state.currentNodeID) {
+      disableRecordingMaiaForPositionChange();
       state.currentNodeID = navigateTo;
       renderAll();
     }
@@ -280,6 +281,7 @@ function commit(next, { navigateTo } = {}) {
   invalidateDiagnostics();
   state.undo.push(structuredClone(state.document)); if (state.undo.length > 100) state.undo.shift();
   state.redo = []; state.document = syncActiveChapter(value); state.validation = null; state.publishCandidate = null;
+  if (navigateTo !== undefined && navigateTo !== state.currentNodeID) disableRecordingMaiaForPositionChange();
   if (navigateTo !== undefined) state.currentNodeID = navigateTo;
   saveCrashRecovery(); renderAll(); updateSaveState();
 }
@@ -864,6 +866,12 @@ function clearRecordingMaia() {
   state.recordingMaiaToken += 1; state.recordingSuggestions = [];
   if (state.view === "recording") renderRecordingBoard();
 }
+function disableRecordingMaiaForPositionChange() {
+  // Maia arrows are temporary position-specific marks.  Invalidate the
+  // request before changing node so a late response cannot redraw them.
+  state.recordingMaiaEnabled = false;
+  clearRecordingMaia();
+}
 function clearRecordingEffect() {
   clearTimeout(state.recordingEffectTimer); cancelAnimationFrame(state.recordingEffectFrame); state.recordingEffectTimer = null; state.recordingEffectFrame = null;
   const effect = $("recording-effect"); effect.classList.remove("active", "recording-viking-active"); effect.style.backgroundImage = "";
@@ -884,16 +892,17 @@ async function loadEffects() {
 }
 function renderRecordingEffects() {
   const select = $("recording-effects"), value = select.value;
-  const builtins = `<option value="">Effects</option><option value="explosion">Explosion</option><option value="viking">Viking</option><option value="harry">harry</option><option value="pipe">pipe</option>`;
-  select.innerHTML = builtins + state.effects.map(item => `<option value="library:${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join("");
+  // Harry is position-derived rather than a library asset. Shipped files and
+  // custom uploads share the API list, so their names stay in sync here.
+  select.innerHTML = `<option value="">Effects</option>${state.effects.map(item => `<option value="library:${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join("")}<option value="harry">Harry</option>`;
   select.value = value;
 }
 function renderEffects() {
   const list = $("effects-list");
-  list.innerHTML = state.effects.map(item => `<article class="tool-card effect-row" data-effect-id="${escapeHTML(item.id)}"><video muted playsinline loop src="${escapeHTML(item.url)}"></video><strong>${escapeHTML(item.name)}</strong><span>${(item.durationMilliseconds / 1000).toFixed(1)}s</span><button class="secondary" data-effect-rename>Rename</button><label class="secondary file-action">Replace<input type="file" accept="video/webm" data-effect-replace></label><button class="secondary danger" data-effect-delete>Delete</button></article>`).join("") || `<div class="empty-state"><p>No saved effects yet.</p></div>`;
+  list.innerHTML = state.effects.map(item => { const preview = /\\.webp(?:[?#]|$)/i.test(item.url) ? `<img src="${escapeHTML(item.url)}" alt="">` : `<video muted playsinline loop src="${escapeHTML(item.url)}"></video>`; const reset = item.builtin ? "Reset" : "Delete"; return `<article class="tool-card effect-row" data-effect-id="${escapeHTML(item.id)}">${preview}<strong>${escapeHTML(item.name)}${item.builtin ? '<small>Built-in</small>' : ''}</strong><span>${(item.durationMilliseconds / 1000).toFixed(1)}s</span><button class="secondary" data-effect-rename>Rename</button><label class="secondary file-action">Replace<input type="file" accept="video/webm" data-effect-replace></label><button class="secondary danger" data-effect-delete>${reset}</button></article>`; }).join("") || `<div class="empty-state"><p>No saved effects yet.</p></div>`;
   list.querySelectorAll("video").forEach(video => { video.play().catch(() => {}); });
   list.querySelectorAll("[data-effect-rename]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id), name = prompt("Effect name", item?.name || ""); if (name === null) return; try { await api.renameEffect(id, name); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
-  list.querySelectorAll("[data-effect-delete]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId; if (!confirm("Delete this shared effect?")) return; try { await api.deleteEffect(id); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+  list.querySelectorAll("[data-effect-delete]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id), message = item?.builtin ? "Reset this built-in effect to its original name and media?" : "Delete this shared effect?"; if (!confirm(message)) return; try { await api.deleteEffect(id); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
   list.querySelectorAll("[data-effect-replace]").forEach(input => input.addEventListener("change", async () => { const file = input.files[0]; if (!file) return; try { await api.uploadEffect("", file, input.closest("[data-effect-id]").dataset.effectId); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
 }
 function previewEffectFile() { const file = $("effect-file").files[0]; if (state.effectPreviewURL) URL.revokeObjectURL(state.effectPreviewURL); state.effectPreviewURL = file ? URL.createObjectURL(file) : null; $("effect-preview-video").src = state.effectPreviewURL || ""; $("effect-preview").hidden = !file; $("effect-save").disabled = !(file && $("effect-name").value.trim()); }
@@ -972,7 +981,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { closeRecordingChoice(); clearRecordingEffect(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); clearRecordingMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
+function navigate(id) { if (id === state.currentNodeID) return; closeRecordingChoice(); clearRecordingEffect(); disableRecordingMaiaForPositionChange(); state.currentNodeID = id; state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1384,7 +1393,7 @@ $("add-course-video").addEventListener("click", () => {
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
-$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{const item=state.effects.find(effect=>event.target.value===`library:${effect.id}`);if(event.target.value==="explosion")playRecordingExplosion();if(event.target.value==="viking")playRecordingViking();if(event.target.value==="harry")playRecordingHarry();if(event.target.value==="pipe")playRecordingPipe();if(item)playRecordingLibraryEffect(item);event.target.value="";});
+$("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{const item=state.effects.find(effect=>event.target.value===`library:${effect.id}`);if(event.target.value==="explosion"||(item?.id==="builtin-explosion"&&item.url===recordingExplosionSource))playRecordingExplosion();else if(event.target.value==="viking"||(item?.id==="builtin-viking"&&item.url===recordingVikingSource))playRecordingViking();else if(event.target.value==="pipe"||(item?.id==="builtin-pipe"&&item.url===recordingPipeSource))playRecordingPipe();else if(event.target.value==="harry")playRecordingHarry();else if(item)playRecordingLibraryEffect(item);event.target.value="";});
 $("effect-file").addEventListener("change", previewEffectFile);$("effect-name").addEventListener("input", previewEffectFile);$("effect-save").addEventListener("click", async () => { const file=$("effect-file").files[0], name=$("effect-name").value.trim(); if(!file||!name)return; $("effect-error").textContent=""; try { await api.uploadEffect(name,file); $("effect-file").value=""; $("effect-name").value=""; previewEffectFile(); await loadEffects(); } catch(error) { $("effect-error").textContent=error.message; } });
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
@@ -1418,6 +1427,8 @@ function selectIndependentChapter(id, view = 'editor') {
   closeRecordingChoice();
   flushActiveEditor();
   invalidateDiagnostics();
+  const positionChanged = state.document.activeChapterID !== id || state.currentNodeID !== null;
+  if (positionChanged) disableRecordingMaiaForPositionChange();
   state.document = activateChapter(state.document, id);
   state.currentNodeID = null; state.previewAttempt = null; state.analysisToken += 1;
   stopEditorMaia(); editorEngine.cancel();

@@ -23,7 +23,13 @@ MAX_DIMENSION = 2048
 TRANSCODE_CONCURRENCY = max(1, min(2, int(os.getenv("STUDIO_EFFECTS_TRANSCODE_CONCURRENCY", "1"))))
 ENCODER_THREADS = max(1, min(4, int(os.getenv("STUDIO_EFFECTS_ENCODER_THREADS", "2"))))
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Robots-Tag": "noindex, nofollow, noarchive"}
-ID = re.compile(r"^[a-f0-9-]{36}$")
+ID = re.compile(r"^(?:[a-f0-9-]{36}|builtin-(?:explosion|viking|pipe))$")
+BUILTINS = (
+    {"id": "builtin-explosion", "name": "Explosion", "durationMilliseconds": 4000, "source": "/static/media/recording-explosion.webp"},
+    {"id": "builtin-viking", "name": "Viking", "durationMilliseconds": 3000, "source": "/static/media/recording-viking.webp"},
+    {"id": "builtin-pipe", "name": "Pipe", "durationMilliseconds": 3000, "source": "/static/media/recording-pipe.webm"},
+)
+BUILTIN_IDS = {item["id"] for item in BUILTINS}
 _process_mutation_lock = asyncio.Lock()
 _transcode_admission = asyncio.Semaphore(TRANSCODE_CONCURRENCY)
 
@@ -35,7 +41,7 @@ def root() -> Path:
 
 
 def is_effect_path(path: str) -> bool:
-    return path == "effects" or bool(re.fullmatch(r"effects/[a-f0-9-]{36}(?:/media)?", path))
+    return path == "effects" or bool(re.fullmatch(r"effects/(?:[a-f0-9-]{36}|builtin-(?:explosion|viking|pipe))(?:/media)?", path))
 
 
 def load_index() -> list[dict]:
@@ -83,7 +89,26 @@ async def mutation_transaction():
 
 
 def public(item: dict) -> dict:
-    return {"id": item["id"], "name": item["name"], "durationMilliseconds": item["durationMilliseconds"], "url": f"/studio/api/effects/{item['id']}/media"}
+    return {"id": item["id"], "name": item["name"], "durationMilliseconds": item["durationMilliseconds"], "url": item.get("source") or f"/studio/api/effects/{item['id']}/media", "builtin": bool(item.get("builtin")), "resettable": bool(item.get("resettable"))}
+
+
+def library_items(index: list[dict] | None = None) -> list[dict]:
+    """Merge release-shipped effects with durable author overrides.
+
+    A built-in is always available.  Its optional index entry changes the name
+    and/or supplies a normalized WebM replacement; Reset removes only that
+    override, never a release asset.
+    """
+    index = load_index() if index is None else index
+    overrides = {item["id"]: item for item in index if item.get("id") in BUILTIN_IDS}
+    items = []
+    for builtin in BUILTINS:
+        override = overrides.get(builtin["id"], {})
+        replacement = root() / f"{builtin['id']}.webm"
+        has_replacement = bool(override.get("replacement") and replacement.is_file())
+        items.append({**builtin, "name": override.get("name", builtin["name"]), "durationMilliseconds": override.get("durationMilliseconds", builtin["durationMilliseconds"]), "source": None if has_replacement else builtin["source"], "builtin": True, "resettable": bool(override)})
+    items.extend(item for item in index if item.get("id") not in BUILTIN_IDS)
+    return items
 
 
 async def require_author(request, upstream_read, allowed_origins, *, mutation=False):
@@ -157,9 +182,9 @@ async def _stream_to(request, destination: Path):
 async def dispatch(path, request, upstream_read, allowed_origins):
     parts = path.split("/"); is_media = len(parts) == 3 and parts[2] == "media"; mutation = request.method in {"POST", "PUT", "DELETE"}
     await require_author(request, upstream_read, allowed_origins, mutation=mutation)
-    if path == "effects" and request.method == "GET": return JSONResponse({"effects": [public(item) for item in load_index()]}, headers=HEADERS)
+    if path == "effects" and request.method == "GET": return JSONResponse({"effects": [public(item) for item in library_items()]}, headers=HEADERS)
     if is_media and request.method == "GET":
-        item = next((item for item in load_index() if item["id"] == parts[1]), None); file = root() / f"{parts[1]}.webm"
+        item = next((item for item in library_items() if item["id"] == parts[1]), None); file = root() / f"{parts[1]}.webm"
         if not item or not file.is_file(): raise HTTPException(404, "Effect not found")
         return FileResponse(file, media_type="video/webm", headers={**HEADERS, "Cache-Control": "private, max-age=60"})
     if path == "effects" and request.method == "POST":
@@ -178,10 +203,26 @@ async def dispatch(path, request, upstream_read, allowed_origins):
             finally: source.unlink(missing_ok=True); target.unlink(missing_ok=True)
     if len(parts) != 2 or not ID.fullmatch(parts[1]): raise HTTPException(404, "Effect not found")
     async with mutation_transaction():
-        index = load_index(); item = next((candidate for candidate in index if candidate["id"] == parts[1]), None)
+        index = load_index(); item = next((candidate for candidate in library_items(index) if candidate["id"] == parts[1]), None)
         if not item: raise HTTPException(404, "Effect not found")
+        builtin = item["id"] in BUILTIN_IDS
         media = root() / f"{item['id']}.webm"
         if request.method == "DELETE":
+            if builtin:
+                # Reset removes only the author-created metadata/replacement;
+                # the release-shipped original remains available.
+                tombstone = _temporary(root(), ".reset.webm")
+                tombstone.unlink()
+                if media.exists(): media.replace(tombstone)
+                try:
+                    save_index([candidate for candidate in index if candidate["id"] != item["id"]])
+                    tombstone.unlink(missing_ok=True)
+                except BaseException:
+                    if tombstone.exists(): tombstone.replace(media)
+                    raise
+                finally:
+                    tombstone.unlink(missing_ok=True)
+                return JSONResponse({}, status_code=204, headers=HEADERS)
             tombstone = _temporary(root(), ".delete.webm")
             try:
                 media.replace(tombstone)
@@ -202,14 +243,27 @@ async def dispatch(path, request, upstream_read, allowed_origins):
             if content_type.startswith("application/json"):
                 try: renamed = {**item, "name": valid_name((await request.json()).get("name"))}
                 except ValueError: raise HTTPException(422, "Invalid effect name") from None
-                save_index([renamed if candidate["id"] == item["id"] else candidate for candidate in index]); return JSONResponse({"effect": public(renamed)}, headers=HEADERS)
+                if builtin: renamed = {"id": item["id"], "name": renamed["name"], "durationMilliseconds": item["durationMilliseconds"], "replacement": media.is_file()}
+                updated = [renamed if candidate["id"] == item["id"] else candidate for candidate in index]
+                if not any(candidate["id"] == item["id"] for candidate in index): updated.append(renamed)
+                save_index(updated)
+                current = next(candidate for candidate in library_items() if candidate["id"] == item["id"])
+                return JSONResponse({"effect": public(current)}, headers=HEADERS)
             if content_type.split(";", 1)[0] not in {"video/webm", "application/octet-stream"}: raise HTTPException(422, "Choose a replacement WebM effect")
             source, target, backup = _temporary(root(), ".incoming.webm"), _temporary(root(), ".normalized.webm"), _temporary(root(), ".rollback.webm"); target.unlink(); backup.unlink()
             try:
-                await _stream_to(request, source); duration = await normalize_with_admission(source, target); shutil.copyfile(media, backup); target.replace(media)
+                await _stream_to(request, source); duration = await normalize_with_admission(source, target)
+                if media.exists(): shutil.copyfile(media, backup)
+                target.replace(media)
                 replacement = {**item, "durationMilliseconds": duration}
-                try: save_index([replacement if candidate["id"] == item["id"] else candidate for candidate in index])
-                except BaseException: backup.replace(media); raise
-                backup.unlink(missing_ok=True); return JSONResponse({"effect": public(replacement)}, headers=HEADERS)
+                if builtin: replacement = {"id": item["id"], "name": item["name"], "durationMilliseconds": duration, "replacement": True}
+                try: save_index([replacement if candidate["id"] == item["id"] else candidate for candidate in index] + ([] if any(candidate["id"] == item["id"] for candidate in index) else [replacement]))
+                except BaseException:
+                    if backup.exists(): backup.replace(media)
+                    else: media.unlink(missing_ok=True)
+                    raise
+                backup.unlink(missing_ok=True)
+                current = next(candidate for candidate in library_items() if candidate["id"] == item["id"])
+                return JSONResponse({"effect": public(current)}, headers=HEADERS)
             finally: source.unlink(missing_ok=True); target.unlink(missing_ok=True); backup.unlink(missing_ok=True)
     raise HTTPException(405, "Method not allowed")

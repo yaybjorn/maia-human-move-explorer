@@ -110,6 +110,24 @@ def test_effect_library_rejects_bad_name_and_non_webm(tmp_path, monkeypatch):
         assert response.status_code == 422
 
 
+def test_builtins_are_managed_library_records_and_reset_without_touching_static_media(tmp_path, monkeypatch):
+    source = tmp_path / "input.webm"; webm(source)
+    client = configured_client(tmp_path, monkeypatch)
+    with client:
+        initial = {item["id"]: item for item in client.get("/studio/api/effects").json()["effects"]}
+        assert set(initial).issuperset({"builtin-explosion", "builtin-viking", "builtin-pipe"})
+        assert initial["builtin-explosion"]["url"] == "/static/media/recording-explosion.webp"
+        renamed = client.put("/studio/api/effects/builtin-explosion", headers={"Origin": "https://studio.test", "X-CSRF-Token": "csrf"}, json={"name": "Big bang"})
+        assert renamed.status_code == 200 and renamed.json()["effect"]["name"] == "Big bang"
+        replaced = client.put("/studio/api/effects/builtin-explosion", headers=headers(), content=source.read_bytes())
+        assert replaced.status_code == 200 and replaced.json()["effect"]["url"].endswith("/builtin-explosion/media")
+        assert (tmp_path / "builtin-explosion.webm").is_file()
+        assert client.delete("/studio/api/effects/builtin-explosion", headers=headers()).status_code == 204
+        reset = {item["id"]: item for item in client.get("/studio/api/effects").json()["effects"]}["builtin-explosion"]
+        assert reset["name"] == "Explosion" and reset["url"] == "/static/media/recording-explosion.webp"
+        assert not (tmp_path / "builtin-explosion.webm").exists()
+
+
 def test_normalization_preserves_known_nonopaque_alpha(tmp_path):
     source, target = tmp_path / "source.webm", tmp_path / "normalized.webm"
     alpha_webm(source)
