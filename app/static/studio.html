@@ -236,6 +236,13 @@
   <dialog id="publish-dialog" aria-labelledby="publish-title">
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><p id="publish-feedback" class="publish-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p><div class="dialog-actions"><button id="publish-history" class="secondary" hidden>Check Version history</button><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
+  <dialog id="delete-effect-dialog" aria-labelledby="delete-effect-title">
+    <form id="delete-effect-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading"><div><p class="eyebrow">Shared effects</p><h2 id="delete-effect-title">Delete effect?</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <p id="delete-effect-message">This effect will be removed from the shared library and Recording picker.</p>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="delete" class="primary danger">Delete effect</button></div>
+    </form>
+  </dialog>
 
   <!-- Revision the root module with its nested document dependency: a normal
        reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->

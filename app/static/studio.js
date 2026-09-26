@@ -908,11 +908,21 @@ function renderRecordingEffects() {
 }
 function renderEffects() {
   const list = $("effects-list");
-  list.innerHTML = state.effects.map(item => { const preview = /\\.webp(?:[?#]|$)/i.test(item.url) ? `<img src="${escapeHTML(item.url)}" alt="">` : `<video muted playsinline loop src="${escapeHTML(item.url)}"></video>`; const reset = item.builtin ? "Reset" : "Delete"; return `<article class="tool-card effect-row" data-effect-id="${escapeHTML(item.id)}">${preview}<strong>${escapeHTML(item.name)}${item.builtin ? '<small>Built-in</small>' : ''}</strong><span>${(item.durationMilliseconds / 1000).toFixed(1)}s</span><button class="secondary" data-effect-rename>Rename</button><label class="secondary file-action">Replace<input type="file" accept="video/webm" data-effect-replace></label><button class="secondary danger" data-effect-delete>${reset}</button></article>`; }).join("") || `<div class="empty-state"><p>No saved effects yet.</p></div>`;
+  list.innerHTML = state.effects.map(item => { const preview = /\.webp(?:[?#]|$)/i.test(item.url) ? `<img src="${escapeHTML(item.url)}" alt="">` : `<video muted playsinline loop preload="metadata" src="${escapeHTML(item.url)}"></video>`; return `<article class="tool-card effect-row" data-effect-id="${escapeHTML(item.id)}">${preview}<strong>${escapeHTML(item.name)}${item.builtin ? '<small>Built-in</small>' : ''}</strong><span>${(item.durationMilliseconds / 1000).toFixed(1)}s</span><button class="secondary" data-effect-rename>Rename</button><label class="secondary file-action">Replace<input type="file" accept="video/webm" data-effect-replace></label><button class="secondary danger" data-effect-delete>Delete</button></article>`; }).join("") || `<div class="empty-state"><p>No saved effects yet.</p></div>`;
   list.querySelectorAll("video").forEach(video => { video.play().catch(() => {}); });
   list.querySelectorAll("[data-effect-rename]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id), name = prompt("Effect name", item?.name || ""); if (name === null) return; try { await api.renameEffect(id, name); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
-  list.querySelectorAll("[data-effect-delete]").forEach(button => button.addEventListener("click", async () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id), message = item?.builtin ? "Reset this built-in effect to its original name and media?" : "Delete this shared effect?"; if (!confirm(message)) return; try { await api.deleteEffect(id); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+  list.querySelectorAll("[data-effect-delete]").forEach(button => button.addEventListener("click", () => { const id = button.closest("[data-effect-id]").dataset.effectId, item = state.effects.find(effect => effect.id === id); openEffectDeleteDialog(item); }));
   list.querySelectorAll("[data-effect-replace]").forEach(input => input.addEventListener("change", async () => { const file = input.files[0]; if (!file) return; try { await api.uploadEffect("", file, input.closest("[data-effect-id]").dataset.effectId); await loadEffects(); } catch (error) { showStatus(error.message, true); } }));
+}
+function openEffectDeleteDialog(item) {
+  if (!item) return;
+  const dialog = $("delete-effect-dialog");
+  dialog.dataset.effectId = item.id;
+  $("delete-effect-title").textContent = `Delete ${item.name}?`;
+  $("delete-effect-message").textContent = item.builtin
+    ? "This built-in effect will be hidden from the shared library and Recording picker. Its bundled original is preserved."
+    : "This shared effect will be removed from the library and Recording picker.";
+  dialog.showModal();
 }
 function previewEffectFile() { const file = $("effect-file").files[0]; if (state.effectPreviewURL) URL.revokeObjectURL(state.effectPreviewURL); state.effectPreviewURL = file ? URL.createObjectURL(file) : null; $("effect-preview-video").src = state.effectPreviewURL || ""; $("effect-preview").hidden = !file; $("effect-save").disabled = !(file && $("effect-name").value.trim()); }
 function playRecordingExplosion() {
@@ -1386,6 +1396,7 @@ $("load-more-user-games").addEventListener("click",()=>loadUserGames({append:tru
 $("toggle-sidebar").addEventListener("click",()=>setSidebarCollapsed(!state.sidebarCollapsed));
 document.querySelectorAll("[data-jump-editor]").forEach(button=>button.addEventListener("click",()=>switchView("editor")));
 $("new-course").addEventListener("click",()=>{$("create-form").reset();delete $("create-form").elements.slug.dataset.edited;$("create-dialog").showModal()});
+$("delete-effect-form").addEventListener("submit", async event => { if (event.submitter?.value !== "delete") return; event.preventDefault(); const dialog = $("delete-effect-dialog"), id = dialog.dataset.effectId; if (!id) return; const button = event.submitter; setBusy(button, true, "Deleting…"); try { await api.deleteEffect(id); dialog.close(); delete dialog.dataset.effectId; await loadEffects(); showStatus("Effect deleted."); } catch (error) { showStatus(error.message, true); } finally { setBusy(button, false); } });
 $("create-form").elements.title.addEventListener("input",event=>{const slug=$("create-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("create-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
 $("create-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget));const document=newChapterCourse(data);try{const payload=await api.createCourse({...data,document});$("create-dialog").close();await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});

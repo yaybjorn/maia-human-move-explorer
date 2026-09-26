@@ -95,15 +95,18 @@ def public(item: dict) -> dict:
 def library_items(index: list[dict] | None = None) -> list[dict]:
     """Merge release-shipped effects with durable author overrides.
 
-    A built-in is always available.  Its optional index entry changes the name
-    and/or supplies a normalized WebM replacement; Reset removes only that
-    override, never a release asset.
+    An author can hide a built-in without deleting its release asset. Its
+    optional index entry changes the name and/or supplies a normalized WebM
+    replacement; a deleted marker keeps that audit/override data durable while
+    removing the item from both authoring surfaces.
     """
     index = load_index() if index is None else index
     overrides = {item["id"]: item for item in index if item.get("id") in BUILTIN_IDS}
     items = []
     for builtin in BUILTINS:
         override = overrides.get(builtin["id"], {})
+        if override.get("deleted"):
+            continue
         replacement = root() / f"{builtin['id']}.webm"
         has_replacement = bool(override.get("replacement") and replacement.is_file())
         items.append({**builtin, "name": override.get("name", builtin["name"]), "durationMilliseconds": override.get("durationMilliseconds", builtin["durationMilliseconds"]), "source": None if has_replacement else builtin["source"], "builtin": True, "resettable": bool(override)})
@@ -209,27 +212,11 @@ async def dispatch(path, request, upstream_read, allowed_origins):
         media = root() / f"{item['id']}.webm"
         if request.method == "DELETE":
             if builtin:
-                # Reset removes only the author-created metadata/replacement;
-                # the release-shipped original remains available.
-                tombstone = _temporary(root(), ".reset.webm")
-                tombstone.unlink()
-                if media.exists(): media.replace(tombstone)
-                try:
-                    save_index([candidate for candidate in index if candidate["id"] != item["id"]])
-                    try:
-                        tombstone.unlink(missing_ok=True)
-                    except OSError as error:
-                        # The index and media are one durable state: roll back
-                        # both if cleanup cannot complete.
-                        save_index(index)
-                        if tombstone.exists(): tombstone.replace(media)
-                        raise HTTPException(503, "Built-in effect reset could not be completed") from error
-                except BaseException:
-                    if tombstone.exists() and not media.exists(): tombstone.replace(media)
-                    raise
-                finally:
-                    try: tombstone.unlink(missing_ok=True)
-                    except OSError: pass
+                # Release assets are immutable. Keep any author replacement as
+                # audit data, but durably hide this built-in from the library.
+                override = next((candidate for candidate in index if candidate["id"] == item["id"]), {"id": item["id"]})
+                deleted = {**override, "id": item["id"], "deleted": True, "deletedAt": time.time()}
+                save_index([deleted if candidate["id"] == item["id"] else candidate for candidate in index] + ([] if any(candidate["id"] == item["id"] for candidate in index) else [deleted]))
                 return JSONResponse({}, status_code=204, headers=HEADERS)
             tombstone = _temporary(root(), ".delete.webm")
             try:

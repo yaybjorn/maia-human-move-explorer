@@ -1,0 +1,21 @@
+{
+  "repo": "/Users/odin/.openclaw/workspace/repos/web/maia-human-move-explorer",
+  "task_id": "studio-effects-preview-delete",
+  "run_id": "effects-preview-delete-20260926-2220",
+  "owner": "brokkr-effects-preview",
+  "goal": "Make every shared effect preview visibly render and make Delete truthful and durable.",
+  "acceptance": ["Explosion, Viking and Pipe previews visibly render", "Delete confirmation can cancel or remove a fixture", "Deleted effects stay absent from Effects and Recording after reload", "Bundled originals remain untouched"],
+  "result": "Built-in WebP effects use visible image thumbnails; every effect has Delete with a modal confirmation. Built-in deletion writes a durable hidden marker while preserving bundled release media and any author override media.",
+  "remaining_checks": ["independent Sol persistence-contract review before any deploy"],
+  "evidence": [
+    "web_work_control admit: already_owned for task/run/owner",
+    "terminal_delivery_router recovery: first_recovery allowed",
+    "node --check app/static/studio.js: passed",
+    "node --test tests/studio-effects-ui.test.mjs: 2 passed",
+    ".venv/bin/pytest -q tests/test_effects_library.py: 12 passed",
+    "local Playwright fixture: Explosion/Viking image decode and Pipe video decode visible; cancel leaves Viking listed; confirmed disposable delete remains absent from Effects and Recording after reload; built-ins intact"
+  ],
+  "status": "review-ready",
+  "phase": "independent-review",
+  "updated_at": "2026-09-26T22:29:00Z"
+}

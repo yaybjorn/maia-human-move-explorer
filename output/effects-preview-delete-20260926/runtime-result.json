@@ -1,0 +1,34 @@
+{
+  "previews": {
+    "Explosion": {
+      "tag": "IMG",
+      "naturalWidth": 512,
+      "visible": true
+    },
+    "Viking": {
+      "tag": "IMG",
+      "naturalWidth": 702,
+      "visible": true
+    },
+    "Pipe": {
+      "tag": "VIDEO",
+      "width": 800,
+      "readyState": 4,
+      "visible": true
+    }
+  },
+  "cancel": {
+    "dialogOpen": 0,
+    "stillListed": 1
+  },
+  "confirm": {
+    "id": "435826cb-b342-46aa-8feb-f447d338b650",
+    "effectsAbsent": true,
+    "recordingAbsent": true,
+    "builtinsIntact": true
+  },
+  "failures": [],
+  "screenshots": [
+    "effects-previews.png"
+  ]
+}
