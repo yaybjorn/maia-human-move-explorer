@@ -237,9 +237,9 @@
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><p id="publish-feedback" class="publish-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p><div class="dialog-actions"><button id="publish-history" class="secondary" hidden>Check Version history</button><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
 
-  <!-- Revision the root module as well as the recovery panel: a normal reload
-       must fetch the entrypoint that imports the read-only recovery control. -->
-  <script type="module" src="/static/studio.js?v=20260926-upload-recovery-entry"></script>
+  <!-- Revision the root module with its nested document dependency: a normal
+       reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->
+  <script type="module" src="/static/studio.js?v=20260926-writing-ellipsis"></script>
 
 </body>
 </html>

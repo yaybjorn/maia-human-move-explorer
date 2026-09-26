@@ -1,4 +1,4 @@
-import { youtubeEmbedURL } from './studio-document.mjs';
+import { youtubeEmbedURL } from './studio-document.mjs?v=20260926-writing-ellipsis';
 
 const ACTIVE = new Set(['queued', 'running']);
 const KINDS = ['screened', 'changes', 'raw'];

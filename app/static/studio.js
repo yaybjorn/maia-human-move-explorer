@@ -1,4 +1,4 @@
-import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
+import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
 // pre-control module from its HTTP cache.
@@ -13,7 +13,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260923-chapters";
+} from "./studio-document.mjs?v=20260926-writing-ellipsis";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
