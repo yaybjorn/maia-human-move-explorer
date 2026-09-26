@@ -1,5 +1,8 @@
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260908-video-fen";
-import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260923-chapters";
+// Keep the recovery-control module revisioned independently. Studio is often
+// kept open through a failed upload; a normal reload must not retain the
+// pre-control module from its HTTP cache.
+import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260926-upload-recovery-control";
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
 
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";

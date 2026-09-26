@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createUploadPanel } from "../app/static/studio-upload-panel.mjs";
 import { StagedUpload } from "../app/static/studio-upload.mjs?v=20260923-chapters";
+import fs from "node:fs";
 function dom() {
   const nodes = Object.fromEntries(["title", "video", "thumbnail", "start", "check", "pause", "status", "progress"].map(id => [id, { value: "", disabled: false, listeners: {}, addEventListener(event, fn) { this.listeners[event] = fn; } }]));
   return { nodes, root: { hidden: true, querySelector: s => nodes[s.match(/"(\w+)"/)[1]] } };
@@ -38,6 +39,10 @@ test("blocked saved upload exposes only the read-only progress check", () => {
   assert.equal(nodes.check.hidden, false);
   assert.equal(nodes.check.disabled, false);
   assert.match(nodes.status.textContent, /No operation will be repeated/);
+});
+test("Studio revisions the recovery-control module so a reload cannot retain its pre-control cache entry", () => {
+  const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
+  assert.match(source, /studio-upload-panel\.mjs\?v=20260926-upload-recovery-control/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
