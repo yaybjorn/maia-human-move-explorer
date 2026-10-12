@@ -189,6 +189,7 @@ function renderDashboard() {
 async function openCourse(id, { discardUnsaved = false } = {}) {
   if (dirty() && !discardUnsaved && !confirm("Discard your unsaved changes and open another course?")) return false;
   closeRecordingChoice();
+  closeEditorChoice();
   invalidateDiagnostics();
   stopEditorMaia(); state.analysisToken += 1;
   showStatus("Opening course…");
@@ -399,6 +400,7 @@ function markPendingInput(){if(!state.document)return;invalidateDiagnostics();ex
 function switchView(view) {
   if (view === "videos") view = "game-videos"; // Legacy deep link: course-level YouTube game videos.
   if (view !== "recording") closeRecordingChoice();
+  if (view !== "editor") closeEditorChoice();
   if (view !== "chapter-video") extractionPanel.suspend();
   if (view === "analysis") view = "editor";
   if (!["dashboard", "effects"].includes(view) && !state.document) view = "dashboard";
@@ -785,6 +787,49 @@ function scrollRecordingCurrentIntoView() {
   if (moveRect.top < treeRect.top) tree.scrollTop += moveRect.top - treeRect.top;
   else if (moveRect.bottom > treeRect.bottom) tree.scrollTop += moveRect.bottom - treeRect.bottom;
 }
+function scrollEditorCurrentIntoView() {
+  const tree = $("move-tree"), current = tree.querySelector(".move-chip.current");
+  if (!current) return;
+  const treeRect = tree.getBoundingClientRect(), moveRect = current.getBoundingClientRect();
+  if (moveRect.top < treeRect.top) tree.scrollTop += moveRect.top - treeRect.top;
+  else if (moveRect.bottom > treeRect.bottom) tree.scrollTop += moveRect.bottom - treeRect.bottom;
+}
+function closeEditorChoice({ restoreFocus = false } = {}) {
+  const choice = $("editor-choice");
+  if (choice.hidden) return;
+  const restore = choice._restoreFocus;
+  choice.hidden = true; choice._options = null; choice._selectedIndex = 0; choice._restoreFocus = null;
+  if (restoreFocus && restore?.isConnected) restore.focus();
+}
+function selectEditorChoice(index) {
+  const choice = $("editor-choice"), options = choice._options || [];
+  if (!options.length) return;
+  choice._selectedIndex = (index + options.length) % options.length;
+  choice.querySelectorAll(".editor-choice-option").forEach((button, optionIndex) => {
+    const selected = optionIndex === choice._selectedIndex;
+    button.setAttribute("aria-selected", String(selected));
+    if (selected) button.focus();
+  });
+}
+function confirmEditorChoice() {
+  const choice = $("editor-choice"), node = choice._options?.[choice._selectedIndex];
+  if (!node) return;
+  closeEditorChoice(); navigate(node.id);
+}
+function advanceEditor(initiator) {
+  flushActiveEditor();
+  const options = childrenOf(state.document, state.currentNodeID);
+  if (options.length < 2) { if (options[0]) navigate(options[0].id); return; }
+  const choice = $("editor-choice"), list = $("editor-choice-options");
+  choice._options = options; choice._selectedIndex = 0; choice._restoreFocus = initiator || document.activeElement;
+  list.innerHTML = "";
+  options.forEach((node, index) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "editor-choice-option";
+    button.setAttribute("role", "option"); button.setAttribute("aria-selected", String(index === 0)); button.textContent = moveLabel(node);
+    button.addEventListener("click", () => { choice._selectedIndex = index; confirmEditorChoice(); }); list.append(button);
+  });
+  choice.hidden = false; selectEditorChoice(0);
+}
 function closeRecordingChoice({ restoreFocus = false } = {}) {
   const choice = $("recording-choice");
   if (choice.hidden) return;
@@ -1000,7 +1045,7 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { if (id === state.currentNodeID) return; closeRecordingChoice(); clearRecordingEffect(); setEffectivePosition(state.document, id); state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); refreshPosition(); }
+function navigate(id) { closeRecordingChoice(); closeEditorChoice(); if (id === state.currentNodeID) return; clearRecordingEffect(); setEffectivePosition(state.document, id); state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); else if (state.view === "editor") requestAnimationFrame(scrollEditorCurrentIntoView); refreshPosition(); }
 function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
 function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
 
@@ -1414,7 +1459,7 @@ $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:v
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
 $("delete-chapter-form").addEventListener("submit", event => { if (event.submitter?.value === "delete") confirmChapterDelete(); else state.pendingChapterDeleteID = null; });
 $("delete-chapter-dialog").addEventListener("cancel", () => { state.pendingChapterDeleteID = null; });
-$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
+$("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",event=>advanceEditor(event.currentTarget));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{const item=state.effects.find(effect=>event.target.value===`library:${effect.id}`);if(event.target.value==="explosion"||(item?.id==="builtin-explosion"&&item.url===recordingExplosionSource))playRecordingExplosion();else if(event.target.value==="viking"||(item?.id==="builtin-viking"&&item.url===recordingVikingSource))playRecordingViking();else if(event.target.value==="pipe"||(item?.id==="builtin-pipe"&&item.url===recordingPipeSource))playRecordingPipe();else if(event.target.value==="harry")playRecordingHarry();else if(item)playRecordingLibraryEffect(item);event.target.value="";});
 $("effect-file").addEventListener("change", previewEffectFile);$("effect-name").addEventListener("input", previewEffectFile);$("effect-save").addEventListener("click", async () => { const file=$("effect-file").files[0], name=$("effect-name").value.trim(); if(!file||!name)return; $("effect-error").textContent=""; try { await api.uploadEffect(name,file); $("effect-file").value=""; $("effect-name").value=""; previewEffectFile(); await loadEffects(); } catch(error) { $("effect-error").textContent=error.message; } });
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
@@ -1429,7 +1474,7 @@ $("raw-pgn").addEventListener("click",async()=>{try{$("raw-pgn-text").value=awai
 $("raw-pgn-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();const button=$("apply-raw-pgn"),pgn=$("raw-pgn-text").value;setBusy(button,true,"Parsing…");$("raw-pgn-error").textContent="";try{await api.importPGN(pgn);const parsed=await analysisAPI.parsePGN(pgn),imported=importParsedPGN(parsed,state.document.metadata),next=structuralDocument(state.document,{...imported,sourcePGN:pgn,ignoredSuggestionIDs:state.document.ignoredSuggestionIDs,ignoredWords:state.document.ignoredWords});commit(next,{navigateTo:null});$("raw-pgn-dialog").close();refreshPosition();showStatus("Raw PGN parsed and applied.")}catch(error){$("raw-pgn-error").textContent=error.message}finally{setBusy(button,false)}});
 $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$("conflict-reload").addEventListener("click",async()=>{$("conflict-dialog").close();await openCourse(state.courseID,{discardUnsaved:true})});
 document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
-document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]"), choiceOpen=!$("recording-choice").hidden;if(choiceOpen){if(["ArrowUp","ArrowDown","Enter","ArrowRight","Escape"].includes(event.key))event.preventDefault();if(event.key==="ArrowUp")selectRecordingChoice($("recording-choice")._selectedIndex-1);if(event.key==="ArrowDown")selectRecordingChoice($("recording-choice")._selectedIndex+1);if(event.key==="Enter"||event.key==="ArrowRight")confirmRecordingChoice();if(event.key==="Escape")closeRecordingChoice({restoreFocus:true});return}if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"){if(state.view==="recording")advanceRecording($("recording-go-forward"));else if(nextNode())navigate(nextNode().id)}}});
+document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]"), recordingChoiceOpen=!$("recording-choice").hidden, editorChoiceOpen=!$("editor-choice").hidden;if(recordingChoiceOpen||editorChoiceOpen){const choiceID=recordingChoiceOpen?"recording-choice":"editor-choice", selectChoice=recordingChoiceOpen?selectRecordingChoice:selectEditorChoice, confirmChoice=recordingChoiceOpen?confirmRecordingChoice:confirmEditorChoice, closeChoice=recordingChoiceOpen?closeRecordingChoice:closeEditorChoice;if(["ArrowUp","ArrowDown","Enter","ArrowRight","Escape"].includes(event.key))event.preventDefault();if(event.key==="ArrowUp")selectChoice($(choiceID)._selectedIndex-1);if(event.key==="ArrowDown")selectChoice($(choiceID)._selectedIndex+1);if(event.key==="Enter"||event.key==="ArrowRight")confirmChoice();if(event.key==="Escape")closeChoice({restoreFocus:true});return}if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"){if(state.view==="recording")advanceRecording($("recording-go-forward"));else advanceEditor($("go-forward"))}}});
 window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
@@ -1447,6 +1492,7 @@ async function exportAllChapterSources(document) {
 }
 function selectIndependentChapter(id, view = 'editor') {
   closeRecordingChoice();
+  closeEditorChoice();
   flushActiveEditor();
   invalidateDiagnostics();
   setEffectivePosition(activateChapter(state.document, id), null);
