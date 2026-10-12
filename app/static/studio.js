@@ -1654,7 +1654,7 @@ function renderChapterVideoControls(chapter) {
   if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; document.querySelector('[data-panel="chapter-video"] .page-heading').after(box); }
   box.innerHTML = chapter?.video
     ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
-    : chapter?.videoUploadID ? '<p>Checking video…</p>' : '';
+    : chapter?.videoUploadID ? '<p>Checking video…</p><button id="retry-chapter-video" class="secondary" type="button">Retry validation</button>' : '';
   $('remove-chapter-video')?.addEventListener('click', async () => {
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(item => item.id === chapter.id);
     if (!current) return;
@@ -1665,6 +1665,7 @@ function renderChapterVideoControls(chapter) {
       showStatus('Video removed.');
     }
   });
+  $('retry-chapter-video')?.addEventListener('click', () => startChapterVideoValidation(chapter.id));
 }
 async function startChapterVideoValidation(chapterID) {
   if (!await saveDraft({quiet:true})) return;

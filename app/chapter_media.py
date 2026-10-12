@@ -20,6 +20,11 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
 MAX_BYTES = 2 * 1024**3
+# QuickTime commonly writes its index at the end of an otherwise valid MP4.
+# Keep that private seek buffer anonymous and strictly bounded: it is never a
+# pathname, cache entry or durable host-media file. Two validator slots cap the
+# aggregate anonymous buffer at 1 GiB.
+MAX_SEEKABLE_BYTES = 512 * 1024**2
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 ROUTE = re.compile(r"courses/([a-f0-9-]{36})/chapter-media/([a-f0-9-]{36})(?:/(validate|download|play))?")
 _tasks: dict[str, asyncio.Task] = {}
@@ -106,10 +111,52 @@ async def decode_stream(url, headers, *, probe=False):
         await asyncio.gather(reader, return_exceptions=True)
 
 
+async def decode_seekable(url, headers, *, probe=False):
+    """Retry only a completed private object through an anonymous bounded fd."""
+    if not hasattr(os, "memfd_create"):
+        raise ValueError("seekable validation is unavailable")
+    fd = os.memfd_create("gingergm-chapter-video", os.MFD_CLOEXEC)
+    digest, count = hashlib.sha256(), 0
+    try:
+        async with (httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), follow_redirects=False) as client,
+                    client.stream("GET", url, headers=headers) as response):
+            if response.status_code != 200:
+                raise ValueError("private upload unavailable")
+            length = int(response.headers.get("content-length", "0"))
+            if not 0 < length <= MAX_SEEKABLE_BYTES:
+                raise ValueError("seekable validation size limit")
+            async for chunk in response.aiter_bytes(65536):
+                count += len(chunk)
+                if count > length:
+                    raise ValueError("size mismatch")
+                digest.update(chunk)
+                os.write(fd, chunk)
+            if count != length:
+                raise ValueError("truncated file")
+        args = (["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", f"/proc/self/fd/{fd}"]
+                if probe else ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-threads", "1",
+                                "-i", f"/proc/self/fd/{fd}", "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"])
+        process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL, pass_fds=(fd,))
+        output, _ = await process.communicate()
+        if process.returncode != 0:
+            raise ValueError("decode failed")
+        return (json.loads(output) if probe else None), digest.hexdigest(), count
+    finally:
+        os.close(fd)
+
+
 async def validate_video(path, record, url, headers, secret):
     try:
         async with _capacity:
-            info, probe_hash, probe_bytes = await decode_stream(url, headers, probe=True)
+            try:
+                info, probe_hash, probe_bytes = await decode_stream(url, headers, probe=True)
+                decoder = decode_stream
+            except ValueError:
+                # A seek-dependent trailing-moov MP4 is retried privately from an
+                # anonymous, bounded fd; malformed/unsupported inputs still fail.
+                info, probe_hash, probe_bytes = await decode_seekable(url, headers, probe=True)
+                decoder = decode_seekable
             streams = info.get("streams", [])
             videos = [s for s in streams if s.get("codec_type") == "video"]
             audios = [s for s in streams if s.get("codec_type") == "audio"]
@@ -122,7 +169,7 @@ async def validate_video(path, record, url, headers, secret):
                     or not 0 < videos[0].get("width", 0) <= 4096
                     or not 0 < videos[0].get("height", 0) <= 4096):
                 raise ValueError("format")
-            _, digest, size = await decode_stream(url, headers)
+            _, digest, size = await decoder(url, headers)
             if digest != probe_hash or size != probe_bytes:
                 raise ValueError("object changed")
             video = {"schemaVersion": 1, "id": record["id"], "courseID": record["courseID"],
