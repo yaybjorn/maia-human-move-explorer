@@ -176,7 +176,10 @@ async def dispatch(path, request, upstream_read, allowed_origins, secret, base):
                           "state": "ready", "video": {**signed, "attestation": video["attestation"]}}
             except (ValueError, KeyError, TypeError):
                 raise HTTPException(409, "Saved video reference cannot be verified") from None
-    if record and (record["courseID"] != course_id or (record["actorID"] != actor and action != "download")):
+    # A ready video stays private to the Studio course, but every authorized
+    # Studio user who can open that course may play or download it.  Keep the
+    # per-uploader status and mutation boundary for every other operation.
+    if record and (record["courseID"] != course_id or (record["actorID"] != actor and action not in {"download", "play"})):
         raise HTTPException(404, "Video not found")
     url = f"{base}/courses/{course_id}/chapter-media/{upload_id}/video"
     headers = {"X-Studio-Proxy-Secret": secret, "Cookie": request.headers.get("cookie", ""),

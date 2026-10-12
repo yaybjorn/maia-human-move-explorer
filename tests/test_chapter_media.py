@@ -122,9 +122,13 @@ def test_ready_proof_recovers_from_saved_draft_when_host_status_cache_is_missing
     assert list(tmp_path.iterdir()) == []
 
 
-def test_authenticated_ready_video_can_stream_for_author_preview(tmp_path, monkeypatch):
+def test_authorized_second_studio_user_can_stream_ready_video(tmp_path, monkeypatch):
     monkeypatch.setenv("STUDIO_CHAPTER_MEDIA_DIR", str(tmp_path))
     media.save(tmp_path / f"{UPLOAD}.json", {"id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "actorID": "actor", "state": "ready", "video": {"byteLength": 3}})
+    async def second_author(req, path):
+        if path == "session":
+            return {"authenticated": True, "csrfToken": "token", "user": {"id": "second-actor", "roles": ["superadmin"]}}
+        return await upstream(req, path)
     class Response:
         def __init__(self):
             self.status_code = 200
@@ -138,6 +142,34 @@ def test_authenticated_ready_video_can_stream_for_author_preview(tmp_path, monke
         async def send(self, *_args, **_kwargs): return Response()
         async def aclose(self): pass
     monkeypatch.setattr(media.httpx, "AsyncClient", lambda **_kwargs: Client())
-    response = asyncio.run(dispatch(PATH + "/play", request("GET")))
+    response = asyncio.run(media.dispatch(PATH + "/play", request("GET"), second_author, {"https://studio.test"}, "test-secret", "https://worker.test/v1/studio"))
     assert response.media_type == "video/mp4"
     assert "content-disposition" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "session, expected",
+    [
+        ({"authenticated": False}, 401),
+        ({"authenticated": True, "user": {"id": "viewer", "roles": []}}, 403),
+    ],
+)
+def test_untrusted_sessions_cannot_play_ready_video(tmp_path, monkeypatch, session, expected):
+    monkeypatch.setenv("STUDIO_CHAPTER_MEDIA_DIR", str(tmp_path))
+    media.save(tmp_path / f"{UPLOAD}.json", {"id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "actorID": "actor", "state": "ready", "video": {"byteLength": 3}})
+    async def restricted(_req, path):
+        if path == "session":
+            return session
+        return {"draft": {"revision": 2, "chapterSources": [{"id": "chapter"}]}}
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(media.dispatch(PATH + "/play", request("GET"), restricted, {"https://studio.test"}, "test-secret", "https://worker.test/v1/studio"))
+    assert error.value.status_code == expected
+
+
+def test_ready_video_cannot_cross_course_boundary(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_CHAPTER_MEDIA_DIR", str(tmp_path))
+    media.save(tmp_path / f"{UPLOAD}.json", {"id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "actorID": "actor", "state": "ready", "video": {"byteLength": 3}})
+    other_course = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(dispatch(f"courses/{other_course}/chapter-media/{UPLOAD}/play", request("GET")))
+    assert error.value.status_code == 404
