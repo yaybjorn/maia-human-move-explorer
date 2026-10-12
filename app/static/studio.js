@@ -7,13 +7,13 @@ import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?
 
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
-  activateChapter, syncActiveChapter, newChapterCourse, addIndependentChapter, chapterDocument, chapterPGNHeaders,
+  activateChapter, syncActiveChapter, newChapterCourse, addIndependentChapter, duplicateIndependentChapter, deleteIndependentChapter, chapterDocument, chapterPGNHeaders,
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20260926-writing-ellipsis";
+} from "./studio-document.mjs?v=20261012-chapter-actions";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
@@ -37,7 +37,7 @@ const state = {
   recordingMaiaEnabled: false, recordingMaiaAbort: null, recordingMaiaToken: 0, recordingSuggestions: [], recordingEffectTimer: null, recordingEffectFrame: null,
   sidebarCollapsed: false, effects: [], effectPreviewURL: null,
   userGames: [], userGamesCursor: null, userGamesCourseID: null, userGamesLoading: false, userGamesError: null, userGamesRequest: 0,
-  videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null,
+  videoDrag: null, videoPreviewID: null, courseVideoPreview: false, publishCandidate: null, pendingChapterDeleteID: null,
 };
 const studioBoard = createStudioBoard($("studio-board"), { onMove: tryBoardMove });
 const previewBoard = createStudioBoard($("preview-board"), { onMove: tryPreviewMove });
@@ -1412,6 +1412,8 @@ $("add-course-video").addEventListener("click", () => {
 });
 $("add-video").addEventListener("click",()=>replaceVideos([...videoItems(),{id:videoID(),title:"",youtubeURL:""}]));
 $("save").addEventListener("click",()=>saveDraft());$("publish").addEventListener("click",beginPublish);$("undo").addEventListener("click",undo);$("redo").addEventListener("click",redo);
+$("delete-chapter-form").addEventListener("submit", event => { if (event.submitter?.value === "delete") confirmChapterDelete(); else state.pendingChapterDeleteID = null; });
+$("delete-chapter-dialog").addEventListener("cancel", () => { state.pendingChapterDeleteID = null; });
 $("go-start").addEventListener("click",()=>navigate(null));$("go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("go-forward").addEventListener("click",()=>nextNode()&&navigate(nextNode().id));$("go-end").addEventListener("click",()=>navigate(endNode()));$("flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderStudioBoard();renderEditorEngine();renderPreview()});$("copy-fen").addEventListener("click",async()=>{if(state.position?.fen){await navigator.clipboard.writeText(state.position.fen);showStatus("FEN copied.")}});
 $("recording-go-start").addEventListener("click",()=>navigate(null));$("recording-go-back").addEventListener("click",()=>navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null));$("recording-go-forward").addEventListener("click",event=>advanceRecording(event.currentTarget));$("recording-go-end").addEventListener("click",()=>navigate(endNode()));$("recording-flip-board").addEventListener("click",()=>{state.flipped=!state.flipped;renderRecordingBoard()});$("recording-maia-toggle").addEventListener("click",()=>{state.recordingMaiaEnabled=!state.recordingMaiaEnabled;clearRecordingMaia();renderRecording();});$("recording-pipe-effect").addEventListener("ended",clearRecordingEffect);$("recording-effects").addEventListener("change",event=>{const item=state.effects.find(effect=>event.target.value===`library:${effect.id}`);if(event.target.value==="explosion"||(item?.id==="builtin-explosion"&&item.url===recordingExplosionSource))playRecordingExplosion();else if(event.target.value==="viking"||(item?.id==="builtin-viking"&&item.url===recordingVikingSource))playRecordingViking();else if(event.target.value==="pipe"||(item?.id==="builtin-pipe"&&item.url===recordingPipeSource))playRecordingPipe();else if(event.target.value==="harry")playRecordingHarry();else if(item)playRecordingLibraryEffect(item);event.target.value="";});
 $("effect-file").addEventListener("change", previewEffectFile);$("effect-name").addEventListener("input", previewEffectFile);$("effect-save").addEventListener("click", async () => { const file=$("effect-file").files[0], name=$("effect-name").value.trim(); if(!file||!name)return; $("effect-error").textContent=""; try { await api.uploadEffect(name,file); $("effect-file").value=""; $("effect-name").value=""; previewEffectFile(); await loadEffects(); } catch(error) { $("effect-error").textContent=error.message; } });
@@ -1472,6 +1474,34 @@ function createIndependentChapter(parsed = null, title = '') {
     refreshPosition(); switchView('editor');
   } catch (error) { showStatus(error.message, true); }
 }
+function duplicateChapter(id) {
+  flushActiveEditor();
+  try {
+    const copyID = `chapter-${crypto.randomUUID()}`;
+    commit(duplicateIndependentChapter(state.document, id, copyID), { navigateTo: null });
+    refreshPosition();
+    showStatus('Chapter copied. Add a video to the copy if it needs one.');
+  } catch (error) { showStatus(error.message, true); }
+}
+function requestChapterDelete(id) {
+  flushActiveEditor();
+  const chapter = state.document.chapterSources?.find(item => item.id === id);
+  if (!chapter) return showStatus('That chapter is no longer available.', true);
+  if (state.document.chapterSources.length <= 1) return showStatus('A course needs at least one chapter.', true);
+  state.pendingChapterDeleteID = id;
+  $('delete-chapter-message').textContent = `Delete “${chapter.title}” and its authored moves? This does not delete any stored video asset, and the saved draft remains unchanged until you choose Save draft.`;
+  $('delete-chapter-dialog').showModal();
+}
+function confirmChapterDelete() {
+  const id = state.pendingChapterDeleteID;
+  state.pendingChapterDeleteID = null;
+  if (!id) return;
+  try {
+    commit(deleteIndependentChapter(state.document, id), { navigateTo: null });
+    refreshPosition();
+    showStatus('Chapter removed from this unsaved draft.');
+  } catch (error) { showStatus(error.message, true); }
+}
 function renderIndependentChapters() {
   const chapters = chapterSlices(state.document), container = $('studio-chapters');
   container.classList.remove('adding');
@@ -1480,7 +1510,7 @@ function renderIndependentChapters() {
   container.parentElement.classList.add('independent-chapter-layout');
   container.innerHTML = chapters.map((chapter, index) => `<section class="studio-chapter independent-chapter" data-independent-chapter="${escapeHTML(chapter.id)}" draggable="true">
     <div class="independent-chapter-heading"><span class="chapter-drag-handle" role="button" tabindex="0" aria-label="Reorder chapter ${index+1}: use up and down arrow keys" title="Drag to reorder"><span aria-hidden="true">⠿</span></span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label></div>
-    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter <span class="chapter-button-count">· ${chapter.positions.length} positions</span></button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">${chapter.video || chapter.videoUploadID ? 'Edit video' : 'Add video'}</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary chapter-delete" data-independent-delete="${escapeHTML(chapter.id)}">Delete</button></div>
+    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter <span class="chapter-button-count">· ${chapter.positions.length} positions</span></button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">${chapter.video || chapter.videoUploadID ? 'Edit video' : 'Add video'}</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-independent-duplicate="${escapeHTML(chapter.id)}" title="The copy has no video attached">Duplicate</button><button class="secondary chapter-delete" data-independent-delete="${escapeHTML(chapter.id)}" ${chapters.length <= 1 ? 'disabled title="A course needs at least one chapter"' : ''}>Delete</button></div>
     </section>`).join('') || '<div class="empty-state"><h2>Build your course chapter by chapter</h2><p>Import a PGN as a starting point, or add a blank chapter and author its moves here. Video is optional.</p></div>';
   container.querySelectorAll('[data-independent-title]').forEach(input => {
     input.addEventListener('input', markPendingInput);
@@ -1499,13 +1529,8 @@ function renderIndependentChapters() {
   container.querySelectorAll('[data-chapter-open]').forEach(button => button.addEventListener('click', () => selectIndependentChapter(button.dataset.chapterOpen)));
   container.querySelectorAll('[data-chapter-check]').forEach(button => button.addEventListener('click', () => checkIndependentChapter(button.dataset.chapterCheck)));
   container.querySelectorAll('[data-chapter-preview]').forEach(button => button.addEventListener('click', () => { state.previewChapter = Number(button.dataset.chapterPreview); state.previewIndex = 0; state.previewAttempt = null; switchView('preview'); }));
-  container.querySelectorAll('[data-independent-delete]').forEach(button => button.addEventListener('click', () => {
-    if (!confirm('Delete this chapter and its authored moves? Export its PGN first if you want to keep a copy. The saved course remains unchanged until Save draft.')) return;
-    const next = syncActiveChapter(state.document);
-    next.chapterSources = next.chapterSources.filter(chapter => chapter.id !== button.dataset.independentDelete);
-    commit(activateChapter({ ...next, activeChapterID: null }, next.activeChapterID === button.dataset.independentDelete ? next.chapterSources[0]?.id : next.activeChapterID), { navigateTo: null });
-    refreshPosition();
-  }));
+  container.querySelectorAll('[data-independent-duplicate]').forEach(button => button.addEventListener('click', () => duplicateChapter(button.dataset.independentDuplicate)));
+  container.querySelectorAll('[data-independent-delete]').forEach(button => button.addEventListener('click', () => requestChapterDelete(button.dataset.independentDelete)));
   container.querySelectorAll('[data-independent-chapter]').forEach((row, index) => {
     const handle = row.querySelector('.chapter-drag-handle');
     handle.addEventListener('keydown', event => {

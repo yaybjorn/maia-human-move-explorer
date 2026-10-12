@@ -182,6 +182,33 @@ export function addIndependentChapter(document, parsed, title, id) {
   // Do not sync the old projection back over the new chapter.
   return activateChapter({ ...next, activeChapterID: null }, id);
 }
+export function duplicateIndependentChapter(document, id, copyID) {
+  const next = syncActiveChapter(document);
+  if (!Array.isArray(next.chapterSources)) throw new Error('Legacy courses must remain separate from chapter-first courses.');
+  const index = next.chapterSources.findIndex(chapter => chapter.id === id);
+  if (index < 0) throw new Error('That chapter is no longer available.');
+  if (!copyID || next.chapterSources.some(chapter => chapter.id === copyID)) throw new Error('The copied chapter needs a fresh ID.');
+  const source = structuredClone(next.chapterSources[index]);
+  // Private uploads are owned/bound to the original chapter. A copy starts
+  // clean so its author may independently attach a new video.
+  delete source.video;
+  delete source.videoUploadID;
+  const copy = { ...source, id: copyID, title: `Copy of ${source.title}`.slice(0, 120) };
+  next.chapterSources.splice(index + 1, 0, copy);
+  return activateChapter({ ...next, activeChapterID: null }, copyID);
+}
+export function deleteIndependentChapter(document, id) {
+  const next = syncActiveChapter(document);
+  if (!Array.isArray(next.chapterSources)) throw new Error('Legacy courses must remain separate from chapter-first courses.');
+  const index = next.chapterSources.findIndex(chapter => chapter.id === id);
+  if (index < 0) throw new Error('That chapter is no longer available.');
+  if (next.chapterSources.length <= 1) throw new Error('A course needs at least one chapter.');
+  const remaining = next.chapterSources.filter(chapter => chapter.id !== id);
+  const selectedID = next.activeChapterID === id
+    ? remaining[Math.min(index, remaining.length - 1)]?.id
+    : next.activeChapterID;
+  return activateChapter({ ...next, chapterSources: remaining, activeChapterID: null }, selectedID);
+}
 
 export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = false } = {}) {
   const metadata = { ...(input.metadata || {}) };

@@ -243,10 +243,17 @@
       <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="delete" class="primary danger">Delete effect</button></div>
     </form>
   </dialog>
+  <dialog id="delete-chapter-dialog" aria-labelledby="delete-chapter-title">
+    <form id="delete-chapter-form" method="dialog" class="dialog-card">
+      <div class="dialog-heading"><div><p class="eyebrow">Course chapter</p><h2 id="delete-chapter-title">Delete chapter?</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <p id="delete-chapter-message"></p>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button value="delete" class="primary danger">Delete chapter</button></div>
+    </form>
+  </dialog>
 
   <!-- Revision the root module with its nested document dependency: a normal
        reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->
-  <script type="module" src="/static/studio.js?v=20260926-effects-recording"></script>
+  <script type="module" src="/static/studio.js?v=20261012-chapter-actions"></script>
 
 </body>
 </html>

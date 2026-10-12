@@ -27,6 +27,16 @@ test("offers a desktop icon-only sidebar mode", () => {
   assert.match(html, /class="nav-text">Repertoire editor</);
 });
 
+test("chapter actions use an explicit cancellable delete confirmation", () => {
+  assert.match(html, /id="delete-chapter-dialog"/);
+  assert.match(html, /id="delete-chapter-form" method="dialog"/);
+  assert.match(html, /value="cancel" class="secondary">Cancel/);
+  assert.match(javascript, /data-independent-duplicate/);
+  assert.match(javascript, /data-independent-delete/);
+  assert.match(javascript, /event\.submitter\?\.value === "delete"\) confirmChapterDelete\(\)/);
+  assert.match(javascript, /state\.pendingChapterDeleteID = null/);
+});
+
 test("keeps submitted user games course-scoped, paginated and safely external", async () => {
   const css = await readFile(new URL("../app/static/studio.css", import.meta.url), "utf8");
   assert.match(html, /data-view="user-games"/);
