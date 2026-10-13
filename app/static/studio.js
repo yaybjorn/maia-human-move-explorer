@@ -1518,7 +1518,15 @@ function createIndependentChapter(parsed = null, title = '') {
   try {
     commit(addIndependentChapter(state.document, parsed, title || `Chapter ${state.document.chapterSources.length + 1}`, id), { navigateTo: null });
     refreshPosition(); switchView('editor');
-  } catch (error) { showStatus(error.message, true); }
+  } catch (error) {
+    const message = String(error?.message || 'Video validation failed. Retry validation or upload a corrected file.').slice(0, 240);
+    showStatus(message, true);
+    if (state.courseID === courseID) {
+      const current = syncActiveChapter(state.document).chapterSources.find(c => c.id === chapterID);
+      const label = $('chapter-video-actions')?.querySelector('p');
+      if (current?.videoUploadID === uploadID && label?.isConnected) label.textContent = message;
+    }
+  }
 }
 function duplicateChapter(id) {
   flushActiveEditor();
