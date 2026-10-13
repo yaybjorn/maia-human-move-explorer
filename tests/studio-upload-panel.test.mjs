@@ -30,6 +30,44 @@ test("reopened staged result is labelled as checking, never ready or selected", 
   panel.refresh(); assert.match(nodes.status.textContent, /Checking video/);
   assert.equal(nodes.title.value, "Lesson"); panel.clear(); assert.equal(root.hidden, true);
 });
+
+test("validation failure replaces only the matching staged upload status", () => {
+  const { root, nodes } = dom();
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, chapterID: "chapter-a", draftRevision: 207, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged", files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
+  const context = { ...paid, chapterID: "chapter-a" };
+  const panel = createUploadPanel({ root, api: {}, getContext: () => context, enabled: true, storage: { getItem: () => JSON.stringify(record) } });
+  panel.refresh();
+  panel.validationFailed({ courseID: paid.courseID, chapterID: "chapter-a", uploadID: record.uploadID, error: "Validation failed." });
+  assert.equal(nodes.status.textContent, "Validation failed.");
+  panel.validationFailed({ courseID: paid.courseID, chapterID: "chapter-a", uploadID: "other", error: "Wrong upload." });
+  assert.equal(nodes.status.textContent, "Validation failed.");
+});
+
+test("fresh staged upload keeps its identity for a matching validation failure", async () => {
+  const { root, nodes } = dom();
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, chapterID: "chapter-a", draftRevision: 207, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged", files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
+  const original = StagedUpload.prototype.run;
+  StagedUpload.prototype.run = async () => record;
+  try {
+    const panel = createUploadPanel({ root, api: {}, getContext: () => ({ ...paid, chapterID: "chapter-a" }), enabled: true, storage: { getItem: () => null } });
+    panel.refresh(); nodes.video.files = [new Blob(["video"], { type: "video/mp4" })]; await nodes.video.listeners.change();
+    panel.validationFailed({ courseID: paid.courseID, chapterID: "chapter-a", uploadID: record.uploadID, error: "Validation failed." });
+    assert.equal(nodes.status.textContent, "Validation failed.");
+  } finally { StagedUpload.prototype.run = original; }
+});
+
+test("inspection stages a matching upload before reporting its validation failure", async () => {
+  const { root, nodes } = dom();
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, chapterID: "chapter-a", draftRevision: 207, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged", files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
+  const original = StagedUpload.prototype.inspect;
+  StagedUpload.prototype.inspect = async () => record;
+  try {
+    const panel = createUploadPanel({ root, api: {}, getContext: () => ({ ...paid, chapterID: "chapter-a" }), enabled: true, storage: { getItem: () => JSON.stringify({ ...record, state: "blocked" }) } });
+    panel.refresh(); await nodes.check.listeners.click();
+    panel.validationFailed({ courseID: paid.courseID, chapterID: "chapter-a", uploadID: record.uploadID, error: "Validation failed." });
+    assert.equal(nodes.status.textContent, "Validation failed.");
+  } finally { StagedUpload.prototype.inspect = original; }
+});
 test("blocked saved upload exposes only the read-only progress check", () => {
   const { root, nodes } = dom();
   const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, draftRevision: 207, title: "Lesson", state: "blocked",
@@ -42,9 +80,9 @@ test("blocked saved upload exposes only the read-only progress check", () => {
 });
 test("Studio revisions the recovery-control module so a reload cannot retain its pre-control cache entry", () => {
   const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
-  assert.match(source, /studio-upload-panel\.mjs\?v=20260926-upload-recovery-control/);
+  assert.match(source, /studio-upload-panel\.mjs\?v=20261013-upload-validation-status/);
   const document = fs.readFileSync(new URL("../app/static/studio.html", import.meta.url), "utf8");
-  assert.match(document, /studio\.js\?v=20261012-chapter-actions/);
+  assert.match(document, /studio\.js\?v=20261013-video-retry-2/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;

@@ -128,6 +128,26 @@ def test_seekable_private_retry_recovers_trailing_index_without_disk_path(tmp_pa
     assert calls == ["stream", "seek-probe", "seek-decode"]
 
 
+def test_streamed_probe_then_decode_falls_back_to_seekable_decoder(tmp_path, monkeypatch):
+    calls = []
+    info = {"format": {"format_name": "mov,mp4", "duration": "1"}, "streams": [{"codec_type": "video", "codec_name": "h264", "width": 64, "height": 64}]}
+    async def streamed(*_args, probe=False, **_kwargs):
+        calls.append("stream-probe" if probe else "stream-decode")
+        if probe:
+            return info, "a" * 64, 3
+        raise ValueError("pipe cannot seek")
+    async def seekable(*_args, probe=False, **_kwargs):
+        calls.append("seek-probe" if probe else "seek-decode")
+        return (info if probe else None), "a" * 64, 3
+    monkeypatch.setattr(media, "decode_stream", streamed)
+    monkeypatch.setattr(media, "decode_seekable", seekable)
+    record = {"id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "actorID": "actor", "state": "validating"}
+    path = tmp_path / "result.json"
+    asyncio.run(media.validate_video(path, record, "https://worker.test/private", {}, "test-secret"))
+    assert json.loads(path.read_text())["state"] == "ready"
+    assert calls == ["stream-probe", "stream-decode", "seek-decode"]
+
+
 def test_ready_proof_recovers_from_saved_draft_when_host_status_cache_is_missing(tmp_path, monkeypatch):
     monkeypatch.setenv("STUDIO_CHAPTER_MEDIA_DIR", str(tmp_path))
     video = media.sign_video({"schemaVersion": 1, "id": UPLOAD, "courseID": COURSE, "chapterID": "chapter", "byteLength": 1024, "sha256": "a" * 64, "durationMilliseconds": 1000, "mimeType": "video/mp4"}, "test-secret")

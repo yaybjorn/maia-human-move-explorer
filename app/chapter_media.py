@@ -196,7 +196,16 @@ async def validate_video(path, record, url, headers, secret):
                     or not 0 < videos[0].get("width", 0) <= 4096
                     or not 0 < videos[0].get("height", 0) <= 4096):
                 raise ValueError("format")
-            _, digest, size = await decoder(url, headers)
+            try:
+                _, digest, size = await decoder(url, headers)
+            except ValueError:
+                if decoder is decode_seekable:
+                    raise
+                # ffprobe can read a trailing-moov index from a completed
+                # stream even though ffmpeg later needs to seek back to its
+                # media payload. Retry that full decode through the bounded
+                # anonymous fd before rejecting the immutable object.
+                _, digest, size = await decode_seekable(url, headers)
             if digest != probe_hash or size != probe_bytes:
                 raise ValueError("object changed")
             video = {"schemaVersion": 1, "id": record["id"], "courseID": record["courseID"],

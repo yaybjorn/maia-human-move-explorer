@@ -4,6 +4,10 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
   let uploader = null, contextKey = null, staged = null, busy = false;
   const find = id => root.querySelector(`[data-upload="${id}"]`);
   const message = text => { find("status").textContent = text; };
+  const stage = (record, context, current = uploader) => record?.state === "staged" ? {
+    key: current?.key, actorID: context.actorID, courseID: context.courseID,
+    chapterID: context.chapterID || null, uploadID: record.uploadID,
+  } : null;
   const thumbnail = () => new Blob([
     new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,8,215,99,248,207,192,240,31,0,5,0,1,255,137,153,61,29,0,0,0,0,73,69,78,68,174,66,96,130])
   ], { type: "image/png" });
@@ -45,7 +49,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
         try {
           uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
-          if (record) { staged = record.state === "staged" ? { key: uploader.key, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID || null } : null; find("title").value = record.title; renderProgress(record); }
+          if (record) { staged = stage(record, context); find("title").value = record.title; renderProgress(record); }
           else { find("check").hidden = true; message("Choose an MP4 video to upload."); }
         } catch { message("Upload progress storage is unavailable. No upload was started."); }
       }
@@ -60,7 +64,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     if (!video) return;
     busy = true; const current = uploader; controls(context);
     message("Preparing video…");
-    try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") { staged = { key: current.key, actorID: context.actorID, courseID: context.courseID, chapterID: context.chapterID || null }; await onStaged(record); } }
+    try { const record = await current.run({ title: context.chapterTitle || "Chapter video", video, thumbnail: thumbnail() }); if (current === uploader && record?.state === "staged") { staged = stage(record, context, current); await onStaged(record); } }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
   }
@@ -69,7 +73,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
   find("check").addEventListener("click", async () => {
     if (!enabled || busy || !uploader) return;
     const current = uploader; busy = true; controls(getContext());
-    try { const record = await current.inspect(); if (!record) message("No saved upload for this course."); else if (current === uploader && record.state === "staged") await onStaged(record); }
+    try { const record = await current.inspect(); if (!record) message("No saved upload for this course."); else if (current === uploader && record.state === "staged") { staged = stage(record, getContext(), current); await onStaged(record); } }
     catch (error) { if (current === uploader) message(error.message); }
     finally { busy = false; controls(getContext()); }
   });
@@ -85,5 +89,9 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     staged = null;
     uploader = null; contextKey = null; refresh();
   }
-  return { refresh, startNew, clear: () => { uploader?.pause(); uploader = null; contextKey = null; root.hidden = true; } };
+  function validationFailed({ courseID, chapterID, uploadID, error }) {
+    const context = getContext();
+    if (context?.courseID === courseID && context.chapterID === chapterID && staged?.uploadID === uploadID) message(error);
+  }
+  return { refresh, startNew, validationFailed, clear: () => { uploader?.pause(); uploader = null; contextKey = null; root.hidden = true; } };
 }

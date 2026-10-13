@@ -2,7 +2,7 @@ import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writin
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
 // pre-control module from its HTTP cache.
-import { createUploadPanel } from "./studio-upload-panel.mjs?v=20260926-upload-recovery-control";
+import { createUploadPanel } from "./studio-upload-panel.mjs?v=20261013-upload-validation-status";
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
 
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
@@ -1704,6 +1704,7 @@ async function startChapterVideoValidation(chapterID) {
   } catch (error) {
     const message = String(error?.message || 'Video validation failed. Retry validation or upload a corrected file.').slice(0, 240);
     showStatus(message, true);
+    uploadPanel.validationFailed({ courseID, chapterID, uploadID, error: message });
     if (state.courseID === courseID) {
       const current = syncActiveChapter(state.document).chapterSources.find(c => c.id === chapterID);
       const box = $('chapter-video-actions');
