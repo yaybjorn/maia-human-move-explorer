@@ -118,30 +118,53 @@ async def decode_seekable(url, headers, *, probe=False):
     fd = os.memfd_create("gingergm-chapter-video", os.MFD_CLOEXEC)
     digest, count = hashlib.sha256(), 0
     try:
-        async with (httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), follow_redirects=False) as client,
-                    client.stream("GET", url, headers=headers) as response):
-            if response.status_code != 200:
-                raise ValueError("private upload unavailable")
-            length = int(response.headers.get("content-length", "0"))
-            if not 0 < length <= MAX_SEEKABLE_BYTES:
-                raise ValueError("seekable validation size limit")
-            async for chunk in response.aiter_bytes(65536):
-                count += len(chunk)
-                if count > length:
-                    raise ValueError("size mismatch")
-                digest.update(chunk)
-                os.write(fd, chunk)
-            if count != length:
-                raise ValueError("truncated file")
+        async with asyncio.timeout(3600):
+            async with (httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10), follow_redirects=False) as client,
+                        client.stream("GET", url, headers=headers) as response):
+                if response.status_code != 200:
+                    raise ValueError("private upload unavailable")
+                length = int(response.headers.get("content-length", "0"))
+                if not 0 < length <= MAX_SEEKABLE_BYTES:
+                    raise ValueError("seekable validation size limit")
+                async for chunk in response.aiter_bytes(65536):
+                    count += len(chunk)
+                    if count > length:
+                        raise ValueError("size mismatch")
+                    digest.update(chunk)
+                    view = memoryview(chunk)
+                    while view:
+                        written = os.write(fd, view)
+                        if written <= 0:
+                            raise ValueError("anonymous media buffer write failed")
+                        view = view[written:]
+                if count != length:
+                    raise ValueError("truncated file")
         args = (["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", f"/proc/self/fd/{fd}"]
                 if probe else ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-threads", "1",
                                 "-i", f"/proc/self/fd/{fd}", "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"])
         process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, pass_fds=(fd,))
-        output, _ = await process.communicate()
-        if process.returncode != 0:
+        async def output():
+            result = bytearray()
+            while chunk := await process.stdout.read(65536):
+                result.extend(chunk)
+                if len(result) > 1024**2:
+                    raise ValueError("oversized metadata")
+            return bytes(result)
+        reader = asyncio.create_task(output())
+        try:
+            async with asyncio.timeout(3600):
+                output_bytes = await reader
+                code = await process.wait()
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+        if code != 0:
             raise ValueError("decode failed")
-        return (json.loads(output) if probe else None), digest.hexdigest(), count
+        return (json.loads(output_bytes) if probe else None), digest.hexdigest(), count
     finally:
         os.close(fd)
 
