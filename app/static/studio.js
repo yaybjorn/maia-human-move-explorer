@@ -1652,6 +1652,7 @@ const chapterVideoPolls = new Set();
 function renderChapterVideoControls(chapter) {
   let box = $('chapter-video-actions');
   if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; document.querySelector('[data-panel="chapter-video"] .page-heading').after(box); }
+  box.dataset.chapterId = chapter?.id || '';
   box.innerHTML = chapter?.video
     ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
     : chapter?.videoUploadID ? '<p>Checking video…</p><button id="retry-chapter-video" class="secondary" type="button">Retry validation</button>' : '';
@@ -1705,8 +1706,9 @@ async function startChapterVideoValidation(chapterID) {
     showStatus(message, true);
     if (state.courseID === courseID) {
       const current = syncActiveChapter(state.document).chapterSources.find(c => c.id === chapterID);
-      const label = $('chapter-video-actions')?.querySelector('p');
-      if (current?.videoUploadID === uploadID && label?.isConnected) label.textContent = message;
+      const box = $('chapter-video-actions');
+      const label = box?.querySelector('p');
+      if (box?.dataset.chapterId === chapterID && current?.videoUploadID === uploadID && label?.isConnected) label.textContent = message;
     }
   }
   finally { chapterVideoPolls.delete(key); }
