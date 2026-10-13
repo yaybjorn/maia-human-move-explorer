@@ -1347,7 +1347,7 @@ async function runQuality({forPublish=false}={}){
     showStatus(forPublish?`Publish stopped during quality checks. No publication request was sent. ${error.message}`:error.message,true);return null;
   }finally{setBusy(button,false)}
 }
-function resolveCompiledChapters(validation){if(Array.isArray(state.document.chapterSources))return (validation?.compiledPreview?.chapters?.length||0)===state.document.chapterSources.length;const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length?compiledPositions.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
+function resolveCompiledChapters(validation){if(Array.isArray(state.document.chapterSources))return (validation?.compiledPreview?.chapters?.length||0)===state.document.chapterSources.filter(chapter=>!chapter.archived).length;const preview=validation?.compiledPreview||validation?.preview||validation?.compiled_pack;const compiledPositions=[...(preview?.positions||[])].sort((a,b)=>(a.learningOrder??0)-(b.learningOrder??0));const localPositions=trainingPack(state.document,state.document.metadata.slug||"draft").positions;if(!compiledPositions.length||compiledPositions.length!==localPositions.length)return false;if(compiledPositions.some(position=>!String(position.id||"").startsWith("sha256:")))return false;const drafts=ensureChapters(state.document,state.document.metadata.slug||"draft"),indexByLocal=new Map(localPositions.map((position,index)=>[position.id,index]));state.document.chapters=drafts.map((draft,index)=>{const start=index===0?0:indexByLocal.get(draft.startNodeID),end=index+1===drafts.length:indexByLocal.get(drafts[index+1].startNodeID);return{id:draft.id,title:draft.title,positionIDs:compiledPositions.slice(start,end).map(position=>position.id)};});return true;}
 function beginPublish(){return publishPreparationFlight.run(preparePublish)}
 async function preparePublish(){
   const button=$("publish");setBusy(button,true,"Preparing…");
@@ -1529,6 +1529,21 @@ function duplicateChapter(id) {
     showStatus('Chapter copied. Add a video to the copy if it needs one.');
   } catch (error) { showStatus(error.message, true); }
 }
+function toggleChapterArchive(id) {
+  flushActiveEditor();
+  const next = syncActiveChapter(state.document), chapter = next.chapterSources?.find(item => item.id === id);
+  if (!chapter) return showStatus('That chapter is no longer available.', true);
+  const activeCount = next.chapterSources.filter(item => !item.archived).length;
+  if (!chapter.archived && activeCount <= 1) return showStatus('Restore or add another active chapter before archiving this one.', true);
+  next.chapterSources = next.chapterSources.map(item => item.id === id ? { ...item, ...(item.archived ? {} : { archived: true }) } : item);
+  if (chapter.archived) next.chapterSources = next.chapterSources.map(item => {
+    if (item.id !== id) return item;
+    const { archived: _archived, ...restored } = item;
+    return restored;
+  });
+  commit(next, { navigateTo: null });
+  showStatus(chapter.archived ? 'Chapter restored to the next publication draft.' : 'Chapter archived in this draft. Its source and video stay available in Studio; the app changes only after publication.');
+}
 function requestChapterDelete(id) {
   flushActiveEditor();
   const chapter = state.document.chapterSources?.find(item => item.id === id);
@@ -1555,8 +1570,8 @@ function renderIndependentChapters() {
   $('chapter-position').closest('aside').hidden = true;
   container.parentElement.classList.add('independent-chapter-layout');
   container.innerHTML = chapters.map((chapter, index) => `<section class="studio-chapter independent-chapter" data-independent-chapter="${escapeHTML(chapter.id)}" draggable="true">
-    <div class="independent-chapter-heading"><span class="chapter-drag-handle" role="button" tabindex="0" aria-label="Reorder chapter ${index+1}: use up and down arrow keys" title="Drag to reorder"><span aria-hidden="true">⠿</span></span><label>Chapter ${index+1}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label></div>
-    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter <span class="chapter-button-count">· ${chapter.positions.length} positions</span></button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">${chapter.video || chapter.videoUploadID ? 'Edit video' : 'Add video'}</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-independent-duplicate="${escapeHTML(chapter.id)}" title="The copy has no video attached">Duplicate</button><button class="secondary chapter-delete" data-independent-delete="${escapeHTML(chapter.id)}" ${chapters.length <= 1 ? 'disabled title="A course needs at least one chapter"' : ''}>Delete</button></div>
+    <div class="independent-chapter-heading"><span class="chapter-drag-handle" role="button" tabindex="0" aria-label="Reorder chapter ${index+1}: use up and down arrow keys" title="Drag to reorder"><span aria-hidden="true">⠿</span></span><label>Chapter ${index+1}${chapter.archived ? ' <span class="tag draft">Archived</span>' : ''}<input data-independent-title="${escapeHTML(chapter.id)}" value="${escapeHTML(chapter.title)}" maxlength="120"></label></div>
+    <div class="heading-actions"><button class="secondary" data-chapter-open="${escapeHTML(chapter.id)}">Edit chapter <span class="chapter-button-count">· ${chapter.positions.length} positions</span></button><button class="secondary" data-chapter-video="${escapeHTML(chapter.id)}">${chapter.video || chapter.videoUploadID ? 'Edit video' : 'Add video'}</button>${chapter.videoUploadID ? `<button class="secondary" data-chapter-remove-video="${escapeHTML(chapter.id)}">Remove video</button>` : ''}<button class="secondary" data-chapter-check="${escapeHTML(chapter.id)}">Check chapter</button><button class="secondary" data-chapter-preview="${index}">Preview</button><button class="secondary" data-independent-duplicate="${escapeHTML(chapter.id)}" title="The copy has no video attached">Duplicate</button><button class="secondary" data-independent-archive="${escapeHTML(chapter.id)}">${chapter.archived ? 'Restore' : 'Archive'}</button></div>
     </section>`).join('') || '<div class="empty-state"><h2>Build your course chapter by chapter</h2><p>Import a PGN as a starting point, or add a blank chapter and author its moves here. Video is optional.</p></div>';
   container.querySelectorAll('[data-independent-title]').forEach(input => {
     input.addEventListener('input', markPendingInput);
@@ -1576,7 +1591,7 @@ function renderIndependentChapters() {
   container.querySelectorAll('[data-chapter-check]').forEach(button => button.addEventListener('click', () => checkIndependentChapter(button.dataset.chapterCheck)));
   container.querySelectorAll('[data-chapter-preview]').forEach(button => button.addEventListener('click', () => { state.previewChapter = Number(button.dataset.chapterPreview); state.previewIndex = 0; state.previewAttempt = null; switchView('preview'); }));
   container.querySelectorAll('[data-independent-duplicate]').forEach(button => button.addEventListener('click', () => duplicateChapter(button.dataset.independentDuplicate)));
-  container.querySelectorAll('[data-independent-delete]').forEach(button => button.addEventListener('click', () => requestChapterDelete(button.dataset.independentDelete)));
+  container.querySelectorAll('[data-independent-archive]').forEach(button => button.addEventListener('click', () => toggleChapterArchive(button.dataset.independentArchive)));
   container.querySelectorAll('[data-independent-chapter]').forEach((row, index) => {
     const handle = row.querySelector('.chapter-drag-handle');
     handle.addEventListener('keydown', event => {

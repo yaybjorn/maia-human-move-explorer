@@ -55,3 +55,14 @@ test('chapter staging association survives save and cannot be mistaken for ready
  assert.equal(stored.chapterSources[1].videoUploadID, document.chapterSources[1].videoUploadID);
  assert.ok(validateDocument(document).blockers.some(b => /not ready/.test(b.message)));
 });
+test('archived chapters remain in stored source but are excluded from local learner validation and preview', () => {
+ const document = course();
+ document.chapterSources[0].archived = true;
+ const stored = documentForStorage(document);
+ assert.equal(stored.chapterSources[0].archived, true);
+ assert.deepEqual(normalizeDocument(stored).chapterSources.map(chapter => chapter.id), ['first', 'second']);
+ assert.deepEqual(trainingPack(document).positions.map(position => position.chapterID), ['second', 'second', 'second']);
+ assert.equal(validateDocument(document).blockers.length, 0);
+ document.chapterSources[1].archived = true;
+ assert.match(validateDocument(document).blockers[0].message, /active chapter/);
+});

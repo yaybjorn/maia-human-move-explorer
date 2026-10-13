@@ -424,7 +424,7 @@ export function updateNode(document, id, patch) {
 export function trainingPack(document, packID = "draft") {
   if (Array.isArray(document.chapterSources)) {
     let order = 0;
-    return { id: packID, positions: syncActiveChapter(document).chapterSources.flatMap(chapter =>
+    return { id: packID, positions: syncActiveChapter(document).chapterSources.filter(chapter => !chapter.archived).flatMap(chapter =>
       trainingPack(chapterDocument(document, chapter), packID).positions.map(position => ({
         ...position, id: `${chapter.id}:${position.id}`, chapterID: chapter.id, learningOrder: order++, source: { ...position.source, chapter: chapter.title },
       }))) };
@@ -596,14 +596,15 @@ export function chapterSlices(document, packID = "draft") {
 
 export function validateDocument(document) {
   if (Array.isArray(document.chapterSources)) {
-    const results = syncActiveChapter(document).chapterSources.map(chapter => {
+    const activeChapters = syncActiveChapter(document).chapterSources.filter(chapter => !chapter.archived);
+    const results = activeChapters.map(chapter => {
       const result = validateDocument(chapterDocument(document, chapter));
       if (chapter.videoUploadID && !chapter.video) result.blockers.push({ area: 'Video', message: 'Video is staged, not ready for publication. Playback validation is pending.' });
       if (!chapter.title.trim()) result.blockers.push({ area: 'Chapters', message: 'Every chapter needs a name.' });
       if (!trainingPack(chapterDocument(document, chapter)).positions.length) result.blockers.push({ area: 'Chapters', message: 'No training positions at or after the selected start. Choose a learner-turn position on a repertoire line.' });
       return Object.fromEntries(['blockers', 'warnings'].map(key => [key, result[key].map(item => ({ ...item, area: `Chapters / ${chapter.title}`, message: `${chapter.title}: ${item.message}`, chapterID: chapter.id }))]));
     });
-    return { blockers: document.chapterSources.length ? results.flatMap(result => result.blockers) : [{ area: 'Chapters', message: 'Add at least one chapter.' }], warnings: results.flatMap(result => result.warnings) };
+    return { blockers: activeChapters.length ? results.flatMap(result => result.blockers) : [{ area: 'Chapters', message: 'Restore or add at least one active chapter before publishing.' }], warnings: results.flatMap(result => result.warnings) };
   }
   const blockers = [];
   try { normalizeCourseVideo(document.metadata.courseVideo); }
