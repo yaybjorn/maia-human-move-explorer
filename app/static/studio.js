@@ -13,7 +13,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20261012-chapter-actions";
+} from "./studio-document.mjs?v=20261013-chapter-archive";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
