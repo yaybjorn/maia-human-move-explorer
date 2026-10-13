@@ -142,6 +142,10 @@ async def decode_seekable(url, headers, *, probe=False):
         args = (["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", f"/proc/self/fd/{fd}"]
                 if probe else ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-threads", "1",
                                 "-i", f"/proc/self/fd/{fd}", "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"])
+        # /proc/self/fd duplicates this inherited open-file description. Rewind
+        # before spawning so the child reads the completed anonymous object,
+        # rather than the EOF left by the bounded download loop.
+        os.lseek(fd, 0, os.SEEK_SET)
         process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, pass_fds=(fd,))
         async def output():
