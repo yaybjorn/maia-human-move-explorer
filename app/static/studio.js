@@ -1655,6 +1655,16 @@ function renderChapterVideoControls(chapter) {
   box.innerHTML = chapter?.video
     ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
     : chapter?.videoUploadID ? '<p>Checking video…</p><button id="retry-chapter-video" class="secondary" type="button">Retry validation</button>' : '';
+  if (chapter?.videoUploadID) {
+    const label = box.querySelector('p'), courseID = state.courseID, uploadID = chapter.videoUploadID;
+    api.request(`/courses/${encodeURIComponent(courseID)}/chapter-media/${encodeURIComponent(uploadID)}`)
+      .then(status => {
+        const current = syncActiveChapter(state.document).chapterSources.find(item => item.id === chapter.id);
+        if (state.courseID === courseID && current?.videoUploadID === uploadID && status.state === 'failed' && label?.isConnected) {
+          label.textContent = status.error || 'Video validation failed. Retry validation or upload a corrected file.';
+        }
+      }).catch(() => {});
+  }
   $('remove-chapter-video')?.addEventListener('click', async () => {
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(item => item.id === chapter.id);
     if (!current) return;
