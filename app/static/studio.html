@@ -169,7 +169,7 @@
 
       <section class="view" data-panel="writing">
         <div class="page-heading"><div><p class="eyebrow">Writing</p><h1>Spellcheck &amp; explanations</h1><p>British English suggestions run locally. Chess directives and notation are ignored.</p></div><button id="run-spellcheck" class="primary" type="button">Check all writing</button></div>
-        <section class="form-card" aria-labelledby="annotation-checklist-title"><div class="card-heading"><div><h2 id="annotation-checklist-title">Missing hints &amp; comments</h2><p>Hints are checked for the main learner answer. Comments are checked on every move, including alternatives and opponent moves. Chess directives alone are not comments. This is separate from spellcheck.</p></div></div><div id="annotation-checklist" aria-live="polite"></div></section>
+        <section class="form-card" aria-labelledby="annotation-checklist-title"><div class="card-heading"><div><h2 id="annotation-checklist-title">Missing hints &amp; comments</h2><p>Hints are checked for the main learner answer. Comments are checked on every move by your repertoire side, including alternative answers. Chess directives alone are not comments. This is separate from spellcheck.</p></div></div><div id="annotation-checklist" aria-live="polite"></div></section>
         <div id="writing-summary" class="stat-strip"></div><div id="writing-results" class="quality-list" aria-live="polite"><div class="empty-state"><p>Run the writing check when your explanations are ready.</p></div></div>
       </section>
 
@@ -251,7 +251,7 @@
 
   <!-- Revision the root module with its nested document dependency: a normal
        reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->
-  <script type="module" src="/static/studio.js?v=20261027-annotation-checklist"></script>
+  <script type="module" src="/static/studio.js?v=20261027-annotation-side"></script>
 
 </body>
 </html>

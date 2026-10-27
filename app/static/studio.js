@@ -1,4 +1,4 @@
-import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-annotation-checklist";
+import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-annotation-side";
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the

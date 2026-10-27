@@ -18,7 +18,7 @@ export function annotationChecklist(document) {
     const finding = {chapterID:chapter.id,chapterTitle:chapter.title,nodeID:node.id,history};
     const learnerMove = node.ply % 2 === (document.metadata.side === 'black' ? 0 : 1);
     if (learnerMove && childrenOf(chapter.document,node.parentId)[0]?.id === node.id && !String(node.hint || '').trim()) missingHints.push(finding);
-    if (!hasProseComment(node.comment)) missingComments.push(finding);
+    if (learnerMove && !hasProseComment(node.comment)) missingComments.push(finding);
   }
   return {moveCount,missingHints,missingComments};
 }
