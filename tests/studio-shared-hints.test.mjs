@@ -11,7 +11,7 @@ const seq1=['g1f3','g8f6','g2g3','g7g6','f1g2'];
 const seq2=['g2g3','g7g6','g1f3','g8f6','f1g2'];
 function course(hints=['Remember the bishop','','']) { const cs=[chapter('a',seq1,hints[0]),chapter('b',seq2,hints[1]),chapter('c',seq2,hints[2])];return {metadata:{side:'white'},activeChapterID:'a',nodes:structuredClone(cs[0].nodes),headers:{},sourcePGN:'',chapterSources:cs}; }
 test('same legal position and answer inherits across transpositions, preview and checklist',()=>{const d=course();const index=sharedHintIndex(d);assert.equal(sharedHintFor(index,'b','b4').hint,'Remember the bishop');assert.equal(sharedHintFor(index,'b','b4').inherited,true);assert.equal(trainingPack(d).positions.find(p=>p.chapterID==='b'&&p.correctMove.uci==='f1g2').hint,'Remember the bishop');assert.ok(!annotationChecklist(d).missingHints.some(x=>x.chapterID==='b'&&x.nodeID==='b4'));});
-test('conflicts and different answers do not inherit; explicit blank override survives origin roundtrip',()=>{const d=course(['One','Two','']);let ix=sharedHintIndex(d);assert.equal(sharedHintFor(ix,'c','c4').hint,'');assert.equal(sharedHintFor(ix,'c','c4').conflict,true);d.chapterSources[1].nodes[4].hint='';d.chapterSources[2].nodes[4].hintMode='own';ix=sharedHintIndex(d);assert.equal(sharedHintFor(ix,'b','b4').hint,'One');assert.equal(sharedHintFor(ix,'c','c4').hint,'');d.sharedHintOrigins=hintOriginRecords(ix);d.chapterSources[1].nodes[4].hint='One';delete d.chapterSources[2].nodes[4].hintMode;restoreHintOrigins(d);assert.equal(d.chapterSources[1].nodes[4].hint,'One');assert.equal(d.chapterSources[1].nodes[4].hintMode,'inherited');assert.equal(d.chapterSources[2].nodes[4].hintMode,'own');assert.equal(sharedHintFor(sharedHintIndex(d),'b','b4').hint,'One');});
+test('conflicts reuse a stable hint; explicit blank override survives origin roundtrip',()=>{const d=course(['One','Two','']);let ix=sharedHintIndex(d);assert.equal(sharedHintFor(ix,'c','c4').hint,'One');assert.equal(sharedHintFor(ix,'c','c4').conflict,true);d.chapterSources[1].nodes[4].hint='';d.chapterSources[2].nodes[4].hintMode='own';ix=sharedHintIndex(d);assert.equal(sharedHintFor(ix,'b','b4').hint,'One');assert.equal(sharedHintFor(ix,'c','c4').hint,'');d.sharedHintOrigins=hintOriginRecords(ix);d.chapterSources[1].nodes[4].hint='One';delete d.chapterSources[2].nodes[4].hintMode;restoreHintOrigins(d);assert.equal(d.chapterSources[1].nodes[4].hint,'One');assert.equal(d.chapterSources[1].nodes[4].hintMode,'inherited');assert.equal(d.chapterSources[2].nodes[4].hintMode,'own');assert.equal(sharedHintFor(sharedHintIndex(d),'b','b4').hint,'One');});
 test('different intended answers do not share',()=>{const d=course();d.chapterSources[1]=chapter('b',['g2g3','g7g6','g1f3','g8f6','b1c3']);assert.equal(sharedHintFor(sharedHintIndex(d),'b','b4').hint,'');});
 
 test('position keys preserve castling and legal en passant, ignore clocks and irrelevant en passant',()=>{
@@ -62,15 +62,30 @@ test('deleting a linked donor clears fallback; importing an orphan retains it',(
  assert.equal(sharedHintFor(sharedHintIndex(orphan),null,'b4').hint,'Old');
 });
 
-test('compiler-facing serialization removes a stale fallback when effective hint is empty',()=>{
+test('compiler-facing serialization replaces a stale fallback with the selected hint',()=>{
  const d=course(['One','Two','']);d.chapterSources[2].nodes[4].hint='Old';d.chapterSources[2].nodes[4].hintMode='inherited';
  const src=readFileSync(new URL('../app/static/studio.js',import.meta.url),'utf8');const start=src.indexOf('function serializeEffectiveHints('),end=src.indexOf('\nasync function exportAllChapterSources',start);
  const context=vm.createContext({sharedHintIndex,sharedHintFor,serializeForPGN,commentWithHint});vm.runInContext(src.slice(start,end),context);
- const result=context.serializeEffectiveHints(d,d.chapterSources[2],'c');assert.doesNotMatch(result[4].comment,/\[%hint/);
+ const result=context.serializeEffectiveHints(d,d.chapterSources[2],'c');assert.match(result[4].comment,/\[%hint One\]/);
 });
 
 test('continuations after a wrong learner answer cannot donate training hints',()=>{
  const a=chapter('a',['e2e4','e7e5','g1f3'],'Main');const wrong=chapter('x',['d2d4','d7d5','g1f3'],'Wrong branch');wrong.nodes[0].parentId=null;
  const nodes=[...a.nodes,...wrong.nodes];const d={metadata:{side:'white'},nodes};const index=sharedHintIndex(d);
  assert.equal(sharedHintFor(index,null,'x2'),undefined);assert.equal(sharedHintFor(index,null,'a2').hint,'Main');
+});
+
+ test('conflicting defaults preserve authored values and survive save and export origins',()=>{
+ const d=course(['One','Two','']);const before=structuredClone(d);let index=sharedHintIndex(d);
+ assert.equal(sharedHintFor(index,'a','a4').hint,'One');assert.equal(sharedHintFor(index,'b','b4').hint,'Two');
+ for(let i=0;i<3;i++) assert.equal(sharedHintFor(sharedHintIndex(d),'c','c4').hint,'One');
+ assert.deepEqual(d,before);
+ const headers=headersWithHintOrigins({},index,'c'), ch=d.chapterSources[2];
+ const imported={metadata:d.metadata,nodes:structuredClone(ch.nodes),headers}; imported.nodes[4].hint='One';restoreHintHeader(imported);
+ assert.equal(imported.nodes[4].hintMode,'inherited');assert.equal(sharedHintFor(sharedHintIndex(imported),null,'c4').hint,'One');
+ const saved=structuredClone(d);saved.sharedHintOrigins=hintOriginRecords(index);saved.chapterSources[2].nodes[4].hint='One';restoreHintOrigins(saved);
+ assert.equal(sharedHintFor(sharedHintIndex(saved),'c','c4').hint,'One');
+ const edited=writeSharedHint(d,'c','c4','Personal');assert.equal(sharedHintFor(sharedHintIndex(edited),'c','c4').hint,'Personal');
+ assert.equal(edited.chapterSources[2].nodes[4].hintMode,'own');assert.equal(edited.chapterSources[1].nodes[4].hint,'Two');
+ assert.equal(sharedHintFor(sharedHintIndex(course(['Other','',''])),'c','c4').hint,'Other');
 });

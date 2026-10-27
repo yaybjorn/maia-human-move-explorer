@@ -36,10 +36,12 @@ export function sharedHintIndex(document) {
   }
   const result=new Map();
   for (const group of groups.values()) {
-    const values=[...new Set(group.filter(o=>!['own','inherited'].includes(o.node.hintMode)).map(o=>o.node.hint?.trim()).filter(Boolean))];
+    const values=[...new Set(group.filter(o=>!['own','inherited'].includes(o.node.hintMode)).map(o=>o.node.hint?.trim()).filter(Boolean))].sort();
     for (const o of group) {
       const own=o.node.hint?.trim()||'', fallback=o.node.hintMode==='inherited' ? own : '';
-      const hint=o.node.hintMode==='own' ? own : values.length===1 ? values[0] : values.length===0 ? fallback : (o.node.hintMode==='inherited' ? '' : own);
+      // Preserve every authored value; blank/generated occurrences use a stable
+      // arbitrary donor when several different authored values exist.
+      const hint=o.node.hintMode==='own' ? own : own && o.node.hintMode!=='inherited' ? own : values[0] || fallback;
       result.set(JSON.stringify([o.chapterID,o.nodeID]),{...o,hint,inherited:o.node.hintMode!=='own' && Boolean(hint) && (o.node.hintMode==='inherited' || !own),conflict:values.length>1});
     }
   }
