@@ -16,7 +16,7 @@ test('card open shows the editor, while cancellation leaves the current course i
     dirty:()=>isDirty, confirm:()=>confirmed, closeRecordingChoice:noop, closeEditorChoice:noop,
     invalidateDiagnostics:noop, stopEditorMaia:noop, showStatus:noop,
     api:{course:async id=>{fetched++; return {course:{id}, draft:{document:{metadata:{title:id}}}};}},
-    normalizeDocument:d=>d, hydrateSourceDocument:async d=>({document:d}), resetUserGames:noop,
+    normalizeDocument:d=>d, hydrateSourceDocument:async d=>({document:d}), coalesceIdenticalHints:d=>d, resetUserGames:noop,
     setEffectivePosition:d=>{state.document=d}, clearCrashRecovery:noop, restoreCrashRecovery:noop,
     $:element, renderAll:noop, refreshPosition:async()=>{}, switchView:v=>{shown=v}, JSON};
   const open = vm.runInNewContext(`(${openSource})`, context);

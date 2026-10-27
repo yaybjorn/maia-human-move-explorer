@@ -122,7 +122,7 @@ test("validation separates blockers and advisory warnings", () => {
   );
 });
 
-test("validation links missing wrong-move feedback to the exact editor move", () => {
+test("validation accepts optional wrong-move feedback", () => {
   const document = normalizeDocument({
     metadata: { title: "Validation links", slug: "validation-links", side: "white" },
     nodes: [
@@ -131,10 +131,7 @@ test("validation links missing wrong-move feedback to the exact editor move", ()
     ],
   });
 
-  assert.deepEqual(
-    validateDocument(document).blockers.find(item => item.message.includes("Missing feedback")),
-    { area: "Validation", message: "Missing feedback for wrong move d4 at ply 0", nodeID: "wrong" },
-  );
+  assert.equal(validateDocument(document).blockers.some(item => item.message.includes("Missing feedback")), false);
   assert.equal(validateDocument(document).warnings.some(item => item.nodeID === "wrong"), false);
 });
 

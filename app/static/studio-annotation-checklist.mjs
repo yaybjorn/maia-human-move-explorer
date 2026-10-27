@@ -1,4 +1,5 @@
-import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261027-shared-hints';
+import { wrongBranchDepth } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
+import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261027-wrong-feedback';
 
 import { sharedHintIndex, sharedHintFor } from './studio-shared-hints.mjs?v=20261027-shared-hints';
 
@@ -18,6 +19,7 @@ export function annotationChecklist(document) {
     moveCount++;
     const history = pathToNode(chapter.document,node.id).map(move => `${Math.ceil(move.ply/2)}${move.ply%2 ? '.' : '…'} ${move.san}`).join(' ');
     const finding = {chapterID:chapter.id,chapterTitle:chapter.title,nodeID:node.id,history};
+    if (wrongBranchDepth(chapter.document,node.id) >= 0) continue;
     const learnerMove = node.ply % 2 === (document.metadata.side === 'black' ? 0 : 1);
     if (learnerMove && childrenOf(chapter.document,node.parentId)[0]?.id === node.id && !sharedHintFor(hints,chapter.id,node.id)?.hint) missingHints.push(finding);
     if (learnerMove && !hasProseComment(node.comment)) missingComments.push(finding);

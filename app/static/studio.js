@@ -1,5 +1,6 @@
+import { wrongBranchDepth, visibleTrainingChildren } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
 import { sharedHintIndex, sharedHintFor, hintOriginRecords, restoreHintOrigins, headersWithHintOrigins, coalesceIdenticalHints, writeSharedHint, clearDetachedHintFallbacks } from "./studio-shared-hints.mjs?v=20261027-shared-hints";
-import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-shared-hints";
+import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-wrong-feedback";
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
@@ -15,7 +16,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL, commentWithHint,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20261027-shared-hints";
+} from "./studio-document.mjs?v=20261027-wrong-feedback";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
@@ -765,6 +766,9 @@ function chooseBoardMove(candidates) {
     move = candidates.find(item => item.uci.endsWith({q:"q",r:"r",b:"b",k:"n",n:"n"}[promotion])) || move;
   }
   if (Array.isArray(state.document.chapterSources) && !state.document.activeChapterID) { switchView("chapters"); return showStatus("Add or import a chapter before editing moves.", true); }
+  const depth=wrongBranchDepth(state.document,state.currentNodeID), visible=visibleTrainingChildren(state.document,state.currentNodeID);
+  if (depth >= 1 || (depth === 0 && visible.length && visible[0].uci !== move.uci))
+    return showStatus("Wrong-answer lines stop after one reply. Further source moves remain in the PGN.", true);
   const result = addMove(state.document, state.currentNodeID, move);
   commit(result.document, { navigateTo: result.node.id }); state.selectedSquare = null; refreshPosition();
 }
@@ -774,14 +778,17 @@ function renderMoveTree(container = $("move-tree")) {
   const start = moveButton(null, "Start"); start.classList.add("start"); container.append(start);
   appendChildren(null, container);
   function appendChildren(parentID, target) {
-    const children = childrenOf(state.document, parentID); if (!children.length) return;
+    const all = childrenOf(state.document, parentID), children = visibleTrainingChildren(state.document, parentID);
+    if (!children.length) { if (all.length) retainedSourceNotice(target); return; }
     target.append(moveButton(children[0].id, moveLabel(children[0])));
     for (const alternate of children.slice(1)) {
       const variation = document.createElement("span"); variation.className = "variation"; variation.append("(");
       appendBranch(alternate, variation); variation.append(")"); target.append(variation);
     }
     appendChildren(children[0].id, target);
+    if (all.length > children.length) retainedSourceNotice(target);
   }
+  function retainedSourceNotice(target) { const note=document.createElement("span");note.className="muted";note.textContent=" Further continuation retained in the source PGN.";target.append(note); }
   function appendBranch(node, target) { target.append(moveButton(node.id, moveLabel(node))); appendChildren(node.id, target); }
 }
 function moveLabel(node) { const number = Math.ceil(node.ply/2); return node.ply%2 ? `${number}. ${node.san}` : `${number}… ${node.san}`; }
@@ -828,7 +835,7 @@ function confirmEditorChoice() {
 }
 function advanceEditor(initiator) {
   flushActiveEditor();
-  const options = childrenOf(state.document, state.currentNodeID);
+  const options = visibleTrainingChildren(state.document, state.currentNodeID);
   if (options.length < 2) { if (options[0]) navigate(options[0].id); return; }
   const choice = $("editor-choice"), list = $("editor-choice-options");
   choice._options = options; choice._selectedIndex = 0; choice._restoreFocus = initiator || document.activeElement;
@@ -863,7 +870,7 @@ function confirmRecordingChoice() {
   closeRecordingChoice(); navigate(node.id);
 }
 function advanceRecording(initiator) {
-  const options = childrenOf(state.document, state.currentNodeID);
+  const options = visibleTrainingChildren(state.document, state.currentNodeID);
   if (options.length < 2) { if (options[0]) navigate(options[0].id); return; }
   const choice = $("recording-choice"), list = $("recording-choice-options");
   choice._options = options; choice._selectedIndex = 0; choice._restoreFocus = initiator || document.activeElement;
@@ -921,6 +928,9 @@ function recordingPositionKey(document = state.document, nodeID = state.currentN
   return `${document?.activeChapterID || ""}:${document ? movesToNode(document, nodeID).join(" ") : ""}`;
 }
 function setEffectivePosition(document, nodeID = state.currentNodeID) {
+  // Side or variation-order changes can make the selected move hidden. Keep
+  // the board and inspector on the last allowed reply, without deleting PGN.
+  while (wrongBranchDepth(document,nodeID) > 1) nodeID = nodeByID(document,nodeID)?.parentId ?? null;
   // This is the sole effective-position boundary for navigation and document
   // replacement. Invalidate before assignment so an already pending Maia reply
   // cannot paint arrows for the position we are leaving.
@@ -1055,9 +1065,9 @@ async function queueRecordingMaia() {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
 }
-function navigate(id) { closeRecordingChoice(); closeEditorChoice(); if (id === state.currentNodeID) return; clearRecordingEffect(); setEffectivePosition(state.document, id); state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); else if (state.view === "editor") requestAnimationFrame(scrollEditorCurrentIntoView); refreshPosition(); }
-function nextNode() { return childrenOf(state.document, state.currentNodeID)[0] || null; }
-function endNode() { let id=state.currentNodeID,next; while ((next=childrenOf(state.document,id)[0])) id=next.id; return id; }
+function navigate(id) { if (wrongBranchDepth(state.document,id)>1) return showStatus("Further continuation is retained in the source PGN.",true); closeRecordingChoice(); closeEditorChoice(); if (id === state.currentNodeID) return; clearRecordingEffect(); setEffectivePosition(state.document, id); state.selectedSquare = null; state.analysisToken += 1; stopEditorMaia(); renderMoveTree(); renderRecordingTree(); renderInspector(); if (state.view === "recording") requestAnimationFrame(scrollRecordingCurrentIntoView); else if (state.view === "editor") requestAnimationFrame(scrollEditorCurrentIntoView); refreshPosition(); }
+function nextNode() { return visibleTrainingChildren(state.document, state.currentNodeID)[0] || null; }
+function endNode() { let id=state.currentNodeID,next; while ((next=visibleTrainingChildren(state.document,id)[0])) id=next.id; return id; }
 
 function renderInspector() {
   const inspector = $("move-inspector"), node = nodeByID(state.document, state.currentNodeID);
@@ -1072,12 +1082,12 @@ function renderInspector() {
   const siblings = childrenOf(state.document, node.parentId), siblingIndex = siblings.findIndex(item => item.id === node.id);
   const learnerMove = node.ply % 2 === (state.document.metadata.side === "white" ? 1 : 0);
   const commentLabel = learnerMove
-    ? siblingIndex === 0 ? "Correct-move explanation" : "Wrong-move feedback"
+    ? siblingIndex === 0 ? "Correct-move explanation" : "Wrong-move feedback (optional)"
     : "Explanation after this opponent move";
   const variationHelp = learnerMove
     ? siblingIndex === 0
       ? "Play another legal move from the previous position to add a wrong answer, then write its feedback on that variation."
-      : "This variation is a wrong learner answer. Its explanation is shown after the mistake."
+      : "This wrong-move feedback is optional. Its line stops after one opponent reply; further source moves remain in the PGN."
     : "Alternative moves here are opponent repertoire branches.";
   inspector.className = "tool-card collapsible-card";
   inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-head-actions"><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div>${editorPanelButton("inspector", "Selected move")}</div></div>
@@ -1166,7 +1176,7 @@ function renderMaia(items=[],token,positionKey) {
   }).join("")||'<div class="empty-state"><p>No suggestions returned.</p></div>';
   bindSuggestedMoves(token,positionKey);
 }
-function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);if(button.dataset.existingNode){navigate(button.dataset.existingNode);showStatus(`${button.dataset.san} is already in the repertoire.`);return}const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
+function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAll("[data-accept-move]").forEach(button=>button.addEventListener("click",()=>{if(token!==state.analysisToken||movesToNode(state.document,state.currentNodeID).join(" ")!==positionKey)return showStatus("That suggestion belongs to an older position. Wait for Maia to update before adding it.",true);if(wrongBranchDepth(state.document,state.currentNodeID)>=1 || (wrongBranchDepth(state.document,state.currentNodeID)===0 && visibleTrainingChildren(state.document,state.currentNodeID).length && visibleTrainingChildren(state.document,state.currentNodeID)[0].uci!==button.dataset.acceptMove))return showStatus("Wrong-answer lines stop after one reply. Further source moves remain in the PGN.",true);if(button.dataset.existingNode){navigate(button.dataset.existingNode);showStatus(`${button.dataset.san} is already in the repertoire.`);return}const result=addMove(state.document,state.currentNodeID,{uci:button.dataset.acceptMove,san:button.dataset.san});commit(result.document,{navigateTo:result.node.id});refreshPosition();showStatus(`${button.dataset.san} added. You remain in control of the explanation.`);}));}
 // Diagnostics are capabilities for one exact source, not reusable chapter-local node IDs.
 function invalidateDiagnostics() {
   state.diagnosticGeneration += 1;

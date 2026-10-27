@@ -11,7 +11,7 @@ test("editor forward navigation uses an explicit continuation chooser", () => {
   assert.match(html, /id="editor-choice-options"/);
   assert.match(source, /function advanceEditor\(initiator\)/);
   assert.match(source, /function advanceEditor\(initiator\) \{\n  flushActiveEditor\(\);/);
-  assert.match(source, /const options = childrenOf\(state\.document, state\.currentNodeID\);\n  if \(options\.length < 2\) \{ if \(options\[0\]\) navigate\(options\[0\]\.id\); return; \}/);
+  assert.match(source, /const options = visibleTrainingChildren\(state\.document, state\.currentNodeID\);\n  if \(options\.length < 2\) \{ if \(options\[0\]\) navigate\(options\[0\]\.id\); return; \}/);
   assert.match(source, /function confirmEditorChoice\(\)/);
   assert.match(source, /closeChoice\(\{restoreFocus:true\}\)/);
   assert.match(source, /\$\("go-forward"\)\.addEventListener\("click",event=>advanceEditor\(event\.currentTarget\)\)/);

@@ -1,3 +1,4 @@
+import { wrongBranchDepth } from "./studio-training-branch.mjs?v=20261027-wrong-feedback";
 import { sharedHintIndex, sharedHintFor, restoreHintHeader } from "./studio-shared-hints.mjs?v=20261027-shared-hints";
 const DEFAULT_METADATA = Object.freeze({
   title: "Untitled course",
@@ -636,14 +637,7 @@ export function validateDocument(document) {
     if (node.parentId !== null && !ids.has(node.parentId)) blockers.push({ area: "Repertoire", message: `${node.san} has a missing parent move.` });
     const siblings = childrenOf(document, node.parentId);
     const learnerMove = node.ply % 2 === (document.metadata.side === "white" ? 1 : 0);
-    if (learnerMove && siblings.findIndex(sibling => sibling.id === node.id) > 0 && !node.comment.trim()) {
-      blockers.push({
-        area: "Validation",
-        message: `Missing feedback for wrong move ${node.san} at ply ${node.ply - 1}`,
-        nodeID: node.id,
-      });
-    }
-    if (!node.comment.trim() && learnerMove && siblings[0]?.id === node.id) {
+    if (!node.comment.trim() && learnerMove && siblings[0]?.id === node.id && wrongBranchDepth(document,node.id) < 0) {
       warnings.push({ area: "Teaching note", message: `${node.san} has no teaching note.`, nodeID: node.id });
     }
     try {

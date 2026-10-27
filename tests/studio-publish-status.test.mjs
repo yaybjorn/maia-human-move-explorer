@@ -11,7 +11,7 @@ function context(overrides={}) {
  const messages=[],busy=[],elements=new Map();let calls=0;
  const element=id=>{if(!elements.has(id))elements.set(id,{textContent:'Publish to app',hidden:false,disabled:false,dataset:{},setAttribute(){},close(){this.closed=true},focus(){this.focused=true},scrollIntoView(){this.scrolled=true}});return elements.get(id);};
  const state={courseID:'course',revision:210,savedSnapshot:'saved',publishCandidate:{courseID:'course',revision:210,revisionHash:'server-hash',savedSnapshot:'saved'}};
- const ctx={state,$:element,publishSubmissionFlight:new SingleFlight(),publishPending:false,switchView(){},dirty:()=>false,setBusy:(_b,v)=>busy.push(v),showStatus:m=>messages.push(m),
+ const ctx={state,$:element,publishSubmissionFlight:new SingleFlight(),publishPending:false,switchView(){},dirty:()=>false,needsSharedHintSave:()=>false,setBusy:(_b,v)=>busy.push(v),showStatus:m=>messages.push(m),
   saveDraft:async()=>true,renderQuality(){},updateSaveState(){},loadCourses:async()=>{},loadHistory:async()=>{},
   api:{validateCourse:async()=>{throw Error('Server limit');},publishCourse:async()=>{calls++;throw Error('Response unavailable');}},...overrides};
  vm.createContext(ctx);vm.runInContext(quality+'\n'+confirm,ctx);
