@@ -1,3 +1,4 @@
+import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-annotation-checklist";
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
@@ -412,6 +413,7 @@ function switchView(view) {
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === view));
   location.hash = view;
   $("content").focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: "smooth" });
+  if (view === "writing") { flushActiveEditor(); renderAnnotationChecklist(); }
   if (view === "history") loadHistory();
   if (view === "user-games") loadUserGames();
   if (view === "effects") loadEffects();
@@ -501,6 +503,7 @@ function renderAll() {
   renderChapterSelector();
   renderDetails(); renderGameVideos(); renderChapterVideo(); renderMoveTree(); renderInspector(); renderEditorPanels(); renderQuality();
   renderRecording();
+  if (state.view === "writing") renderAnnotationChecklist();
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
@@ -1228,6 +1231,28 @@ function setSidebarCollapsed(collapsed) {
 }
 function restoreSidebarPreference(){let collapsed=false;try{collapsed=localStorage.getItem(SIDEBAR_KEY)==="1"}catch{/* unavailable */}setSidebarCollapsed(collapsed)}
 
+function renderAnnotationChecklist() {
+  const container = $("annotation-checklist");
+  if (!container || !state.document) return;
+  const context = diagnosticContext(), result = annotationChecklist(state.document);
+  if (!result.moveCount) { container.innerHTML = '<div class="empty-state"><p>No moves to check yet. Import a PGN or add moves to a chapter.</p></div>'; return; }
+  const section = (title, items, kind) => `<section><h3>${title} (${items.length})</h3>${items.length ? `<div class="quality-list">${items.map((item,index)=>`<article class="quality-item warning"><span class="quality-icon">!</span><div><h4>${escapeHTML(item.chapterTitle)}</h4><p>${escapeHTML(item.history)}</p></div><button type="button" data-annotation-kind="${kind}" data-annotation-index="${index}">Open move</button></article>`).join("")}</div>` : '<p class="muted">None missing.</p>'}</section>`;
+  container.innerHTML = section("Missing hints",result.missingHints,"hint") + section("Missing comments",result.missingComments,"comment");
+  container.querySelectorAll('[data-annotation-kind]').forEach(button=>button.addEventListener('click',()=> {
+    if (!requireCurrentDiagnostic(context)) return;
+    const kind = button.dataset.annotationKind, finding = (kind === 'hint' ? result.missingHints : result.missingComments)[Number(button.dataset.annotationIndex)];
+    if (!finding) return;
+    if (finding.chapterID !== null) {
+      const chapter = syncActiveChapter(state.document).chapterSources?.find(item=>item.id===finding.chapterID && !item.archived);
+      if (!chapter || !chapter.nodes.some(node=>node.id===finding.nodeID)) return showStatus("This move is no longer available. Check again.",true);
+      selectIndependentChapter(finding.chapterID, 'editor');
+    } else if (!nodeByID(state.document,finding.nodeID)) return showStatus("This move is no longer available. Check again.",true);
+    state.editorPanels.inspector = true;
+    navigate(finding.nodeID); renderInspector(); switchView('editor');
+    requestAnimationFrame(() => $(kind === 'hint' ? 'node-hint' : 'node-comment')?.focus());
+  }));
+}
+
 function writingSources(){
   const sources=[];
   const metadataFields=["title","subtitle","description"];
@@ -1476,7 +1501,7 @@ $("conflict-keep").addEventListener("click",()=>$("conflict-dialog").close());$(
 document.addEventListener("click",event=>{if(!$("account-menu").hidden&&!$("account-menu").contains(event.target)&&!$("account-button").contains(event.target))setAccountMenu(false)});
 document.addEventListener("keydown",event=>{const editing=event.target.matches("input,textarea,select,[contenteditable=true]"), recordingChoiceOpen=!$("recording-choice").hidden, editorChoiceOpen=!$("editor-choice").hidden;if(recordingChoiceOpen||editorChoiceOpen){const choiceID=recordingChoiceOpen?"recording-choice":"editor-choice", selectChoice=recordingChoiceOpen?selectRecordingChoice:selectEditorChoice, confirmChoice=recordingChoiceOpen?confirmRecordingChoice:confirmEditorChoice, closeChoice=recordingChoiceOpen?closeRecordingChoice:closeEditorChoice;if(["ArrowUp","ArrowDown","Enter","ArrowRight","Escape"].includes(event.key))event.preventDefault();if(event.key==="ArrowUp")selectChoice($(choiceID)._selectedIndex-1);if(event.key==="ArrowDown")selectChoice($(choiceID)._selectedIndex+1);if(event.key==="Enter"||event.key==="ArrowRight")confirmChoice();if(event.key==="Escape")closeChoice({restoreFocus:true});return}if(event.key==="Escape"&&!$("account-menu").hidden)setAccountMenu(false);if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveDraft()}if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="z"&&!editing){event.preventDefault();event.shiftKey?redo():undo()}if(!event.metaKey&&!event.ctrlKey&&!event.altKey&&!editing&&["editor","recording"].includes(state.view)){if(event.key==="ArrowLeft")navigate(nodeByID(state.document,state.currentNodeID)?.parentId??null);if(event.key==="ArrowRight"){if(state.view==="recording")advanceRecording($("recording-go-forward"));else advanceEditor($("go-forward"))}}});
 window.addEventListener("beforeunload",event=>{flushActiveEditor();if(dirty()){event.preventDefault();event.returnValue=""}});
-window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
+window.addEventListener("hashchange",()=>{const requestedView=location.hash.slice(1),view=requestedView==="videos"?"game-videos":requestedView;if(view!==state.view&&document.querySelector(`[data-panel="${CSS.escape(view)}"]`))switchView(view)});
 
 boot();
 
