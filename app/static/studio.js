@@ -183,11 +183,11 @@ function renderDashboard() {
     <span class="course-meta"><span>${Number(course.draftPositionCount ?? course.positionCount ?? 0)} positions</span><span>${Number(course.draftChapterCount ?? course.chapterCount ?? 0)} chapters</span><span>${changed ? "Unpublished changes" : escapeHTML(course.updatedAt ? formatDate(course.updatedAt) : "Not saved")}</span></span>
   </button>`; }).join("");
   document.querySelectorAll("[data-course]").forEach(card => {
-    card.addEventListener("click", () => openCourse(card.dataset.course));
+    card.addEventListener("click", () => openCourse(card.dataset.course, { view: "editor" }));
   });
 }
 
-async function openCourse(id, { discardUnsaved = false } = {}) {
+async function openCourse(id, { discardUnsaved = false, view = null } = {}) {
   if (dirty() && !discardUnsaved && !confirm("Discard your unsaved changes and open another course?")) return false;
   closeRecordingChoice();
   closeEditorChoice();
@@ -220,7 +220,7 @@ async function openCourse(id, { discardUnsaved = false } = {}) {
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
     $("save").hidden = false; $("publish").hidden = false;
     renderAll(); await refreshPosition();
-    const requestedView = location.hash.slice(1);
+    const requestedView = view || location.hash.slice(1);
     switchView(requestedView === "videos" ? "game-videos" : document.querySelector(`[data-panel="${CSS.escape(requestedView)}"]`) ? requestedView : "editor");
     return true;
   } catch (error) { showStatus(error.message, true); return false; }
