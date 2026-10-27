@@ -35,9 +35,9 @@ function setup(record = null) {
   let extractionRefreshes = 0;
   panel.refresh();
   const context = vm.createContext({ state, JSON, structuredClone, dirty,
-    flushActiveEditor() {}, updateSaveState() {}, normalizeDocument: structuredClone,
+    flushActiveEditor() {}, updateSaveState() {}, needsSharedHintSave: () => false, normalizeDocument: structuredClone,
     normalizeCourseVideos: value => value, saveCrashRecovery() {}, clearCrashRecovery() {},
-    exportSource: async () => "fixture", documentForStorage: value => value, api,
+    exportSource: async () => "fixture", sharedHintIndex: () => new Map(), hintOriginRecords: () => [], documentForStorage: value => value, api,
     extractionPanel: { refresh() { extractionRefreshes++; } }, uploadPanel: panel, showStatus() {},
   });
   return { state, nodes, dirty, saving, calls, storage, finish, get extractionRefreshes() { return extractionRefreshes; },

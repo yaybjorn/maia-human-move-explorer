@@ -1,4 +1,5 @@
-import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-annotation-side";
+import { sharedHintIndex, sharedHintFor, hintOriginRecords, restoreHintOrigins, headersWithHintOrigins, coalesceIdenticalHints, writeSharedHint, clearDetachedHintFallbacks } from "./studio-shared-hints.mjs?v=20261027-shared-hints";
+import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-shared-hints";
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
@@ -12,9 +13,9 @@ import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
-  normalizeCourseVideos, youtubeEmbedURL,
+  normalizeCourseVideos, youtubeEmbedURL, commentWithHint,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20261013-chapter-archive";
+} from "./studio-document.mjs?v=20261027-shared-hints";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
@@ -208,7 +209,7 @@ async function openCourse(id, { discardUnsaved = false, view = null } = {}) {
     state.currentCourse = currentCourse;
     state.revision = revision;
     invalidateDiagnostics();
-    setEffectivePosition(hydrated.document, null);
+    setEffectivePosition(coalesceIdenticalHints(hydrated.document), null);
     state.reconciliationError = hydrated.reconciliationError;
     state.validation = hydrated.validation;
     state.savedSnapshot = JSON.stringify(state.document); state.undo = []; state.redo = [];
@@ -233,13 +234,13 @@ async function hydrateSourceDocument(document, courseID, revision) {
       const hydrated = pgnHasMoves(chapter.sourcePGN) ? importParsedPGN(await analysisAPI.parsePGN(chapter.sourcePGN), document.metadata) : newCourseDocument(document.metadata);
       chapterSources.push({ ...chapter, nodes: hydrated.nodes, headers: hydrated.headers });
     }
-    return { document: activateChapter({ ...document, chapterSources, activeChapterID: null }, document.activeChapterID || chapterSources[0]?.id), reconciliationError: null, validation: null };
+    return { document: restoreHintOrigins(activateChapter({ ...document, chapterSources, activeChapterID: null }, document.activeChapterID || chapterSources[0]?.id)), reconciliationError: null, validation: null };
   }
   if (document.nodes.length || !pgnHasMoves(document.sourcePGN)) {
     return { document, reconciliationError: null, validation: null };
   }
   const parsed = await analysisAPI.parsePGN(document.sourcePGN);
-  const hydrated = hydrateRestoredDocument(parsed, document);
+  const hydrated = restoreHintOrigins(hydrateRestoredDocument(parsed, document));
   if (!hydrated.chapters.length) return { document: hydrated, reconciliationError: null, validation: null };
   try {
     const validation = await api.validateCourse(courseID, revision);
@@ -269,7 +270,8 @@ async function hydrateSourceDocument(document, courseID, revision) {
 }
 
 function commit(next, { navigateTo } = {}) {
-  const value = typeof next === "function" ? next(structuredClone(state.document)) : next;
+  let value = typeof next === "function" ? next(structuredClone(state.document)) : next;
+  if (value) value = coalesceIdenticalHints(clearDetachedHintFallbacks(state.document, structuredClone(value)));
   if (!value) return;
   if (JSON.stringify(value) === JSON.stringify(state.document)) {
     if (navigateTo !== undefined && navigateTo !== state.currentNodeID) {
@@ -312,17 +314,22 @@ function redo() {
   state.undo.push(structuredClone(state.document)); setEffectivePosition(next, state.currentNodeID && nodeByID(next, state.currentNodeID) ? state.currentNodeID : null);
   saveCrashRecovery(); renderAll(); refreshPosition();
 }
+function needsSharedHintSave() {
+  return Boolean(state.document && JSON.stringify(hintOriginRecords(sharedHintIndex(state.document))) !== JSON.stringify(state.document.sharedHintOrigins || []));
+}
 function updateSaveState(saving = false) {
-  const changed = dirty();
-  $("save").disabled = !changed || saving;
-  $("save-state").textContent = saving ? "Saving…" : changed ? "Unsaved changes" : "Saved";
-  $("save-state").className = `save-state ${saving ? "saving" : changed ? "dirty" : ""}`;
+  const changed = dirty(), sharedChanged = needsSharedHintSave();
+  $("save").disabled = !(changed || sharedChanged) || saving;
+  $("save-state").textContent = saving ? "Saving…" : changed ? "Unsaved changes" : sharedChanged ? "Shared hints ready to save" : "Saved";
+  $("save-state").className = `save-state ${saving ? "saving" : changed || sharedChanged ? "dirty" : ""}`;
   $("undo").disabled = !state.undo.length; $("redo").disabled = !state.redo.length;
 }
 async function exportSource(document = state.document) {
   const chapter = Array.isArray(document.chapterSources) ? syncActiveChapter(document).chapterSources.find(c => c.id === document.activeChapterID) : null;
   if (Array.isArray(document.chapterSources) && !chapter) throw new Error('Add a chapter first.');
-  const payload = await analysisAPI.exportPGN(serializeForPGN(document), chapter ? chapterPGNHeaders(document, chapter) : document.headers);
+  const chapterID = chapter?.id ?? null;
+  const headers = headersWithHintOrigins(chapter ? chapterPGNHeaders(document, chapter) : document.headers, sharedHintIndex(document), chapterID);
+  const payload = await analysisAPI.exportPGN(serializeEffectiveHints(document, document, chapterID), headers);
   if (!payload?.pgn) throw new Error("The course could not be exported safely. Nothing was saved.");
   return payload.pgn;
 }
@@ -333,7 +340,7 @@ async function saveDraft(options = {}) {
 }
 async function performSaveDraft() {
   flushActiveEditor();
-  if (!state.document || !dirty()) return true;
+  if (!state.document || (!dirty() && !needsSharedHintSave())) return true;
   updateSaveState(true);
   try {
     const startingSnapshot = JSON.stringify(state.document);
@@ -349,7 +356,7 @@ async function performSaveDraft() {
     saveCrashRecovery();
     const localDocument = Array.isArray(documentToSave.chapterSources)
       ? await exportAllChapterSources(documentToSave)
-      : normalizeDocument({ ...documentToSave, sourcePGN: await exportSource(documentToSave) });
+      : normalizeDocument({ ...documentToSave, sharedHintOrigins: hintOriginRecords(sharedHintIndex(documentToSave)), sourcePGN: await exportSource(documentToSave) });
     const sourcePGN = localDocument.sourcePGN;
     const payload = await api.saveDraft(startingCourseID, startingRevision, documentForStorage(localDocument, sourcePGN));
     if (state.courseID !== startingCourseID) return true;
@@ -1061,6 +1068,7 @@ function renderInspector() {
     bindEditorPanelButtons(inspector);
     return;
   }
+  const hintInfo = sharedHintFor(sharedHintIndex(state.document), state.document.activeChapterID ?? null, node.id);
   const siblings = childrenOf(state.document, node.parentId), siblingIndex = siblings.findIndex(item => item.id === node.id);
   const learnerMove = node.ply % 2 === (state.document.metadata.side === "white" ? 1 : 0);
   const commentLabel = learnerMove
@@ -1074,11 +1082,15 @@ function renderInspector() {
   inspector.className = "tool-card collapsible-card";
   inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-head-actions"><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div>${editorPanelButton("inspector", "Selected move")}</div></div>
     <div id="move-inspector-content" class="collapsible-content" ${expanded?"":"hidden"}><label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(node.comment)}</textarea><small>${variationHelp}</small></label>
-    ${learnerMove&&siblingIndex===0?`<label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(node.hint||"")}</textarea><small>Shown after a mistake. Leave empty when this position needs no hint.</small></label>`:""}</div>`;
+    ${learnerMove&&siblingIndex===0?`<label>Hint source<select id="node-hint-mode"><option value="shared" ${node.hintMode!=="own" && !(hintInfo?.conflict && node.hint)?"selected":""}>Use shared hint when available</option><option value="own" ${node.hintMode==="own" || (hintInfo?.conflict && node.hint)?"selected":""}>Use a hint for this move only</option></select></label><label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(hintInfo?.hint||"")}</textarea><small>${hintInfo?.inherited?"Shared from the same position and answer. Editing updates the shared hint.":hintInfo?.conflict?"Different hints exist for this position. Choose a hint for this move.":node.hintMode==="own"&&!node.hint?"No hint for this move (exception).":"Shown after a mistake. Choose a move-only hint to make an exception."}</small></label>`:""}</div>`;
   bindEditorPanelButtons(inspector);
   const update = patch => commit(updateNode(state.document, node.id, patch));
   $("node-comment").addEventListener("change", event => update({ comment: event.target.value }));
-  $("node-hint")?.addEventListener("change", event => update({ hint: event.target.value.trim().replace(/\s+/g," ") }));
+  $("node-hint")?.addEventListener("change", event => { const hint=event.target.value.trim().replace(/\s+/g," ");
+    if (node.hintMode === "own") update({hint, hintMode:"own"});
+    else commit(writeSharedHint(state.document,state.document.activeChapterID ?? null,node.id,hint));
+  });
+  $("node-hint-mode")?.addEventListener("change", event => update(event.target.value === "shared" ? {hint:"", hintMode:"shared"} : {hint:hintInfo?.hint || "", hintMode:"own"}));
   inspector.querySelectorAll("textarea,input").forEach(control=>control.addEventListener("input",markPendingInput));
   inspector.querySelector('[data-action="promote"]').addEventListener("click", () => commit(promoteVariation(state.document,node.id)));
   inspector.querySelector('[data-action="earlier"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,-1)));
@@ -1359,7 +1371,7 @@ function areaView(area){const value=String(area).toLowerCase();if(value.includes
 async function runQuality({forPublish=false}={}){
   const button=$("refresh-quality");setBusy(button,true,"Checking…");
   try{
-    if(dirty()&&!await saveDraft({quiet:true}))return null;
+    if((dirty()||needsSharedHintSave())&&!await saveDraft({quiet:true}))return null;
     // A failed fresh request must not leave yesterday's zero-blocker result
     // looking authoritative. This is a service-check blocker, not course data.
     state.validation={valid:false,errors:[{area:"Server checks",message:"Server checks are running; publish readiness is not confirmed yet."}],warnings:[]};
@@ -1505,11 +1517,17 @@ window.addEventListener("hashchange",()=>{const requestedView=location.hash.slic
 
 boot();
 
+function serializeEffectiveHints(course, chapter, chapterID) {
+  const index = sharedHintIndex(course), output = serializeForPGN(chapter);
+  return output.map((item,i) => { const occurrence=sharedHintFor(index,chapterID,chapter.nodes[i].id);
+    return occurrence ? {...item, comment: commentWithHint(chapter.nodes[i].comment,occurrence.hint)} : item; });
+}
 async function exportAllChapterSources(document) {
   const next = syncActiveChapter(document), chapterSources = [];
+  next.sharedHintOrigins = hintOriginRecords(sharedHintIndex(next));
   for (const chapter of next.chapterSources) {
     const child = chapterDocument(next, chapter);
-    const payload = await analysisAPI.exportPGN(serializeForPGN(child), chapterPGNHeaders(next, chapter));
+    const payload = await analysisAPI.exportPGN(serializeEffectiveHints(next,child,chapter.id), headersWithHintOrigins(chapterPGNHeaders(next, chapter),sharedHintIndex(next),chapter.id));
     if (!payload?.pgn) throw new Error(`${chapter.title} could not be exported. Nothing was saved.`);
     chapterSources.push({ ...chapter, sourcePGN: payload.pgn });
   }

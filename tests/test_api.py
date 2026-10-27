@@ -234,13 +234,13 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20261012-chapter-actions' in page.text
+    assert '/static/studio.js?v=20261027-shared-hints' in page.text
     assert '/static/studio.css?v=20260926-effects-recording' in page.text
     assert "This course was saved in another tab or browser" in page.text
     assert "server draft" not in page.text.lower()
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
     assert './studio-api.mjs?v=20260923-chapters' in studio_source
-    assert './studio-document.mjs?v=20261012-chapter-actions' in studio_source
+    assert './studio-document.mjs?v=20261027-shared-hints' in studio_source
     extraction_source = (ROOT / "app" / "static" / "studio-extraction.mjs").read_text()
     assert './studio-document.mjs?v=20260926-writing-ellipsis' in extraction_source
 
