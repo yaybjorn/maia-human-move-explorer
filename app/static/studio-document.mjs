@@ -1,3 +1,4 @@
+import { sharedCommentIndex, sharedCommentFor, restoreCommentHeader, commentWithProse } from './studio-shared-comments.mjs?v=20261028-shared-comments';
 import { wrongBranchDepth } from "./studio-training-branch.mjs?v=20261027-wrong-feedback";
 import { sharedHintIndex, sharedHintFor, restoreHintHeader } from "./studio-shared-hints.mjs?v=20261027-shared-hints";
 const DEFAULT_METADATA = Object.freeze({
@@ -241,6 +242,7 @@ export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = fal
       comment: parsedComment.comment,
       hint,
       ...(["own", "inherited"].includes(node.hintMode) ? { hintMode: node.hintMode } : {}),
+      ...(["own", "inherited"].includes(node.commentMode) ? { commentMode: node.commentMode } : {}),
       startingComment: node.startingComment || node.starting_comment || "",
       nags: [...(node.nags || [])].map(Number).filter(Number.isInteger),
     };
@@ -258,6 +260,7 @@ export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = fal
   }));
   document.ignoredSuggestionIDs = [...(input.ignoredSuggestionIDs || [])];
   document.sharedHintOrigins = structuredClone(input.sharedHintOrigins || []);
+  document.sharedCommentOrigins = structuredClone(input.sharedCommentOrigins || []);
   if (Array.isArray(input.chapterSources)) {
     document.chapterSources = input.chapterSources.map(chapter => {
       const child = normalizeDocument({ ...chapter, metadata: document.metadata });
@@ -271,11 +274,11 @@ export function normalizeDocument(input = {}, { allowIncompleteCourseVideo = fal
 }
 
 export function importParsedPGN(parsed, metadata = {}) {
-  return restoreHintHeader(normalizeDocument({
+  return restoreCommentHeader(restoreHintHeader(normalizeDocument({
     metadata,
     headers: parsed.headers,
     nodes: parsed.nodes,
-  }));
+  })));
 }
 
 export function pgnHasMoves(pgn = "") {
@@ -428,9 +431,9 @@ export function updateNode(document, id, patch) {
 export function trainingPack(document, packID = "draft") {
   if (Array.isArray(document.chapterSources)) {
     let order = 0;
-    const hints = sharedHintIndex(document);
+    const hints = sharedHintIndex(document), comments = sharedCommentIndex(document);
     return { id: packID, positions: syncActiveChapter(document).chapterSources.filter(chapter => !chapter.archived).flatMap(chapter =>
-      trainingPack(chapterDocument(document, chapter), packID).positions.map(position => {
+      trainingPack({...chapterDocument(document, chapter), nodes:chapter.nodes.map(node=>{const item=sharedCommentFor(comments,chapter.id,node.id);return item?{...node,comment:commentWithProse(node.comment,item.prose)}:node})}, packID).positions.map(position => {
         const { hint: _localHint, ...rest } = position;
         const main = chapter.nodes.find(node => node.parentId === (position.id === "start" ? null : position.id));
         const hint = sharedHintFor(hints, chapter.id, main?.id)?.hint;
@@ -438,7 +441,7 @@ export function trainingPack(document, packID = "draft") {
           chapterID: chapter.id, learningOrder: order++, source: { ...position.source, chapter: chapter.title } };
       })) };
   }
-  const effectiveHints = sharedHintIndex(document);
+  const effectiveHints = sharedHintIndex(document), effectiveComments=sharedCommentIndex(document);
   const learnerOnOddPly = document.metadata.side !== "black";
   const positions = [];
   const visitLine = startingParentID => {
@@ -457,10 +460,10 @@ export function trainingPack(document, packID = "draft") {
           learningOrder: positions.length,
           ply: main.ply,
           moveNumber: Math.ceil(main.ply / 2),
-          correctMove: { san: main.san, uci: main.uci, feedback: main.comment },
+          correctMove: { san: main.san, uci: main.uci, feedback: commentWithProse(main.comment,sharedCommentFor(effectiveComments,null,main.id)?.prose ?? main.comment) },
           ...(sharedHintFor(effectiveHints,null,main.id)?.hint ? { hint: normalizeHint(sharedHintFor(effectiveHints,null,main.id).hint) } : {}),
           wrongMoves: children.slice(1).map(child => ({
-            san: child.san, uci: child.uci, feedback: child.comment,
+            san: child.san, uci: child.uci, feedback: commentWithProse(child.comment,sharedCommentFor(effectiveComments,null,child.id)?.prose ?? child.comment),
           })),
           path: movesToNode(document, parentID),
           breadcrumb: pathToNode(document, parentID).map(moveLabel).join(" ") || "Starting position",
@@ -515,6 +518,7 @@ export function hydrateRestoredDocument(parsed, saved) {
   const hydrated = importParsedPGN(parsed, saved.metadata);
   hydrated.sourcePGN = saved.sourcePGN || "";
   hydrated.sharedHintOrigins = structuredClone(saved.sharedHintOrigins || []);
+  hydrated.sharedCommentOrigins = structuredClone(saved.sharedCommentOrigins || []);
   hydrated.chapters = structuredClone(saved.chapters || []);
   const positions = trainingPack(hydrated, hydrated.metadata.slug || "draft").positions;
   const byPath = new Map(positions.map(position => [JSON.stringify(position.path), position.id]));

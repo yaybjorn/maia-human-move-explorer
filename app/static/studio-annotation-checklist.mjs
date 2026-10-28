@@ -1,5 +1,6 @@
+import { sharedCommentIndex, sharedCommentFor } from './studio-shared-comments.mjs?v=20261028-shared-comments';
 import { wrongBranchDepth } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
-import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261027-wrong-feedback';
+import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261028-shared-comments';
 
 import { sharedHintIndex, sharedHintFor } from './studio-shared-hints.mjs?v=20261027-shared-hints';
 
@@ -12,7 +13,7 @@ export function annotationChecklist(document) {
   const chapters = Array.isArray(synced.chapterSources)
     ? synced.chapterSources.filter(chapter => !chapter.archived).map(chapter => ({id:chapter.id,title:chapter.title || 'Untitled chapter',document:chapterDocument(synced,chapter)}))
     : [{id:null,title:'Course repertoire',document:synced}];
-  const missingHints = [], missingComments = [], hints = sharedHintIndex(synced);
+  const missingHints = [], missingComments = [], hints = sharedHintIndex(synced), comments=sharedCommentIndex(synced);
   let moveCount = 0;
   for (const chapter of chapters) for (const node of chapter.document.nodes) {
     if (!node?.id || !node.uci || !node.san || !Number.isInteger(node.ply) || node.ply < 1) continue;
@@ -23,7 +24,7 @@ export function annotationChecklist(document) {
     if (wrongBranchDepth(chapter.document,node.id) >= 0) continue;
     const learnerMove = node.ply % 2 === (document.metadata.side === 'black' ? 0 : 1);
     if (learnerMove && childrenOf(chapter.document,node.parentId)[0]?.id === node.id && !sharedHintFor(hints,chapter.id,node.id)?.hint) missingHints.push(finding);
-    if (learnerMove && !hasProseComment(node.comment)) missingComments.push(finding);
+    if (learnerMove && !hasProseComment(sharedCommentFor(comments,chapter.id,node.id)?.prose ?? node.comment)) missingComments.push(finding);
   }
   return {moveCount,missingHints,missingComments};
 }

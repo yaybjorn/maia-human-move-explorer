@@ -1,3 +1,4 @@
+import {sharedCommentIndex,sharedCommentFor,commentWithProse,commentParts} from '../app/static/studio-shared-comments.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Chess } from '../app/static/vendor/chessjs/chess.mjs';
@@ -65,7 +66,7 @@ test('deleting a linked donor clears fallback; importing an orphan retains it',(
 test('compiler-facing serialization replaces a stale fallback with the selected hint',()=>{
  const d=course(['One','Two','']);d.chapterSources[2].nodes[4].hint='Old';d.chapterSources[2].nodes[4].hintMode='inherited';
  const src=readFileSync(new URL('../app/static/studio.js',import.meta.url),'utf8');const start=src.indexOf('function serializeEffectiveHints('),end=src.indexOf('\nasync function exportAllChapterSources',start);
- const context=vm.createContext({sharedHintIndex,sharedHintFor,serializeForPGN,commentWithHint});vm.runInContext(src.slice(start,end),context);
+ const context=vm.createContext({sharedHintIndex,sharedHintFor,serializeForPGN,commentWithHint,sharedCommentIndex,sharedCommentFor,commentWithProse,commentParts});vm.runInContext(src.slice(start,end),context);
  const result=context.serializeEffectiveHints(d,d.chapterSources[2],'c');assert.match(result[4].comment,/\[%hint One\]/);
 });
 

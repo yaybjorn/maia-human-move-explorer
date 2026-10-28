@@ -3,6 +3,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import * as doc from '../app/static/studio-document.mjs';
+import {clearDetachedCommentFallbacks} from '../app/static/studio-shared-comments.mjs';
 
 const source = readFileSync(new URL('../app/static/studio.js', import.meta.url), 'utf8');
 // Execute production functions; only browser rendering/network boundaries are stubbed.
@@ -32,7 +33,7 @@ function harness() {
     ignoredWords:[],undo:[],redo:[],analysisToken:0,view:'editor',position:{fen:'start'},currentNodeID:null,
     recordingMaiaEnabled:false,recordingMaiaAbort:null,recordingMaiaToken:0,recordingSuggestions:[]};
   const noop = () => {};
-  const sandbox = {...doc,state,$,structuredClone, console, wrongBranchDepth: () => -1, coalesceIdenticalHints: value => value, clearDetachedHintFallbacks: (_old, value) => value,
+  const sandbox = {...doc,clearDetachedCommentFallbacks,state,$,structuredClone, console, wrongBranchDepth: () => -1, coalesceIdenticalHints: value => value, clearDetachedHintFallbacks: (_old, value) => value,
     setBusy:noop,flushActiveEditor:noop,showStatus:noop,renderAll:noop,refreshPosition:noop,switchView:noop,
     stopEditorMaia:noop,editorEngine:{cancel:noop},saveCrashRecovery:noop,updateSaveState:noop,closeRecordingChoice:noop,closeEditorChoice:noop,
     clearRecordingEffect:noop,renderMoveTree:noop,renderRecordingTree:noop,renderInspector:noop,renderRecording:noop,renderRecordingBoard:noop,
