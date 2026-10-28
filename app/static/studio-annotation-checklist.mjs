@@ -18,11 +18,21 @@ export function annotationChecklist(document) {
     if (!node?.id || !node.uci || !node.san || !Number.isInteger(node.ply) || node.ply < 1) continue;
     moveCount++;
     const history = pathToNode(chapter.document,node.id).map(move => `${Math.ceil(move.ply/2)}${move.ply%2 ? '.' : '…'} ${move.san}`).join(' ');
-    const finding = {chapterID:chapter.id,chapterTitle:chapter.title,nodeID:node.id,history};
+    const path = pathToNode(chapter.document,node.id).map(move => [move.id,move.uci,move.san,move.ply]);
+    const finding = {chapterID:chapter.id,chapterTitle:chapter.title,nodeID:node.id,history,path};
     if (wrongBranchDepth(chapter.document,node.id) >= 0) continue;
     const learnerMove = node.ply % 2 === (document.metadata.side === 'black' ? 0 : 1);
     if (learnerMove && childrenOf(chapter.document,node.parentId)[0]?.id === node.id && !sharedHintFor(hints,chapter.id,node.id)?.hint) missingHints.push(finding);
     if (learnerMove && !hasProseComment(node.comment)) missingComments.push(finding);
   }
   return {moveCount,missingHints,missingComments};
+}
+
+// Navigation is safe only while the same finding still exists at the same full path.
+// Unlike text-editing diagnostics, unrelated document changes need not block it.
+export function currentAnnotationFinding(document, finding, kind) {
+  if (!document || !finding || !['hint', 'comment'].includes(kind)) return null;
+  const list = annotationChecklist(document)[kind === 'hint' ? 'missingHints' : 'missingComments'];
+  return list.find(item => item.chapterID === finding.chapterID && item.nodeID === finding.nodeID
+    && JSON.stringify(item.path) === JSON.stringify(finding.path)) || null;
 }

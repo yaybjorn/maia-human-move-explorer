@@ -1,6 +1,6 @@
 import { wrongBranchDepth, visibleTrainingChildren } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
 import { sharedHintIndex, sharedHintFor, hintOriginRecords, restoreHintOrigins, headersWithHintOrigins, coalesceIdenticalHints, writeSharedHint, clearDetachedHintFallbacks } from "./studio-shared-hints.mjs?v=20261027-shared-hint-selection";
-import { annotationChecklist } from "./studio-annotation-checklist.mjs?v=20261027-wrong-feedback";
+import { annotationChecklist, currentAnnotationFinding } from "./studio-annotation-checklist.mjs?v=20261028-open-move";
 import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writing-ellipsis";
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
@@ -1256,14 +1256,15 @@ function restoreSidebarPreference(){let collapsed=false;try{collapsed=localStora
 function renderAnnotationChecklist() {
   const container = $("annotation-checklist");
   if (!container || !state.document) return;
-  const context = diagnosticContext(), result = annotationChecklist(state.document);
+  const courseID = state.courseID, result = annotationChecklist(state.document);
   if (!result.moveCount) { container.innerHTML = '<div class="empty-state"><p>No moves to check yet. Import a PGN or add moves to a chapter.</p></div>'; return; }
   const section = (title, items, kind) => `<section><h3>${title} (${items.length})</h3>${items.length ? `<div class="quality-list">${items.map((item,index)=>`<article class="quality-item warning"><span class="quality-icon">!</span><div><h4>${escapeHTML(item.chapterTitle)}</h4><p>${escapeHTML(item.history)}</p></div><button type="button" data-annotation-kind="${kind}" data-annotation-index="${index}">Open move</button></article>`).join("")}</div>` : '<p class="muted">None missing.</p>'}</section>`;
   container.innerHTML = section("Missing hints",result.missingHints,"hint") + section("Missing comments",result.missingComments,"comment");
   container.querySelectorAll('[data-annotation-kind]').forEach(button=>button.addEventListener('click',()=> {
-    if (!requireCurrentDiagnostic(context)) return;
-    const kind = button.dataset.annotationKind, finding = (kind === 'hint' ? result.missingHints : result.missingComments)[Number(button.dataset.annotationIndex)];
-    if (!finding) return;
+    flushActiveEditor();
+    const kind = button.dataset.annotationKind, original = (kind === 'hint' ? result.missingHints : result.missingComments)[Number(button.dataset.annotationIndex)];
+    const finding = courseID === state.courseID && currentAnnotationFinding(state.document, original, kind);
+    if (!finding) return showStatus("This move or check has changed. Return to Writing to refresh the list.", true);
     if (finding.chapterID !== null) {
       const chapter = syncActiveChapter(state.document).chapterSources?.find(item=>item.id===finding.chapterID && !item.archived);
       if (!chapter || !chapter.nodes.some(node=>node.id===finding.nodeID)) return showStatus("This move is no longer available. Check again.",true);

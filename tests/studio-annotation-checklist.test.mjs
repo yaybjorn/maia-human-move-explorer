@@ -8,3 +8,27 @@ test('white hints only main learner answers; comments cover recommended learner 
 test('black main answers, current unsaved active projection, and empty course',()=>{const d=course('black');d.nodes[2]={...d.nodes[2],hint:'Now present'};const r=annotationChecklist(d);assert.deepEqual(r.missingHints.map(x=>[x.chapterID,x.nodeID]),[['b','d7d5']]);assert.deepEqual(r.missingComments.map(x=>[x.chapterID,x.nodeID]),[['b','d7d5']]);assert.equal(annotationChecklist({metadata:{side:'white'},nodes:[],chapterSources:[],activeChapterID:null}).moveCount,0)});
 
 test('black alternatives are optional; white opponent moves do not require comments',()=>{const d=course('black');d.nodes.push(node('c7c5','e2e4',2,'c5','  '));const r=annotationChecklist(d);assert.deepEqual(r.missingComments.map(x=>[x.chapterID,x.nodeID]),[['b','d7d5']]);assert.deepEqual(r.missingHints.map(x=>[x.chapterID,x.nodeID]),[['a','e7e5'],['b','d7d5']]);assert.equal(r.missingComments[0].history,'1. d4 1… d5')});
+
+test('navigation revalidates the current chapter and full path without depending on unrelated document changes', async()=>{
+  const {currentAnnotationFinding}=await import('../app/static/studio-annotation-checklist.mjs');
+  const d=course(), finding=annotationChecklist(d).missingComments.find(x=>x.chapterID==='b');
+  d.metadata.title='Unrelated save normalization';
+  assert.equal(currentAnnotationFinding(d,finding,'comment')?.nodeID,'d2d4');
+  // Navigation changes the active projection but keeps the same chapter tree.
+  const {activateChapter}=await import('../app/static/studio-document.mjs');
+  const switched=activateChapter(d,'b');
+  assert.equal(currentAnnotationFinding(switched,finding,'comment')?.chapterID,'b');
+  switched.nodes[0].uci='e2e4';
+  assert.equal(currentAnnotationFinding(switched,finding,'comment'),null);
+  switched.nodes[0].uci='d2d4'; switched.nodes[0].comment='Now explained';
+  assert.equal(currentAnnotationFinding(switched,finding,'comment'),null);
+  switched.nodes[0].comment=''; switched.chapterSources[1].archived=true;
+  assert.equal(currentAnnotationFinding(switched,finding,'comment'),null);
+});
+
+test('a changed ancestor invalidates a finding even when the destination node is unchanged', async()=>{
+  const {currentAnnotationFinding}=await import('../app/static/studio-annotation-checklist.mjs');
+  const d=course('black'), finding=annotationChecklist(d).missingComments.find(x=>x.chapterID==='b');
+  d.chapterSources[1].nodes[0].uci='e2e4';
+  assert.equal(currentAnnotationFinding(d,finding,'comment'),null);
+});
