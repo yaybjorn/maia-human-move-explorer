@@ -30,9 +30,13 @@ def authorize(request, body, db, source=None):
     supplied = request.headers.get('authorization', '')
     if request.headers.get('origin') or len(supplied) > 256:
         raise HTTPException(403, 'Unavailable')
-    ring = os.getenv('BEYOND_BASICS_ACTION_KEYRING', '')
+    # Persistent mode is fixed-path and fail-closed by default; the legacy
+    # canary is available only via an explicit separate opt-in.
+    ring = os.getenv('BEYOND_BASICS_ACTION_KEYRING', '/etc/maia-review-action/keys.json')
+    if os.getenv('BEYOND_BASICS_ACTION_LEGACY_CANARY') == '1' and 'BEYOND_BASICS_ACTION_KEYRING' not in os.environ:
+        ring = None
     try:
-        if ring:
+        if ring is not None:
             if not supplied.startswith('Review-HMAC2 '): raise ValueError('scheme')
             key_id, timestamp, nonce, signature = supplied[13:].split(':')
             configured = lookup(ring, key_id, source=source)

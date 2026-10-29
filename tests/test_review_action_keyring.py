@@ -127,3 +127,16 @@ def test_atomic_installer_never_exposes_partial_json(tmp_path,monkeypatch):
         future=pool.submit(reader)
         for i in range(30): admin.install(payload(('a' if i%2 else 'b')*64))
         future.result()
+
+
+def test_default_missing_ring_never_falls_back_to_legacy(tmp_path,monkeypatch):
+    monkeypatch.delenv('BEYOND_BASICS_ACTION_KEYRING',raising=False)
+    monkeypatch.delenv('BEYOND_BASICS_ACTION_LEGACY_CANARY',raising=False)
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_SHA256',hashlib.sha256(b'old').hexdigest())
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_EXPIRES',str(int(time.time())+300))
+    app=FastAPI()
+    @app.post('/claim')
+    async def endpoint(request:Request): authorize(request,await request.body(),tmp_path/'db','a'*64); return {'ok':True}
+    client=TestClient(app); ts=str(int(time.time())); nonce='a'*32; body=b'{}'
+    msg=f'POST\n/claim\n{ts}\n{nonce}\n{hashlib.sha256(body).hexdigest()}'.encode(); sig=hmac.new(hashlib.sha256(b'old').digest(),msg,hashlib.sha256).hexdigest()
+    assert client.post('/claim',content=body,headers={'authorization':f'Review-HMAC {ts}:{nonce}:{sig}'}).status_code==403

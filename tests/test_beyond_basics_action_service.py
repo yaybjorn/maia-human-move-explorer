@@ -24,6 +24,7 @@ def signed(client, action, body, token, *, origin=None, nonce=None):
 
 
 def test_scoped_token_and_page_bound_proposal(tmp_path, monkeypatch):
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
     monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
     monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
     token = 'x' * 48
@@ -67,6 +68,7 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
     worker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(worker)
 
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
     monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
     monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
     token = 'q' * 48
@@ -118,6 +120,7 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
 def test_saved_manual_revision_is_source_and_authority(tmp_path, monkeypatch):
     from app.beyond_basics_review_state import review_state
 
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
     monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
     token = 'z' * 48
     monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', hashlib.sha256(token.encode()).hexdigest())
@@ -153,6 +156,7 @@ def test_saved_manual_revision_is_source_and_authority(tmp_path, monkeypatch):
 
 def test_unverified_grammar_suggestion_is_visible_but_not_applied(tmp_path, monkeypatch):
     from app.beyond_basics_review_state import review_state
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
     monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
     token = 'v' * 48
     monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', hashlib.sha256(token.encode()).hexdigest())
