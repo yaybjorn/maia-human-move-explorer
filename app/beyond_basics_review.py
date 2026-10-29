@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
+from app.beyond_basics_action_service import service as action_service
 from app.beyond_basics_review_state import review_state
 
 # A single immutable version, explicitly mapped; no user-supplied filesystem paths.
@@ -25,6 +26,9 @@ REVIEWER_IDS = {
 async def dispatch(path, request, upstream_read):
     sample_prefix = "beyond-basics/unit1-sample-v1/"
     extension_prefix = "beyond-basics/course-review-v2/"
+    if path in {extension_prefix + "action-claim", extension_prefix + "action-finish"}:
+        manifest = json.loads(Path(__file__).with_name("beyond_basics_course_review_manifest.json").read_text())
+        return await action_service(request, manifest, "claim" if path.endswith("action-claim") else "finish")
     if path == extension_prefix + "review-state":
         if request.url.query:
             raise HTTPException(404, "Review asset not found")
@@ -62,7 +66,7 @@ async def dispatch(path, request, upstream_read):
         raise HTTPException(403, "This review is not available to this account")
     media_type, download = files[name]
     filename = ("106399420.mp4" if name == "download.mp4" else name.removeprefix("download-")) if download else name
-    asset = root / filename
+    asset = Path(__file__).with_name("review-assets") / "beyond-basics" / filename if path == extension_prefix + "review.js" else root / filename
     if asset.is_symlink() or not asset.is_file():
         raise HTTPException(404, "Review asset unavailable")
     headers = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive", "X-Content-Type-Options": "nosniff"}

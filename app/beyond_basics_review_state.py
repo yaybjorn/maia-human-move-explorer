@@ -1,4 +1,5 @@
 """Private review revisions; never modifies or publishes a Studio course."""
+import hashlib
 import json
 import os
 import sqlite3
@@ -6,6 +7,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+
+from app.beyond_basics_action_queue import enqueue, ensure_schema
 
 
 async def review_state(request, manifest):
@@ -19,9 +22,17 @@ async def review_state(request, manifest):
     source = manifest["source_sha256"]
     with sqlite3.connect(db, timeout=5, isolation_level=None) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS revisions (source TEXT NOT NULL, page_id TEXT NOT NULL, generation INTEGER NOT NULL, body TEXT NOT NULL, notes TEXT NOT NULL, decision TEXT NOT NULL, ready INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(source,page_id,generation))")
+        ensure_schema(conn)
+        conn.execute("CREATE TABLE IF NOT EXISTS review_save_requests (source TEXT NOT NULL, page_id TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, generation INTEGER NOT NULL, PRIMARY KEY(source,page_id,request_id))")
+        conn.execute("CREATE TABLE IF NOT EXISTS review_overlays (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,patches TEXT NOT NULL,PRIMARY KEY(source,page_id,generation))")
         if request.method == "GET":
             rows = conn.execute("SELECT r.page_id,r.generation,r.body,r.notes,r.decision,r.ready FROM revisions r WHERE r.source=? AND r.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=r.source AND x.page_id=r.page_id)", (source,)).fetchall()
-            return JSONResponse({"source":source,"pages":{r[0]:{"generation":r[1],"body":r[2],"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}}, headers={"Cache-Control":"private, no-store"})
+            pages = {r[0]:{"generation":r[1],"body":r[2],"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}
+            actions = conn.execute("SELECT a.page_id,a.status,a.message,a.suggestions FROM review_actions a WHERE a.source=? AND a.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=a.source AND x.page_id=a.page_id)", (source,)).fetchall()
+            for page_id, status, message, suggestions in actions:
+                if page_id in pages:
+                    pages[page_id]["action"] = {"status":status,"message":message,"suggestions":json.loads(suggestions)}
+            return JSONResponse({"source":source,"pages":pages}, headers={"Cache-Control":"private, no-store"})
         if request.headers.get("content-type", "").split(";")[0] != "application/json":
             raise HTTPException(415, "JSON required")
         try:
@@ -43,6 +54,18 @@ async def review_state(request, manifest):
         if data.get("source") != source or not isinstance(page_id, str) or page_id not in manifest["page_ids"] or type(expected) is not int or expected < 0 or not isinstance(operation, str) or operation not in {"save", "ready"}:
             raise HTTPException(400, "Invalid review")
         conn.execute("BEGIN IMMEDIATE")
+        request_id = data.get("request_id")
+        if request_id is not None and (operation != "save" or not isinstance(request_id, str) or len(request_id) != 36 or any(c not in "0123456789abcdef-" for c in request_id)):
+            conn.execute("ROLLBACK")
+            raise HTTPException(400, "Invalid request ID")
+        payload_hash = hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+        if request_id:
+            prior = conn.execute("SELECT payload_hash,generation FROM review_save_requests WHERE source=? AND page_id=? AND request_id=?", (source,page_id,request_id)).fetchone()
+            if prior:
+                conn.execute("ROLLBACK")
+                if prior[0] != payload_hash:
+                    raise HTTPException(409, "Request ID already used")
+                return JSONResponse({"generation":prior[1],"ready":False}, headers={"Cache-Control":"private, no-store"})
         row = conn.execute("SELECT generation,body,notes,decision,ready FROM revisions WHERE source=? AND page_id=? ORDER BY generation DESC LIMIT 1", (source,page_id)).fetchone()
         current = row[0] if row else 0
         if current != expected:
@@ -52,6 +75,10 @@ async def review_state(request, manifest):
             if not row:
                 conn.execute("ROLLBACK")
                 raise HTTPException(400, "Save this page before marking ready")
+            action = conn.execute("SELECT status FROM review_actions WHERE source=? AND page_id=? AND generation=?", (source,page_id,current)).fetchone()
+            if action and action[0] != "completed":
+                conn.execute("ROLLBACK")
+                raise HTTPException(409, "Resolve the saved instruction before marking ready")
             if row[3] == "Request changes":
                 conn.execute("ROLLBACK")
                 raise HTTPException(400, "Resolve change request before marking ready")
@@ -64,5 +91,13 @@ async def review_state(request, manifest):
             ready=0
         generation=current+1
         conn.execute("INSERT INTO revisions(source,page_id,generation,body,notes,decision,ready) VALUES (?,?,?,?,?,?,?)",(source,page_id,generation,body,notes,decision,ready))
+        if operation == "save":
+            try:
+                enqueue(conn, source, page_id, generation, notes)
+            except ValueError:
+                conn.execute("ROLLBACK")
+                raise HTTPException(400, "Invalid instruction or review queue full") from None
+            if request_id:
+                conn.execute("INSERT INTO review_save_requests VALUES (?,?,?,?,?)", (source,page_id,request_id,payload_hash,generation))
         conn.execute("COMMIT")
     return JSONResponse({"generation":generation,"ready":bool(ready)}, headers={"Cache-Control":"private, no-store"})
