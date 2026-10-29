@@ -385,8 +385,8 @@
     },
     "review.js": {
       "media_type": "application/javascript",
-      "bytes": 12630,
-      "sha256": "94ea841cbd3d109fcbd000ee7d5b491bfc192492fcb1a429ce87d3b57a5600f1"
+      "bytes": 18730,
+      "sha256": "891f6362e5e8b7e75b3cd11873f7a56550c8ab64c5626122c9e0a0e43c1ac0fb"
     },
     "106395100.mp4": {
       "media_type": "video/mp4",
@@ -1515,8 +1515,8 @@
     },
     "extension.css": {
       "media_type": "text/css",
-      "bytes": 1670,
-      "sha256": "2d7e08f37f7bce726b2cc815b10cc1a7a17cd5edcacaba2b50ffe5b7f2d951a8"
+      "bytes": 1611,
+      "sha256": "63339d989ac33a117654c698700192c7271da7eae99b7d8e3d53a886cb64db01"
     },
     "5448c168e9366ec6887dea819b05f9caf2a9d68fd62c643832efc131da9ed26d.jpg": {
       "media_type": "image/jpeg",
@@ -2557,6 +2557,96 @@
       "media_type": "image/jpeg",
       "bytes": 144592,
       "sha256": "14b53e72e6dba4b656ccc02402ddc27f5587105033445bd350710a735085c1e1"
+    },
+    "c01-happy.png": {
+      "media_type": "image/png",
+      "bytes": 1814011,
+      "sha256": "0c5f7f520758d2845a2732660d2c56281e2b4d3fdde885a13771e9b510672d81"
+    },
+    "c01-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 1937508,
+      "sha256": "9ec4ba314a8094b04c29219341f76089751bd15004a3f3b02776f5da18948b98"
+    },
+    "c01-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1734518,
+      "sha256": "2f788c62d3c7ba64fbb7271dd6fb874a8b731a8f7a5983bf7e1b34a0162d58b3"
+    },
+    "c02-happy.png": {
+      "media_type": "image/png",
+      "bytes": 2091689,
+      "sha256": "2158da858b76fbc898d120eebba321ba9c0f94e31b6f5bea018b0fad98d774cf"
+    },
+    "c02-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 2094833,
+      "sha256": "4ac00d6fb7504d54b4d1a66c42118c098c530806c47d1cbd2af84cd41afa8dab"
+    },
+    "c02-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1953317,
+      "sha256": "b6e3363e6de5436a680789d1a46f89c7d20a183e3db7e567756db8934add2c21"
+    },
+    "c03-happy.png": {
+      "media_type": "image/png",
+      "bytes": 1708706,
+      "sha256": "9eb81b01b2e39be638c549becf941bb48502539a69e3b4641dc46ba812bcc127"
+    },
+    "c03-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 1739188,
+      "sha256": "bed86161dd66df790f0c150e23ad36a74bede65f37623a001f773a3cea522d22"
+    },
+    "c03-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1690192,
+      "sha256": "0c01ba0de98b267b919f4df9d4dda3b27d4e6444fb456d35b02b338bbcbb5a8c"
+    },
+    "c04-happy.png": {
+      "media_type": "image/png",
+      "bytes": 2033653,
+      "sha256": "82686cce5eaeeb2b3af89480d884caa53a4c20319884aa749cf2628b5ab7c683"
+    },
+    "c04-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 1992086,
+      "sha256": "63648b63e3e8534c0ec30b90ad31c470224ee2b10590281c292b1110807fcbfe"
+    },
+    "c04-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1941375,
+      "sha256": "785fb2e6f70e66b038c1eb6587cc059a42f0ac5240212500ca5807384933a7d6"
+    },
+    "c05-happy.png": {
+      "media_type": "image/png",
+      "bytes": 1522302,
+      "sha256": "210ae208b6ebac6e2bad83b119e9e5e829f97b60e49896c7e6b5d498a8c0c9a6"
+    },
+    "c05-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 1345007,
+      "sha256": "3d495951b4ce29e94f5caa595b29f2458dc6b3f148e9f846d56e9065ad2b5b52"
+    },
+    "c05-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1475586,
+      "sha256": "7a48dde40f0cb1112747a49fafbf306913151529165ff49cfedee304db9368c6"
+    },
+    "c06-happy.png": {
+      "media_type": "image/png",
+      "bytes": 1988624,
+      "sha256": "66f3acdd92e240898e4a275282cd93d69ac61a04ec6d151f6f86f2e18985b066"
+    },
+    "c06-puzzled.png": {
+      "media_type": "image/png",
+      "bytes": 2068186,
+      "sha256": "1d06f7529292daacb8cd92f036d69a9a650c22f71e46247b6be8c5c7a40f3501"
+    },
+    "c06-thinking.png": {
+      "media_type": "image/png",
+      "bytes": 1960016,
+      "sha256": "10814c71933291cd5e28d533603ccbacd046a17bdf449bfb8c76c487f769cd06"
     }
   }
 }
