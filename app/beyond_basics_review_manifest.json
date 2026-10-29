@@ -7,12 +7,12 @@
       "sha256": "70cef3cc17ab62a9da833bcd2e5c6e9d1d6299202db3f4956c9746fe32148bb3"
     },
     "sample.css": {
-      "bytes": 4543,
-      "sha256": "6d8b3353e8be9c8438eaefa65500fb6f453a6977923f764ab277b5060fb9745d"
+      "bytes": 544375,
+      "sha256": "3ed48d8c5836d91216a85e1c5cb311f1b61490d67acc8f817a4454155ff5e435"
     },
     "sample.js": {
-      "bytes": 560329,
-      "sha256": "0df9ec9bea9104776e875e5456b316c5ca19ba9b58fba837925874d6b5c922b5"
+      "bytes": 560254,
+      "sha256": "f2de51fcff3f74adec5085b3811a8baefbd54415aedd84f1b76f1cc26a9a637d"
     },
     "106399420.mp4": {
       "bytes": 32924062,
