@@ -17,6 +17,7 @@ SERVICE = 'no.fablelabs.beyond-basics-review-action'
 UNSUPPORTED = re.compile(r'\b(ignore (?:all |previous|prior)|system prompt|tool|shell|terminal|command|script|javascript|html|url|link|publish|deploy|delete|layout|theme|colou?r|button|navigation|animation|image|video|design|font|style|background)\b', re.IGNORECASE)
 PROOFREAD = re.compile(r"\s*(?:please\s+)?(?:fix|correct|check|improve|proofread|review)\s+(?:(?:the|any|all|this|page|text|its|and|grammar|spelling|punctuation|typos?|language|british|english|for|errors?|mistakes?|wording|copy|capitalisation|capitalization|on|of)\s*)+[.!]?\s*", re.IGNORECASE)
 EXPLICIT_REPLACEMENT = re.compile(r"\s*(?:please\s+)?(?:replace|change)\s+(['\"]).+?\1\s+(?:with|to)\s+(['\"]).+?\2[.!]?\s*", re.IGNORECASE)
+QUEUE_AGE = None
 PROOFREAD_TARGET = re.compile(r'\b(?:spelling|grammar|punctuation|typos?|capitalisation|capitalization)\b|^\s*(?:please\s+)?proofread\b', re.IGNORECASE)
 
 
@@ -29,10 +30,13 @@ def request(action, body, token):
     payload = json.dumps(body, ensure_ascii=True, separators=(',', ':')).encode()
     url = BASE + 'action-' + action
     timestamp, nonce = str(int(time.time())), secrets.token_hex(16)
-    message = f'POST\n{urlsplit(url).path}\n{timestamp}\n{nonce}\n{hashlib.sha256(payload).hexdigest()}'.encode()
-    signature = hmac.new(hashlib.sha256(token.encode()).digest(), message, hashlib.sha256).hexdigest()
-    req = urllib.request.Request(url, data=payload, headers={'Authorization': f'Review-HMAC {timestamp}:{nonce}:{signature}', 'Content-Type': 'application/json'}, method='POST')
-    with urllib.request.build_opener(NoRedirect()).open(req, timeout=20) as response:
+    key_id, secret = token if isinstance(token, tuple) else (None, token)
+    prefix = key_id + '\n' if key_id else ''
+    message = f'{prefix}POST\n{urlsplit(url).path}\n{timestamp}\n{nonce}\n{hashlib.sha256(payload).hexdigest()}'.encode()
+    signature = hmac.new(hashlib.sha256(secret.encode()).digest(), message, hashlib.sha256).hexdigest()
+    auth = f'Review-HMAC2 {key_id}:{timestamp}:{nonce}:{signature}' if key_id else f'Review-HMAC {timestamp}:{nonce}:{signature}'
+    req = urllib.request.Request(url, data=payload, headers={'Authorization': auth, 'Content-Type': 'application/json'}, method='POST')
+    with urllib.request.build_opener(NoRedirect()).open(req, timeout=10) as response:
         data = response.read(128001)
     if len(data) > 128000:
         raise ValueError('Response too large')
@@ -40,10 +44,24 @@ def request(action, body, token):
 
 
 def run():
-    secret = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', SERVICE, '-a', 'token', '-w'], capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+    key_file = Path.home() / '.openclaw' / 'review-action' / 'active-key-id'
+    key_id = None
+    if key_file.exists() or key_file.is_symlink():
+        st = key_file.lstat()
+        if key_file.is_symlink() or st.st_uid != os.getuid() or (st.st_mode & 0o777) != 0o600 or st.st_size > 32: raise ValueError('Invalid active key identity')
+        key_id = key_file.read_text().strip()
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}', key_id): raise ValueError('Invalid active key identity')
+    account = 'token-' + key_id if key_id else 'token'
+    secret = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', SERVICE, '-a', account, '-w'], capture_output=True, text=True, timeout=5, check=True).stdout.strip()
     if not 32 <= len(secret) <= 128:
         raise ValueError('Scoped credential unavailable')
-    job = request('claim', {}, secret)['job']
+    credential = (key_id, secret) if key_id else secret
+    global QUEUE_AGE
+    claimed = request('claim', {}, credential)
+    age = claimed.get('queue_age_seconds')
+    if age is not None and (type(age) is not int or not 0 <= age <= 31 * 86400): raise ValueError('Invalid queue metadata')
+    QUEUE_AGE = age
+    job = claimed['job']
     if not job:
         return 'No pending action'
     instruction = job['instruction']
@@ -70,17 +88,18 @@ def run():
         payload = {'instruction': instruction, 'components': job['components']}
         prompt = guide + json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
         environment = {key: os.environ[key] for key in ('HOME', 'USER', 'TMPDIR', 'LANG', 'PATH') if key in os.environ}
-        result = subprocess.run(['node', str(Path(__file__).with_name('review_action_infer.mjs'))], input=prompt, capture_output=True, text=True, timeout=90, check=True, env=environment)
+        result = subprocess.run(['node', str(Path(__file__).with_name('review_action_infer.mjs'))], input=prompt, capture_output=True, text=True, timeout=60, check=True, env=environment)
         if len(result.stdout) > 200000:
             raise ValueError('Inference output too large')
         envelope = json.loads(result.stdout)
         proposal = json.loads(envelope['outputs'][0]['text'])
-    return request('finish', {'id': job['id'], 'lease_token': job['lease_token'], 'proposal': proposal}, secret)['status']
+    return request('finish', {'id': job['id'], 'lease_token': job['lease_token'], 'proposal': proposal}, credential)['status']
 
 
 if __name__ == '__main__':
     try:
-        print(run())
+        result = run()
+        print(json.dumps({'status': result, 'queue_age_seconds': QUEUE_AGE}))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError, urllib.error.URLError):
         print('Review action could not be completed; it will be retried within its limit.')
         raise SystemExit(1) from None

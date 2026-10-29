@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from app.beyond_basics_action_queue import claim, ensure_schema, finish
+from app.beyond_basics_action_keyring import lookup
 
 
 def page_components(manifest, page_id, conn, generation):
@@ -26,31 +27,30 @@ def page_components(manifest, page_id, conn, generation):
 
 def authorize(request, body, db):
     """No fallback to browser sessions, and no credential ever reaches inference."""
-    configured = os.getenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', '')
-    expiry = os.getenv('BEYOND_BASICS_ACTION_TOKEN_EXPIRES', '')
     supplied = request.headers.get('authorization', '')
-    if request.headers.get('origin') or not re.fullmatch(r'[0-9a-f]{64}', configured):
+    if request.headers.get('origin') or len(supplied) > 256:
         raise HTTPException(403, 'Unavailable')
+    ring = os.getenv('BEYOND_BASICS_ACTION_KEYRING', '')
     try:
-        valid_time = time.time() < int(expiry)
-    except ValueError:
-        valid_time = False
-    if not valid_time or not supplied.startswith('Review-HMAC ') or len(supplied) > 256:
-        raise HTTPException(403, 'Unavailable')
-    try:
-        timestamp, nonce, signature = supplied[12:].split(':')
-        valid_request = (timestamp.isdigit() and abs(time.time() - int(timestamp)) <= 60
-                         and re.fullmatch(r'[0-9a-f]{32}', nonce)
-                         and re.fullmatch(r'[0-9a-f]{64}', signature))
-    except ValueError:
-        valid_request = False
-    if not valid_request:
-        raise HTTPException(403, 'Unavailable')
-    content_hash = hashlib.sha256(body).hexdigest()
-    message = f'{request.method}\n{request.url.path}\n{timestamp}\n{nonce}\n{content_hash}'.encode()
-    expected = hmac.new(bytes.fromhex(configured), message, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        raise HTTPException(403, 'Unavailable')
+        if ring:
+            if not supplied.startswith('Review-HMAC2 '): raise ValueError('scheme')
+            key_id, timestamp, nonce, signature = supplied[13:].split(':')
+            configured = lookup(ring, key_id)
+            prefix = key_id + '\n'
+        else:
+            configured = os.getenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', '')
+            expiry = int(os.getenv('BEYOND_BASICS_ACTION_TOKEN_EXPIRES', ''))
+            if not supplied.startswith('Review-HMAC ') or time.time() >= expiry or not re.fullmatch(r'[0-9a-f]{64}', configured): raise ValueError('configuration')
+            timestamp, nonce, signature = supplied[12:].split(':')
+            prefix = ''
+        if not (timestamp.isdigit() and abs(time.time() - int(timestamp)) <= 60 and re.fullmatch(r'[0-9a-f]{32}', nonce) and re.fullmatch(r'[0-9a-f]{64}', signature)):
+            raise ValueError('signature format')
+        content_hash = hashlib.sha256(body).hexdigest()
+        message = f'{prefix}{request.method}\n{request.url.path}\n{timestamp}\n{nonce}\n{content_hash}'.encode()
+        expected = hmac.new(bytes.fromhex(configured), message, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature): raise ValueError('signature')
+    except (ValueError, TypeError, OSError, json.JSONDecodeError):
+        raise HTTPException(403, 'Unavailable') from None
     with sqlite3.connect(db, timeout=5, isolation_level=None) as conn:
         conn.execute('BEGIN IMMEDIATE')
         conn.execute('CREATE TABLE IF NOT EXISTS review_action_nonces (nonce TEXT PRIMARY KEY, used_at REAL NOT NULL)')
@@ -97,7 +97,9 @@ async def service(request, manifest, action):
                     job['components'] = [{key: c[key] for key in ('title', 'body') if isinstance(c.get(key), str)} for c in components]
                     if len(json.dumps(job, ensure_ascii=True)) > 128000:
                         raise ValueError('Page too large')
-                return JSONResponse({'job': job}, headers={'Cache-Control': 'private, no-store'})
+                oldest = conn.execute("SELECT min(updated_at) FROM review_actions WHERE source=? AND status='queued'", (source,)).fetchone()[0]
+                age = None if oldest is None else max(0, min(int(time.time() - oldest), 31 * 86400))
+                return JSONResponse({'job': job, 'queue_age_seconds': age}, headers={'Cache-Control': 'private, no-store'})
             if action == 'finish' and set(data) == {'id', 'lease_token', 'proposal'}:
                 action_id, token = data['id'], data['lease_token']
                 if not isinstance(action_id, str) or not re.fullmatch(r'[0-9a-f]{64}', action_id) or not isinstance(token, str) or len(token) > 100:
