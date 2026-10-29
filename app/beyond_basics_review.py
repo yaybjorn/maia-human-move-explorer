@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from app.beyond_basics_action_service import service as action_service
+from app.beyond_basics_names import effective_course_script
 from app.beyond_basics_review_state import review_state
 
 # A single immutable version, explicitly mapped; no user-supplied filesystem paths.
@@ -70,5 +71,11 @@ async def dispatch(path, request, upstream_read):
     if asset.is_symlink() or not asset.is_file():
         raise HTTPException(404, "Review asset unavailable")
     headers = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive", "X-Content-Type-Options": "nosniff"}
+    if path == extension_prefix + "course.js":
+        try:
+            effective = effective_course_script(asset.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError):
+            raise HTTPException(503, "Review content unavailable") from None
+        return Response(effective, media_type=media_type, headers=headers)
     return FileResponse(asset, media_type=media_type, headers=headers,
                         filename=("how-the-pieces-move.mp4" if name == "download.mp4" else filename) if download else None)

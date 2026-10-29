@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from app.beyond_basics_action_queue import enqueue, ensure_schema
+from app.beyond_basics_names import renamed_text
 
 
 async def review_state(request, manifest):
@@ -27,7 +28,7 @@ async def review_state(request, manifest):
         conn.execute("CREATE TABLE IF NOT EXISTS review_overlays (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,patches TEXT NOT NULL,PRIMARY KEY(source,page_id,generation))")
         if request.method == "GET":
             rows = conn.execute("SELECT r.page_id,r.generation,r.body,r.notes,r.decision,r.ready FROM revisions r WHERE r.source=? AND r.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=r.source AND x.page_id=r.page_id)", (source,)).fetchall()
-            pages = {r[0]:{"generation":r[1],"body":r[2],"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}
+            pages = {r[0]:{"generation":r[1],"body":renamed_text(r[2]),"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}
             actions = conn.execute("SELECT a.page_id,a.status,a.message,a.suggestions FROM review_actions a WHERE a.source=? AND a.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=a.source AND x.page_id=a.page_id)", (source,)).fetchall()
             for page_id, status, message, suggestions in actions:
                 if page_id in pages:
