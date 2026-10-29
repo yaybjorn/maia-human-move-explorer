@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .beyond_basics_review import dispatch as dispatch_beyond_basics_review
 from .chapter_media import dispatch as dispatch_chapter_media
 from .chapter_media import is_chapter_media_path
 from .chess_state import (
@@ -271,6 +272,8 @@ def studio_path_allowed(path: str, method: str) -> bool:
 
 @app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if path.startswith("beyond-basics/"):
+        return await dispatch_beyond_basics_review(path, request, studio_authenticated_read)
     if is_effect_path(path):
         return await dispatch_effects(path, request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS)
     if request.method == "DELETE":
