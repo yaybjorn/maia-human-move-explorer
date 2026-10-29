@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from app.beyond_basics_names import renamed_text
+
 
 async def review_state(request, manifest):
     if request.headers.get("origin") != "https://ggm.fablelabs.no" and request.method != "GET":
@@ -21,7 +23,7 @@ async def review_state(request, manifest):
         conn.execute("CREATE TABLE IF NOT EXISTS revisions (source TEXT NOT NULL, page_id TEXT NOT NULL, generation INTEGER NOT NULL, body TEXT NOT NULL, notes TEXT NOT NULL, decision TEXT NOT NULL, ready INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(source,page_id,generation))")
         if request.method == "GET":
             rows = conn.execute("SELECT r.page_id,r.generation,r.body,r.notes,r.decision,r.ready FROM revisions r WHERE r.source=? AND r.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=r.source AND x.page_id=r.page_id)", (source,)).fetchall()
-            return JSONResponse({"source":source,"pages":{r[0]:{"generation":r[1],"body":r[2],"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}}, headers={"Cache-Control":"private, no-store"})
+            return JSONResponse({"source":source,"pages":{r[0]:{"generation":r[1],"body":renamed_text(r[2]),"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}}, headers={"Cache-Control":"private, no-store"})
         if request.headers.get("content-type", "").split(";")[0] != "application/json":
             raise HTTPException(415, "JSON required")
         try:

@@ -43,3 +43,24 @@ def test_private_review_access_and_ranges(tmp_path, monkeypatch):
     (tmp_path / "index.html").unlink()
     (tmp_path / "index.html").symlink_to(tmp_path / "106399420.mp4")
     assert client.get(base + "index.html").status_code == 404
+
+
+def test_course_script_effective_names_are_private_and_fail_closed(tmp_path, monkeypatch):
+    (tmp_path / 'course.js').write_text('const COURSE=[{"title":"Russell", "body":"Manning and Kay", "url":"Kay.png"}];\nconst GRAPHICS={};')
+    monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
+    app = FastAPI()
+    session = {'authenticated': False}
+    async def upstream(_request, _path):
+        return session
+    @app.api_route('/studio/api/{path:path}', methods=['GET'])
+    async def route(path: str, request: Request):
+        return await dispatch(path, request, upstream)
+    client = TestClient(app)
+    url = '/studio/api/beyond-basics/course-review-v2/course.js'
+    assert client.get(url).status_code == 401
+    session.update(authenticated=True, user={'id': next(iter(REVIEWER_IDS)), 'roles': ['superadmin']})
+    response = client.get(url)
+    assert response.status_code == 200
+    assert 'Steve' in response.text and 'Mark and Beth' in response.text and 'Kay.png' in response.text
+    (tmp_path / 'course.js').write_text('not the expected format')
+    assert client.get(url).status_code == 503
