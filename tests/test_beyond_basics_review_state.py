@@ -32,6 +32,8 @@ def test_review_durable_conflict_ready_and_access(tmp_path, monkeypatch):
     assert client.put(base, json=data).status_code == 403
     assert client.put(base, json=data, headers={'Origin': 'https://attacker.example'}).status_code == 403
     assert client.put(base, json={**data, 'source': 'old'}, headers=headers).status_code == 400
+    assert client.put(base, json={**data, 'operation': []}, headers=headers).status_code == 400
+    assert client.put(base, json={**data, 'page_id': []}, headers=headers).status_code == 400
     assert client.put(base, json=data, headers=headers).json()['generation'] == 1
     assert client.get(base).json()['pages'][page]['body'] == 'Edited content'
     assert client.put(base, json=data, headers=headers).status_code == 409

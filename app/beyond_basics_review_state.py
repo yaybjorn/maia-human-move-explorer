@@ -40,7 +40,7 @@ async def review_state(request, manifest):
             operation = data["operation"]
         except (ValueError, KeyError, TypeError):
             raise HTTPException(400, "Invalid review") from None
-        if data.get("source") != source or not isinstance(page_id, str) or page_id not in manifest["page_ids"] or type(expected) is not int or expected < 0 or operation not in {"save", "ready"}:
+        if data.get("source") != source or not isinstance(page_id, str) or page_id not in manifest["page_ids"] or type(expected) is not int or expected < 0 or not isinstance(operation, str) or operation not in {"save", "ready"}:
             raise HTTPException(400, "Invalid review")
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT generation,body,notes,decision,ready FROM revisions WHERE source=? AND page_id=? ORDER BY generation DESC LIMIT 1", (source,page_id)).fetchone()
