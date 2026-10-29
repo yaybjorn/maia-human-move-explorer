@@ -113,6 +113,7 @@ def alert():
             result=subprocess.run(['/opt/homebrew/bin/openclaw','message','send','--channel','discord','--target','user:598095875029467136','--message','Private review worker alert: '+message_category,'--json'], stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=False)
             if result.returncode == 0:
                 receipt=json.loads(result.stdout)
+                if not isinstance(receipt,dict): raise ValueError('invalid receipt')
                 if receipt.get('messageId') or (isinstance(receipt.get('payload'),dict) and receipt['payload'].get('messageId')): outcome='alert-sent'
                 else: outcome='alert-delivery-unverified'
         except (OSError, ValueError, TypeError, subprocess.SubprocessError): pass

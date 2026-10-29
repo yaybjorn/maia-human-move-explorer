@@ -81,3 +81,39 @@ def test_alert_recovery_and_new_episode(tmp_path,monkeypatch):
     monkeypatch.setattr(s.subprocess,'run',send)
     assert [s.alert(),s.alert(),s.alert()]==['alert-sent']*3
     assert [args[-2] for args in calls]==['Private review worker alert: heartbeat-missed','Private review worker alert: recovered','Private review worker alert: heartbeat-missed']
+
+
+def test_malformed_alert_receipt_records_uncertainty(tmp_path,monkeypatch):
+    monkeypatch.setattr(s,'ROOT',tmp_path); monkeypatch.setattr(s,'check',lambda:'heartbeat-missed')
+    monkeypatch.setattr(s.subprocess,'run',lambda args,**kw:subprocess.CompletedProcess(args,0,stdout=b'[]',stderr=b''))
+    assert s.alert()=='alert-delivery-failed'
+    assert json.loads((tmp_path/'alert.json').read_text())['outcome']=='alert-delivery-failed'
+
+
+def test_accelerated_actual_worker_alarm_kills_stubborn_child_after_supervisor_death(tmp_path):
+    import os,signal,sys
+    original=(Path(__file__).parents[1]/'scripts/review_action_worker.py').read_text()
+    child=tmp_path/'child.py'; child.write_text('import signal,time\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\ntime.sleep(30)\n')
+    pidfile=tmp_path/'child.pid'
+    injected="p=subprocess.Popen([%r,%r]); Path(%r).write_text(str(p.pid)); time.sleep(30); result='No pending action'" % (sys.executable,str(child),str(pidfile))
+    modified=original.replace('signal.alarm(100)','signal.alarm(2)').replace('        result = run()','        '+injected)
+    worker=tmp_path/'worker.py';worker.write_text(modified);assert modified!=original
+    module=str(Path(__file__).parents[1]/'scripts/review_action_supervisor.py')
+    code="import importlib.util,pathlib; s=importlib.util.spec_from_file_location('s',%r); m=importlib.util.module_from_spec(s);s.loader.exec_module(m);m.ROOT=pathlib.Path(%r);m.WORKER=pathlib.Path(%r);m.tick()" % (module,str(tmp_path),str(worker))
+    parent=subprocess.Popen([sys.executable,'-c',code],start_new_session=True)
+    pid=None
+    try:
+        deadline=time.monotonic()+3
+        while not pidfile.exists() and time.monotonic()<deadline: time.sleep(.01)
+        assert pidfile.exists(); pid=int(pidfile.read_text());os.kill(parent.pid,signal.SIGKILL);parent.wait(timeout=2)
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            state=subprocess.run(['/bin/ps','-o','stat=','-p',str(pid)],capture_output=True,text=True).stdout.strip()
+            if not state or state.startswith('Z'): break
+            time.sleep(.05)
+        else: raise AssertionError('stubborn inference child survived watchdog')
+    finally:
+        if parent.poll() is None: parent.kill(); parent.wait()
+        if pid:
+            try: os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError: pass

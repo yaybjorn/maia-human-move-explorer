@@ -3,6 +3,6 @@
 <plist version="1.0"><dict>
 <key>Label</key><string>no.fablelabs.review-action-rotation</string>
 <key>ProgramArguments</key><array><string>/opt/homebrew/bin/python3.12</string><string>/Users/odin/.openclaw/bridges/beyond-basics/current/scripts/review_action_rotate.py</string></array>
-<key>StartInterval</key><integer>86400</integer>
+<key>StartInterval</key><integer>300</integer>
 <key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string>
 </dict></plist>

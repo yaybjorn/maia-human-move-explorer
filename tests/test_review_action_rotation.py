@@ -55,3 +55,44 @@ def test_failure_after_publish_never_extends_old_expiry(tmp_path,monkeypatch):
     with pytest.raises(ValueError): r.run(now)
     assert len(state['ring']['keys'])==2 and state['ring']['keys'][0]['expires']==now+86400
     assert json.loads((tmp_path/'rotation.json').read_text())['phase']=='bridge-selected'
+
+
+def test_busy_worker_prevents_any_ring_publication(tmp_path,monkeypatch):
+    import fcntl,os
+    monkeypatch.setattr(r,'ROOT',tmp_path)
+    fd=os.open(tmp_path/'worker.lock',os.O_CREAT|os.O_RDWR,0o600);fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    monkeypatch.setattr(r,'remote',lambda *args: (_ for _ in ()).throw(AssertionError('remote touched')))
+    try: assert r.run(2_000_000_000)=='worker-busy'
+    finally: os.close(fd)
+
+
+def test_prepared_single_ring_reconciles_existing_successor(tmp_path,monkeypatch):
+    now=2_000_000_000; monkeypatch.setattr(r,'ROOT',tmp_path)
+    (tmp_path/'active-key-id').write_text('old'); (tmp_path/'active-key-id').chmod(0o600)
+    (tmp_path/'rotation.json').write_text(json.dumps({'phase':'prepared','old':'old','next':'next','started':now-5}))
+    old='o'*48; new='n'*48
+    state={'ring':{'version':1,'source':'a'*64,'keys':[{'id':'old','key':hashlib.sha256(old.encode()).hexdigest(),'not_before':now-21*86400,'expires':now+9*86400}]},'tokens':{'old':old,'next':new}}
+    def remote(action,payload=b''):
+        if action=='read': return json.dumps(state['ring'],separators=(',',':')).encode()
+        state['ring']=json.loads(payload)['ring']; return b'ok'
+    def keychain(action,key_id,token=None):
+        if action=='read': return state['tokens'][key_id]
+        if action=='delete': state['tokens'].pop(key_id,None)
+        if action=='create': raise AssertionError('existing successor overwritten')
+    class Proc:
+        def __init__(self,*args,**kwargs): pass
+        def wait(self,timeout): return 0
+    def deny(*args): raise urllib.error.HTTPError('https://fixture.invalid',403,'denied',{},None)
+    monkeypatch.setattr(r,'remote',remote);monkeypatch.setattr(r,'keychain',keychain);monkeypatch.setattr(r.subprocess,'Popen',Proc);monkeypatch.setattr(r.worker,'request',deny)
+    assert r.run(now)=='rotated'; assert state['ring']['keys'][0]['id']=='next'
+
+
+def test_old_denied_journal_recovers_already_deleted_item(tmp_path,monkeypatch):
+    now=2_000_000_000; monkeypatch.setattr(r,'ROOT',tmp_path)
+    (tmp_path/'active-key-id').write_text('next'); (tmp_path/'active-key-id').chmod(0o600)
+    (tmp_path/'rotation.json').write_text(json.dumps({'phase':'old-denied','old':'old','next':'next','started':now-5}))
+    current={'version':1,'source':'a'*64,'keys':[{'id':'next','key':'b'*64,'not_before':now-1,'expires':now+86400}]}
+    monkeypatch.setattr(r,'remote',lambda *args:json.dumps(current).encode())
+    deleted=[];monkeypatch.setattr(r,'keychain',lambda action,key_id:deleted.append((action,key_id)))
+    assert r.run(now)=='rotation-reconciled';assert deleted==[('delete','old')]
+    assert json.loads((tmp_path/'rotation.json').read_text())['phase']=='retired'

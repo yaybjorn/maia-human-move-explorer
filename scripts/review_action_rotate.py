@@ -47,7 +47,8 @@ def keychain(action, key_id, token=None):
         if keychain('read',key_id)!=token: raise ValueError('Keychain write not verified')
         return None
     if action=='delete':
-        subprocess.run(['/usr/bin/security','delete-generic-password','-s',SERVICE,'-a',account],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,check=True)
+        result=subprocess.run(['/usr/bin/security','delete-generic-password','-s',SERVICE,'-a',account],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,check=False)
+        if result.returncode not in (0,44): raise ValueError('Keychain deletion unavailable')
         return None
     raise ValueError('Invalid operation')
 
@@ -60,6 +61,9 @@ def atomic(name, value):
         with os.fdopen(fd,'w') as f:
             fd=-1; f.write(value); f.flush(); os.fsync(f.fileno())
         os.replace(path,ROOT/name)
+        dfd=os.open(ROOT,os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try: os.fsync(dfd)
+        finally: os.close(dfd)
     finally:
         if fd!=-1: os.close(fd)
         if os.path.exists(path): os.unlink(path)
@@ -90,6 +94,10 @@ def run(now=None):
     try:
         try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: return 'already-running'
+        worker_lock=os.open(ROOT/'worker.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+        try: fcntl.flock(worker_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(worker_lock); del worker_lock; return 'worker-busy'
         raw=remote('read'); data=json.loads(raw); rows=data['keys']
         if data.get('version')!=1 or not SOURCE.fullmatch(data.get('source','')) or not isinstance(rows,list) or len(rows) not in (1,2): raise ValueError('Invalid ring')
         active=read_active(); old=next((x for x in rows if x['id']==active),None)
@@ -98,6 +106,9 @@ def run(now=None):
         try: prior=json.loads(journal.read_text())
         except FileNotFoundError: prior={}
         if len(rows)==1:
+            if prior.get('phase') == 'old-denied' and rows[0]['id'] == prior.get('next'):
+                keychain('delete',prior['old']); store_phase('retired',prior['old'],prior['next'],now)
+                return 'rotation-reconciled'
             if prior.get('phase') == 'successor-verified' and rows[0]['id'] == prior.get('next'):
                 old_secret=keychain('read',prior['old'])
                 try:
@@ -105,15 +116,24 @@ def run(now=None):
                 except urllib.error.HTTPError as exc:
                     if exc.code != 403: raise ValueError('Old key rejection unverified') from None
                 else: raise ValueError('Old key still accepted')
+                store_phase('old-denied',prior['old'],prior['next'],now)
                 keychain('delete',prior['old']); store_phase('retired',prior['old'],prior['next'],now)
                 return 'rotation-reconciled'
-            if prior.get('phase') not in (None,'retired'): raise ValueError('Reconciliation required')
-            if now-old['not_before']<21*86400: return 'not-due'
-            next_id='k'+secrets.token_hex(12); token=secrets.token_urlsafe(32)
-            store_phase('prepared',active,next_id,now)
-            keychain('create',next_id,token)
+            if prior.get('phase') == 'prepared' and prior.get('old') == active:
+                next_id=prior['next']
+                try: token=keychain('read',next_id)
+                except subprocess.CalledProcessError as exc:
+                    if exc.returncode != 44: raise
+                    token=secrets.token_urlsafe(32); keychain('create',next_id,token)
+            else:
+                if prior.get('phase') not in (None,'retired'): raise ValueError('Reconciliation required')
+                if now-old['not_before']<21*86400: return 'not-due'
+                next_id='k'+secrets.token_hex(12); token=secrets.token_urlsafe(32)
+                store_phase('prepared',active,next_id,now)
+                keychain('create',next_id,token)
             shortened=dict(old,expires=min(old['expires'],now+86400))
             candidate={'version':1,'source':data['source'],'keys':[shortened,{'id':next_id,'key':hashlib.sha256(token.encode()).hexdigest(),'not_before':now,'expires':now+30*86400}]}
+            atomic('active-key-expires',str(shortened['expires']))
             cas(raw,candidate); store_phase('ring-published',active,next_id,now)
             rows=candidate['keys']; raw=remote('read')
         else:
@@ -121,33 +141,32 @@ def run(now=None):
             next_id=prior['next']; active=prior['old']; token=keychain('read',next_id)
         successor=next(x for x in rows if x['id']==next_id)
         if hashlib.sha256(token.encode()).hexdigest()!=successor['key']: raise ValueError('Successor mismatch')
-        worker_lock=os.open(ROOT/'worker.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+        atomic('active-key-id',next_id); atomic('active-key-expires',str(successor['expires']))
+        store_phase('bridge-selected',active,next_id,now)
+        # Normal invocation: a claimed job is processed and finished, never discarded.
+        env=dict(os.environ,REVIEW_ACTION_SUPERVISED='1')
+        proc=subprocess.Popen([sys.executable,str(Path(worker.__file__))],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True,pass_fds=(worker_lock,),env=env)
+        try: rc=proc.wait(timeout=105)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid,9); proc.wait(timeout=5); raise ValueError('Worker timed out')
+        if rc: raise ValueError('Successor verification failed')
+        store_phase('successor-verified',active,next_id,now)
+        old_secret=keychain('read',active)
+        current=remote('read'); observed=json.loads(current)
+        if {x['id'] for x in observed['keys']}!={active,next_id}: raise ValueError('Ring changed')
+        cas(current,{'version':1,'source':data['source'],'keys':[successor]})
         try:
-            try: fcntl.flock(worker_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            except BlockingIOError: return 'worker-busy'
-            atomic('active-key-id',next_id); atomic('active-key-expires',str(successor['expires']))
-            store_phase('bridge-selected',active,next_id,now)
-            # Normal invocation: a claimed job is processed and finished, never discarded.
-            env=dict(os.environ,REVIEW_ACTION_SUPERVISED='1')
-            proc=subprocess.Popen([sys.executable,str(Path(worker.__file__))],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True,pass_fds=(worker_lock,),env=env)
-            try: rc=proc.wait(timeout=105)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid,9); proc.wait(timeout=5); raise ValueError('Worker timed out')
-            if rc: raise ValueError('Successor verification failed')
-            store_phase('successor-verified',active,next_id,now)
-            old_secret=keychain('read',active)
-            current=remote('read'); observed=json.loads(current)
-            if {x['id'] for x in observed['keys']}!={active,next_id}: raise ValueError('Ring changed')
-            cas(current,{'version':1,'source':data['source'],'keys':[successor]})
-            try:
-                worker.request('finish',{'id':'0'*64,'lease_token':'invalid','proposal':{}},(active,old_secret))
-            except urllib.error.HTTPError as exc:
-                if exc.code!=403: raise ValueError('Old key rejection unverified') from None
-            else: raise ValueError('Old key still accepted')
-            keychain('delete',active); store_phase('retired',active,next_id,now)
-            return 'rotated'
-        finally: os.close(worker_lock)
-    finally: os.close(lock)
+            worker.request('finish',{'id':'0'*64,'lease_token':'invalid','proposal':{}},(active,old_secret))
+        except urllib.error.HTTPError as exc:
+            if exc.code!=403: raise ValueError('Old key rejection unverified') from None
+        else: raise ValueError('Old key still accepted')
+        store_phase('old-denied',active,next_id,now)
+        keychain('delete',active); store_phase('retired',active,next_id,now)
+        return 'rotated'
+
+    finally:
+        if 'worker_lock' in locals(): os.close(worker_lock)
+        os.close(lock)
 
 
 if __name__=='__main__':
