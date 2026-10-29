@@ -1,9 +1,12 @@
 """Private, read-only review assets; course state never enters Studio courses."""
+import json
 import os
 from pathlib import Path
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+
+from app.beyond_basics_review_state import review_state
 
 # A single immutable version, explicitly mapped; no user-supplied filesystem paths.
 FILES = {
@@ -20,11 +23,36 @@ REVIEWER_IDS = {
 
 
 async def dispatch(path, request, upstream_read):
-    prefix = "beyond-basics/unit1-sample-v1/"
-    if request.method != "GET" or request.url.query or not path.startswith(prefix):
+    sample_prefix = "beyond-basics/unit1-sample-v1/"
+    extension_prefix = "beyond-basics/course-review-v2/"
+    if path == extension_prefix + "review-state":
+        if request.url.query:
+            raise HTTPException(404, "Review asset not found")
+        session = await upstream_read(request, "session")
+        user = session.get("user") or {}
+        if not session.get("authenticated"):
+            raise HTTPException(401, "Sign in to Course Studio")
+        if user.get("id") not in REVIEWER_IDS or "superadmin" not in user.get("roles", []):
+            raise HTTPException(403, "This review is not available to this account")
+        manifest = json.loads(Path(__file__).with_name("beyond_basics_course_review_manifest.json").read_text())
+        return await review_state(request, manifest)
+    if request.method != "GET" or request.url.query:
         raise HTTPException(404, "Review asset not found")
-    name = path[len(prefix):]
-    if name not in FILES:
+    if path.startswith(sample_prefix):
+        name = path[len(sample_prefix):]
+        files = FILES
+        root = Path(os.getenv("BEYOND_BASICS_REVIEW_DIR", "/opt/maia-human-move-explorer/private/beyond-basics/unit1-sample-v1"))
+    elif path.startswith(extension_prefix):
+        name = path[len(extension_prefix):]
+        manifest = json.loads(Path(__file__).with_name("beyond_basics_course_review_manifest.json").read_text())
+        files = {key: (value["media_type"], False) for key, value in manifest["files"].items()}
+        for key in list(files):
+            if key.endswith(".mp4"):
+                files["download-" + key] = ("video/mp4", True)
+        root = Path(os.getenv("BEYOND_BASICS_COURSE_REVIEW_DIR", "/opt/maia-human-move-explorer/private/beyond-basics/course-review-v2"))
+    else:
+        raise HTTPException(404, "Review asset not found")
+    if name not in files:
         raise HTTPException(404, "Review asset not found")
     session = await upstream_read(request, "session")
     user = session.get("user") or {}
@@ -32,12 +60,11 @@ async def dispatch(path, request, upstream_read):
         raise HTTPException(401, "Sign in to Course Studio")
     if user.get("id") not in REVIEWER_IDS or "superadmin" not in user.get("roles", []):
         raise HTTPException(403, "This review is not available to this account")
-    media_type, download = FILES[name]
-    filename = "106399420.mp4" if download else name
-    root = Path(os.getenv("BEYOND_BASICS_REVIEW_DIR", "/opt/maia-human-move-explorer/private/beyond-basics/unit1-sample-v1"))
+    media_type, download = files[name]
+    filename = ("106399420.mp4" if name == "download.mp4" else name.removeprefix("download-")) if download else name
     asset = root / filename
     if asset.is_symlink() or not asset.is_file():
         raise HTTPException(404, "Review asset unavailable")
     headers = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive", "X-Content-Type-Options": "nosniff"}
     return FileResponse(asset, media_type=media_type, headers=headers,
-                        filename="how-the-pieces-move.mp4" if download else None)
+                        filename=("how-the-pieces-move.mp4" if name == "download.mp4" else filename) if download else None)
