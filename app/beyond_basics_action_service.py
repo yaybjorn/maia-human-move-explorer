@@ -25,7 +25,7 @@ def page_components(manifest, page_id, conn, generation):
     return [{'body': row[0]}]
 
 
-def authorize(request, body, db):
+def authorize(request, body, db, source=None):
     """No fallback to browser sessions, and no credential ever reaches inference."""
     supplied = request.headers.get('authorization', '')
     if request.headers.get('origin') or len(supplied) > 256:
@@ -35,7 +35,7 @@ def authorize(request, body, db):
         if ring:
             if not supplied.startswith('Review-HMAC2 '): raise ValueError('scheme')
             key_id, timestamp, nonce, signature = supplied[13:].split(':')
-            configured = lookup(ring, key_id)
+            configured = lookup(ring, key_id, source=source)
             prefix = key_id + '\n'
         else:
             configured = os.getenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', '')
@@ -49,7 +49,7 @@ def authorize(request, body, db):
         message = f'{prefix}{request.method}\n{request.url.path}\n{timestamp}\n{nonce}\n{content_hash}'.encode()
         expected = hmac.new(bytes.fromhex(configured), message, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature): raise ValueError('signature')
-    except (ValueError, TypeError, OSError, json.JSONDecodeError):
+    except (ValueError, TypeError, OSError, KeyError, json.JSONDecodeError):
         raise HTTPException(403, 'Unavailable') from None
     with sqlite3.connect(db, timeout=5, isolation_level=None) as conn:
         conn.execute('BEGIN IMMEDIATE')
@@ -85,8 +85,8 @@ async def service(request, manifest, action):
     db = Path(os.getenv('BEYOND_BASICS_REVIEW_STATE_DB', '/opt/maia-human-move-explorer/private/beyond-basics/review-state/reviews.sqlite3'))
     if not db.parent.is_dir() or db.parent.is_symlink() or db.is_symlink():
         raise HTTPException(503, 'Unavailable')
-    authorize(request, body, db)
     source = manifest['source_sha256']
+    authorize(request, body, db, source)
     try:
         with sqlite3.connect(db, timeout=5, isolation_level=None) as conn:
             ensure_schema(conn)

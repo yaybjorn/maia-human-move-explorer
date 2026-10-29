@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import time
 import urllib.error
@@ -52,6 +53,7 @@ def run():
         key_id = key_file.read_text().strip()
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}', key_id): raise ValueError('Invalid active key identity')
     account = 'token-' + key_id if key_id else 'token'
+    if not os.access('/opt/homebrew/bin/node', os.X_OK): raise ValueError('Inference runtime unavailable')
     secret = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', SERVICE, '-a', account, '-w'], capture_output=True, text=True, timeout=5, check=True).stdout.strip()
     if not 32 <= len(secret) <= 128:
         raise ValueError('Scoped credential unavailable')
@@ -88,7 +90,7 @@ def run():
         payload = {'instruction': instruction, 'components': job['components']}
         prompt = guide + json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
         environment = {key: os.environ[key] for key in ('HOME', 'USER', 'TMPDIR', 'LANG', 'PATH') if key in os.environ}
-        result = subprocess.run(['node', str(Path(__file__).with_name('review_action_infer.mjs'))], input=prompt, capture_output=True, text=True, timeout=60, check=True, env=environment)
+        result = subprocess.run(['/opt/homebrew/bin/node', str(Path(__file__).with_name('review_action_infer.mjs'))], input=prompt, capture_output=True, text=True, timeout=60, check=True, env=environment)
         if len(result.stdout) > 200000:
             raise ValueError('Inference output too large')
         envelope = json.loads(result.stdout)
@@ -97,6 +99,13 @@ def run():
 
 
 if __name__ == '__main__':
+    if os.getenv('REVIEW_ACTION_SUPERVISED') == '1':
+        if os.getpid() != os.getpgrp(): raise SystemExit(1)
+        def stop_group(signum, frame):
+            os.killpg(os.getpgrp(), signal.SIGKILL)
+        signal.signal(signal.SIGALRM, stop_group)
+        signal.signal(signal.SIGTERM, stop_group)
+        signal.alarm(100)
     try:
         result = run()
         print(json.dumps({'status': result, 'queue_age_seconds': QUEUE_AGE}))

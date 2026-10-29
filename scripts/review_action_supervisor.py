@@ -40,14 +40,21 @@ def tick():
         previous = {}
         try: previous = json.loads((ROOT / 'status.json').read_text())
         except (OSError, ValueError): pass
-        proc = subprocess.Popen([sys.executable, str(WORKER)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        env = dict(os.environ, REVIEW_ACTION_SUPERVISED='1')
+        proc = subprocess.Popen([sys.executable, str(WORKER)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(lock,), env=env)
+        previous_term = signal.getsignal(signal.SIGTERM)
+        def terminate(signum, frame): raise SystemExit(1)
+        signal.signal(signal.SIGTERM, terminate)
         try:
-            output, _ = proc.communicate(timeout=TIMEOUT); code = proc.returncode
-        except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGTERM)
-            try: proc.wait(timeout=5)
-            except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL); proc.wait(timeout=5)
-            output = b''; code = 1
+            try:
+                output, _ = proc.communicate(timeout=TIMEOUT); code = proc.returncode
+            except subprocess.TimeoutExpired:
+                output = b''; code = 1
+        finally:
+            signal.signal(signal.SIGTERM, previous_term)
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=5)
         age = None
         if code == 0:
             try:
@@ -56,7 +63,7 @@ def tick():
                 if age is not None and (type(age) is not int or not 0 <= age <= 31 * 86400): raise ValueError('bad age')
             except (ValueError, KeyError, TypeError): code = 1
         now = int(time.time()); ok = code == 0
-        status_write({'version':1, 'last_attempt':now, 'last_success':now if ok else previous.get('last_success', 0), 'consecutive_failures':0 if ok else min(int(previous.get('consecutive_failures', 0)) + 1, 1000), 'queue_age_seconds': age})
+        status_write({'version':1, 'last_attempt':now, 'last_success':now if ok else previous.get('last_success', 0), 'consecutive_failures':0 if ok else min(int(previous.get('consecutive_failures', 0)) + 1, 1000), 'remaining_queued_age_seconds': age})
         return 'ok' if ok else 'failed'
     finally:
         os.close(lock)
@@ -67,9 +74,13 @@ def check(now=None):
         state=json.loads((ROOT / 'status.json').read_text())
         if state.get('version') != 1: raise ValueError('bad state')
         now=int(time.time() if now is None else now)
+        try:
+            rotation=json.loads((ROOT/'rotation-outcome.json').read_text())
+            if rotation.get('outcome')=='rotation-failed': return 'rotation-failed'
+        except FileNotFoundError: pass
         if state['consecutive_failures'] >= 3: return 'consecutive-failures'
         if now - state['last_success'] > 300: return 'heartbeat-missed'
-        if state.get('queue_age_seconds') is not None and state['queue_age_seconds'] > 600: return 'queue-delayed'
+        if state.get('remaining_queued_age_seconds') is not None and state['remaining_queued_age_seconds'] > 600: return 'queue-delayed'
         expiry_path = ROOT / 'active-key-expires'
         st = expiry_path.lstat()
         if expiry_path.is_symlink() or st.st_uid != os.getuid() or (st.st_mode & 0o777) != 0o600 or st.st_size > 20: return 'expiry-unavailable'
@@ -81,9 +92,8 @@ def check(now=None):
 
 
 def alert():
-    """Fixed destination and fixed categories only; no content or arbitrary input."""
+    """Fixed destination and categories; persist delivery failures and episodes."""
     category=check()
-    if category == 'ok': return 'ok'
     ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock=os.open(ROOT/'alert.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
@@ -93,23 +103,33 @@ def alert():
         try: previous=json.loads((ROOT/'alert.json').read_text())
         except (OSError, ValueError): pass
         now=int(time.time())
-        if previous.get('category')==category and now-int(previous.get('sent_at',0)) < 3600: return 'alert-recent'
-        result=subprocess.run(['/opt/homebrew/bin/openclaw','message','send','--channel','discord','--target','user:598095875029467136','--message','Private review worker alert: '+category,'--json'], stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=False)
-        if result.returncode != 0: return 'alert-delivery-failed'
+        episode=previous.get('episode')
+        if category == 'ok' and not episode: return 'ok'
+        message_category='recovered' if category == 'ok' else category
+        if category != 'ok' and episode==category and now-int(previous.get('sent_at',0)) < 3600:
+            return 'alert-recent'
+        outcome='alert-delivery-failed'
         try:
-            receipt=json.loads(result.stdout)
-            if not receipt.get('messageId') and not (isinstance(receipt.get('payload'),dict) and receipt['payload'].get('messageId')): return 'alert-delivery-unverified'
-        except (ValueError, TypeError): return 'alert-delivery-unverified'
+            result=subprocess.run(['/opt/homebrew/bin/openclaw','message','send','--channel','discord','--target','user:598095875029467136','--message','Private review worker alert: '+message_category,'--json'], stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=False)
+            if result.returncode == 0:
+                receipt=json.loads(result.stdout)
+                if receipt.get('messageId') or (isinstance(receipt.get('payload'),dict) and receipt['payload'].get('messageId')): outcome='alert-sent'
+                else: outcome='alert-delivery-unverified'
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError): pass
+        state={'outcome':outcome,'attempt_at':now,'episode':episode,'sent_at':previous.get('sent_at',0)}
+        if outcome == 'alert-sent':
+            state['episode']=None if category == 'ok' else category
+            state['sent_at']=now
         fd,name=tempfile.mkstemp(prefix='.alert-',dir=ROOT)
         try:
             os.fchmod(fd,0o600)
             with os.fdopen(fd,'w') as f:
-                fd=-1; json.dump({'category':category,'sent_at':now},f); f.flush(); os.fsync(f.fileno())
+                fd=-1; json.dump(state,f); f.flush(); os.fsync(f.fileno())
             os.replace(name,ROOT/'alert.json')
         finally:
             if fd != -1: os.close(fd)
             if os.path.exists(name): os.unlink(name)
-        return 'alert-sent'
+        return outcome
     finally: os.close(lock)
 
 

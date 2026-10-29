@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>no.fablelabs.review-action-rotation</string>
+<key>ProgramArguments</key><array><string>/opt/homebrew/bin/python3.12</string><string>/Users/odin/.openclaw/bridges/beyond-basics/current/scripts/review_action_rotate.py</string></array>
+<key>StartInterval</key><integer>86400</integer>
+<key>StandardOutPath</key><string>/dev/null</string><key>StandardErrorPath</key><string>/dev/null</string>
+</dict></plist>
