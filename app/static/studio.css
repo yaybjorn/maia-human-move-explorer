@@ -144,6 +144,8 @@ button{min-height:44px}
 .user-games-list{display:grid;gap:10px}.user-game-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px;padding:16px 18px;border:1px solid var(--line);border-radius:11px;background:var(--card)}.user-game-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.user-game-heading h2{margin:0;font:700 19px Georgia,serif}.user-game-message{margin:7px 0 0;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.user-game-link{color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px}.user-game-link.unavailable{color:var(--muted);font-weight:600;text-decoration:none}.user-games-actions{display:flex;justify-content:center;margin-top:16px}@media(max-width:760px){.user-game-row{grid-template-columns:1fr;gap:10px}.user-game-link{justify-self:start}}
 
 /* Hint Studio uses the existing card and action styles. */
+#hint-studio-panel { scroll-margin-top: 80px; }
+@media (max-width: 760px) { #hint-studio-panel { scroll-margin-top: 116px; } }
 #hint-studio-panel:focus { outline: none; }
 #hint-studio-panel .hint-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
 .hint-open { margin-top: .5rem; }
