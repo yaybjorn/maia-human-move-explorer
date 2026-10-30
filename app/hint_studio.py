@@ -183,8 +183,16 @@ async def dispatch(request, upstream_read, allowed_origins):
 
 def review_db():
     db = Path(os.getenv("HINT_REVIEW_DB", "/opt/maia-human-move-explorer/private/hint-studio/reviews.sqlite3"))
-    if not db.parent.is_dir() or db.parent.is_symlink() or db.is_symlink():
+    if not db.parent.is_dir() or db.parent.is_symlink() or db.is_symlink() or db.parent.stat().st_mode & 0o077:
         raise HTTPException(503, "Private hint storage unavailable")
+    try:
+        fd = os.open(db, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        os.close(fd)
+    except FileExistsError:
+        if not db.is_file() or db.stat().st_mode & 0o077:
+            raise HTTPException(503, "Private hint storage unavailable") from None
+    except OSError:
+        raise HTTPException(503, "Private hint storage unavailable") from None
     return db
 
 
