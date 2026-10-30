@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createUploadPanel } from "../app/static/studio-upload-panel.mjs";
-import { StagedUpload } from "../app/static/studio-upload.mjs?v=20261030-revision-recovery";
+import { StagedUpload } from "../app/static/studio-upload.mjs?v=20261030-lock-contention";
 import fs from "node:fs";
 function dom() {
   const nodes = Object.fromEntries(["title", "video", "thumbnail", "start", "check", "pause", "status", "progress"].map(id => [id, { value: "", disabled: false, listeners: {}, addEventListener(event, fn) { this.listeners[event] = fn; } }]));
@@ -80,9 +80,9 @@ test("blocked saved upload exposes only the read-only progress check", () => {
 });
 test("Studio revisions the recovery-control module so a reload cannot retain its pre-control cache entry", () => {
   const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
-  assert.match(source, /studio-upload-panel\.mjs\?v=20261030-ready-visibility/);
+  assert.match(source, /studio-upload-panel\.mjs\?v=20261030-lock-contention/);
   const document = fs.readFileSync(new URL("../app/static/studio.html", import.meta.url), "utf8");
-  assert.match(document, /studio\.js\?v=20261030-ready-visibility/);
+  assert.match(document, /studio\.js\?v=20261030-lock-contention/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
@@ -127,4 +127,9 @@ test("refresh after a chapter video becomes ready hides the upload panel and blo
   context = { ...context, hasVideo: true }; panel.refresh(); assert.equal(root.hidden, true);
   nodes.video.files = [new Blob(["video"], { type: "video/mp4" })]; await nodes.video.listeners.change(); assert.equal(requests, 0);
   context = { ...context, hasVideo: false }; panel.refresh(); assert.equal(root.hidden, false);
+});
+
+test("failed upload leaves file chooser ready to select the same file again", async () => {
+  const {root,nodes}=dom();const original=StagedUpload.prototype.run;StagedUpload.prototype.run=async()=>{throw Error('Another Studio tab is using this chapter');};
+  try {const panel=createUploadPanel({root,api:{},getContext:()=>({...paid,chapterID:'chapter-a'}),enabled:true,storage:{getItem:()=>null}});panel.refresh();nodes.video.value='fixture.mp4';nodes.video.files=[new Blob(['video'],{type:'video/mp4'})];await nodes.video.listeners.change();assert.equal(nodes.video.value,'');assert.match(nodes.status.textContent,/Another Studio tab/);assert.equal(nodes.video.disabled,false);}finally{StagedUpload.prototype.run=original;}
 });

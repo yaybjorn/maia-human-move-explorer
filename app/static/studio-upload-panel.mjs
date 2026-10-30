@@ -1,4 +1,4 @@
-import { StagedUpload, PRIVATE_UPLOADS_ENABLED, paidUploadCourse, FREE_UPLOAD_EXPLANATION } from "./studio-upload.mjs?v=20261030-revision-recovery";
+import { StagedUpload, PRIVATE_UPLOADS_ENABLED, paidUploadCourse, FREE_UPLOAD_EXPLANATION } from "./studio-upload.mjs?v=20261030-lock-contention";
 
 export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPLOADS_ENABLED, storage, onStaged = () => {} }) {
   let uploader = null, contextKey = null, staged = null, busy = false;
@@ -48,7 +48,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
       find("video").value = ""; find("thumbnail").value = ""; find("title").value = "";
       if (context) {
         try {
-          uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
+          uploader = new StagedUpload({ api, storage: storage ?? globalThis.localStorage, ...context, onPreparing: (done, total) => { if (uploader && contextKey === `${context.actorID}:${context.courseID}:${context.revision}:${context.chapterID || ""}`) message(`Preparing video… ${Math.floor(done * 100 / total)}%`); }, onProgress: record => { if (`${record.actorID}:${record.courseID}:${record.draftRevision}:${record.chapterID || ""}` === contextKey) renderProgress(record); } });
           const record = uploader.load();
           if (record) { staged = stage(record, context); find("title").value = record.title; renderProgress(record); }
           else { find("check").hidden = true; message("Choose an MP4 video to upload."); }
@@ -71,7 +71,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
       if (context.chapterID && previous && previous.draftRevision !== context.revision && !globalThis.confirm("The draft changed since this upload began. Start a new upload for this revision? Earlier progress will be preserved.")) return;
       const record = context.chapterID && previous && previous.draftRevision !== context.revision ? await current.restartForRevision(inputs) : await current.run(inputs); if (current === uploader && record?.state === "staged" && record.draftRevision === getContext()?.revision && context.chapterID === getContext()?.chapterID) { staged = stage(record, context, current); await onStaged(record); } }
     catch (error) { if (current === uploader) message(error.message); }
-    finally { busy = false; controls(getContext()); }
+    finally { if (current === uploader) find("video").value = ""; busy = false; controls(getContext()); }
   }
   find("start").addEventListener("click", uploadSelectedVideo);
   find("video").addEventListener("change", uploadSelectedVideo);

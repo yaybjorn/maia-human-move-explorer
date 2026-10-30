@@ -18,13 +18,14 @@ export async function hashBytes(blob) {
     .map(value => value.toString(16).padStart(2, "0")).join("");
 }
 // Independent bounded reads: no full-video buffer, object URL, credential or bytes in storage.
-export async function fingerprint(file, kind) {
+export async function fingerprint(file, kind, onPart = () => {}) {
   requireValue(file && Number.isSafeInteger(file.size) && file.size > 0 && file.size <= (kind === "video" ? 2 * 1024 ** 3 : 2 * 1024 ** 2), "Choose a video up to 2 GiB and a thumbnail up to 2 MiB.");
   requireValue((kind === "video" ? ["video/mp4"] : ["image/png", "image/jpeg"]).includes(file.type), "Choose an MP4 video and a PNG or JPEG thumbnail.");
   const parts = [];
   for (let offset = 0; offset < file.size; offset += CHUNK_BYTES) {
     const byteLength = Math.min(CHUNK_BYTES, file.size - offset);
     parts.push({ partNumber: parts.length + 1, offset, byteLength, sha256: await hashBytes(file.slice(offset, offset + byteLength)) });
+    onPart(offset + byteLength, file.size);
   }
   return { byteLength: file.size, mimeType: file.type, parts };
 }
@@ -33,8 +34,8 @@ function matchingPart(a, b) {
   return a && b && ["partNumber", "offset", "byteLength", "sha256"].every(key => a[key] === b[key]);
 }
 export class StagedUpload {
-  constructor({ api, storage, courseID, actorID, revision, metadata, chapterID = null, onProgress = () => {} }) {
-    Object.assign(this, { api, storage, courseID, actorID, revision, metadata, chapterID, onProgress });
+  constructor({ api, storage, courseID, actorID, revision, metadata, chapterID = null, onProgress = () => {}, onPreparing = () => {} }) {
+    Object.assign(this, { api, storage, courseID, actorID, revision, metadata, chapterID, onProgress, onPreparing });
     requireValue(courseID && actorID, "Sign in and open a saved course first.");
     this.key = `gingergm-staged-upload-v1:${actorID}:${courseID}${chapterID ? `:chapter:${chapterID}` : ""}`;
     this.baseKey = this.key;
@@ -54,10 +55,16 @@ export class StagedUpload {
   save(record) { this.storage.setItem(this.key, JSON.stringify(record)); this.onProgress(record); }
   pause() { this.paused = true; }
   request(path, options = {}) { return this.api.request(path, { ...options, signal: AbortSignal.timeout(110000), redirect: "error" }); }
+  withChapterLock(action) {
+    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
+    return navigator.locks.request(this.baseKey, { ifAvailable: true }, lock => {
+      requireValue(lock, "Another Studio tab is using this chapter’s upload. Close the other Studio tabs, then try again. Existing progress is kept.");
+      return action();
+    });
+  }
   async inspect() {
     if (!this.chapterID) return this.inspectLocked();
-    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
-    return navigator.locks.request(this.baseKey, () => this.inspectLocked());
+    return this.withChapterLock(() => this.inspectLocked());
   }
   async inspectLocked() {
     const record = this.load();
@@ -91,9 +98,8 @@ export class StagedUpload {
   // Keep every old slot intact, including records in other tabs.
   async restartForRevision(inputs) {
     requireValue(this.chapterID, "Revision restart is available for chapter videos only.");
-    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
     this.paused = false;
-    return navigator.locks.request(this.baseKey, async () => {
+    return this.withChapterLock(async () => {
       requireValue(!this.paused, "Upload paused before a new reservation.");
       const prefix = `${this.baseKey}:revision:`;
       const keys = [];
@@ -122,9 +128,8 @@ export class StagedUpload {
   }
   async run(inputs) {
     if (!this.chapterID) return this.runLocked(inputs);
-    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
     this.paused = false;
-    return navigator.locks.request(this.baseKey, async () => {
+    return this.withChapterLock(async () => {
       requireValue(!this.paused, "Upload paused before a new operation.");
       if (this.storage.getItem(this.revisionKey)) this.key = this.revisionKey;
       return this.runLocked(inputs);
@@ -136,7 +141,7 @@ export class StagedUpload {
     this.busy = true; this.paused = false;
     let record;
     try {
-      const files = { video: await fingerprint(video, "video"), thumbnail: await fingerprint(thumbnail, "thumbnail") };
+      const files = { video: await fingerprint(video, "video", (done, total) => this.onPreparing(done, total)), thumbnail: await fingerprint(thumbnail, "thumbnail") };
       requireValue(!this.paused, "Upload paused before any new operation.");
       record = this.load();
       if (record) {
