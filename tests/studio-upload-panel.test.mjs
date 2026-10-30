@@ -80,9 +80,9 @@ test("blocked saved upload exposes only the read-only progress check", () => {
 });
 test("Studio revisions the recovery-control module so a reload cannot retain its pre-control cache entry", () => {
   const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
-  assert.match(source, /studio-upload-panel\.mjs\?v=20261030-revision-recovery/);
+  assert.match(source, /studio-upload-panel\.mjs\?v=20261030-ready-visibility/);
   const document = fs.readFileSync(new URL("../app/static/studio.html", import.meta.url), "utf8");
-  assert.match(document, /studio\.js\?v=20261030-revision-recovery/);
+  assert.match(document, /studio\.js\?v=20261030-ready-visibility/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
@@ -117,4 +117,14 @@ test("checking a staged upload from an old draft never attaches it to the curren
     const panel = createUploadPanel({ root, api: {}, getContext: () => ({ ...paid, revision: 208, chapterID: "chapter-a" }), enabled: true, storage: { getItem: () => JSON.stringify(record) }, onStaged: () => { attaches++; } });
     panel.refresh(); await nodes.check.listeners.click(); assert.equal(attaches, 0);
   } finally { StagedUpload.prototype.inspect = original; }
+});
+
+
+test("refresh after a chapter video becomes ready hides the upload panel and blocks a new upload", async () => {
+  const { root, nodes } = dom(); let context = { ...paid, chapterID: "chapter-a" }, requests = 0;
+  const panel = createUploadPanel({ root, api: { request: () => { requests++; } }, getContext: () => context, enabled: true, storage: { getItem: () => null } });
+  panel.refresh(); assert.equal(root.hidden, false);
+  context = { ...context, hasVideo: true }; panel.refresh(); assert.equal(root.hidden, true);
+  nodes.video.files = [new Blob(["video"], { type: "video/mp4" })]; await nodes.video.listeners.change(); assert.equal(requests, 0);
+  context = { ...context, hasVideo: false }; panel.refresh(); assert.equal(root.hidden, false);
 });

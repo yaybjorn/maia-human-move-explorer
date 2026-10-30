@@ -6,7 +6,7 @@ import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writin
 // Keep the recovery-control module revisioned independently. Studio is often
 // kept open through a failed upload; a normal reload must not retain the
 // pre-control module from its HTTP cache.
-import { createUploadPanel } from "./studio-upload-panel.mjs?v=20261030-revision-recovery";
+import { createUploadPanel } from "./studio-upload-panel.mjs?v=20261030-ready-visibility";
 import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
 
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
@@ -58,6 +58,7 @@ const extractionPanel = createExtractionPanel({
 const uploadPanel = createUploadPanel({ api, root: $("staged-upload-panel"), getContext: () => state.user && state.document ? {
   actorID: state.user.id, courseID: state.courseID, revision: state.revision, metadata: state.document.metadata, dirty: dirty(), chapterID: state.document.activeChapterID || null,
   chapterTitle: state.document.chapterSources?.find(chapter => chapter.id === state.document.activeChapterID)?.title || "Chapter video",
+  hasVideo: Boolean(state.document.chapterSources?.find(chapter => chapter.id === state.document.activeChapterID)?.video),
 } : null, onStaged: async record => {
   if (!record.chapterID || state.courseID !== record.courseID) return;
   const next = syncActiveChapter(state.document);

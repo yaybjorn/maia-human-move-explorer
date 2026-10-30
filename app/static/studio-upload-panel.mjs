@@ -38,9 +38,9 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
     else if (context.dirty && !busy) message("Save the chapter before uploading a video.");
   }
   function refresh() {
-    root.hidden = !enabled;
-    if (!enabled) return;
     const context = getContext();
+    root.hidden = !enabled || Boolean(context?.hasVideo);
+    if (!enabled || context?.hasVideo) { uploader?.pause(); return; }
     const key = context && `${context.actorID}:${context.courseID}:${context.revision}:${context.chapterID || ""}`;
     if (key !== contextKey) {
       if (staged && (!context || staged.actorID !== context.actorID || staged.courseID !== context.courseID || staged.chapterID !== (context.chapterID || null))) staged = null;
@@ -60,7 +60,7 @@ export function createUploadPanel({ api, getContext, root, enabled = PRIVATE_UPL
   async function uploadSelectedVideo() {
     if (!enabled || busy || !uploader) return;
     const context = getContext();
-    if (!context || context.dirty || !(context.chapterID || paidUploadCourse(context.metadata))) return refresh();
+    if (!context || context.hasVideo || context.dirty || !(context.chapterID || paidUploadCourse(context.metadata))) return refresh();
     const video = find("video").files?.[0];
     if (!video) return;
     busy = true; const current = uploader; controls(context);
