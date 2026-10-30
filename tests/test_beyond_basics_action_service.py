@@ -94,6 +94,8 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
         if args[0] == '/usr/bin/security':
             return subprocess.CompletedProcess(args, 0, token, '')
         assert token not in kwargs['input']
+        assert 'smallest exact source substring' in kwargs['input']
+        assert 'the pieces is' in kwargs['input'] and 'the pieces are' in kwargs['input']
         assert set(kwargs['env']) <= {'HOME', 'USER', 'TMPDIR', 'LANG', 'PATH'}
         result = {'status': 'completed', 'message': 'Corrected', 'patches': [{'component': 0, 'field': 'body', 'old': 'teh', 'new': 'the'}]}
         return subprocess.CompletedProcess(args, 0, json.dumps({'outputs': [{'text': json.dumps(result)}]}), '')
