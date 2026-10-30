@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.beyond_basics_action_service import service as action_service
 from app.beyond_basics_names import effective_course_script

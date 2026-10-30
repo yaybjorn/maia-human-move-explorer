@@ -79,3 +79,30 @@ def test_save_action_and_retry_are_atomic(tmp_path, monkeypatch):
     with sqlite3.connect(tmp_path / 'review.db') as conn:
         assert conn.execute('SELECT count(*) FROM revisions').fetchone()[0] == 1
         assert conn.execute('SELECT count(*) FROM review_actions').fetchone()[0] == 1
+
+
+def test_effective_names_do_not_rewrite_history_or_drop_action(tmp_path, monkeypatch):
+    import sqlite3
+    from pathlib import Path
+    monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
+    app = FastAPI()
+    async def upstream(_request, _path):
+        return {'authenticated': True, 'user': {'id': next(iter(REVIEWER_IDS)), 'roles': ['superadmin']}}
+    @app.api_route('/studio/api/{path:path}', methods=['GET', 'PUT'])
+    async def route(path: str, request: Request):
+        return await dispatch(path, request, upstream)
+    client = TestClient(app)
+    manifest = json.loads((Path(__file__).parents[1] / 'app/beyond_basics_course_review_manifest.json').read_text())
+    base = '/studio/api/beyond-basics/course-review-v2/review-state'
+    payload = {'source': manifest['source_sha256'], 'page_id': manifest['page_ids'][0],
+               'generation': 0, 'operation': 'save', 'body': "Russell, Manning, Kay, Kayak, Max, Hal, Magnus",
+               'notes': 'Keep Russell note', 'decision': '', 'request_id': '12345678-1234-1234-1234-123456789abc'}
+    headers = {'Origin': 'https://ggm.fablelabs.no'}
+    assert client.put(base, json=payload, headers=headers).status_code == 200
+    page = client.get(base).json()['pages'][payload['page_id']]
+    assert page['body'] == 'Steve, Mark, Beth, Kayak, Max, Hal, Magnus'
+    assert page['notes'] == 'Keep Russell note' and page['action']['status'] == 'queued'
+    with sqlite3.connect(tmp_path / 'review.db') as conn:
+        assert conn.execute('select body from revisions').fetchone()[0] == payload['body']
+    assert client.put(base, json={**payload, 'body': 'stale newer edit'}, headers=headers).status_code == 409
+    assert client.get(base).json()['pages'][payload['page_id']]['body'] == page['body']
