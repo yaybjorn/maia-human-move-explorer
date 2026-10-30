@@ -13,6 +13,16 @@ const DEFAULT_METADATA = Object.freeze({
   videos: [],
 });
 
+// Missing legacy settings retain the established course default. Invalid explicit
+// values are rejected, rather than silently sending a different playing strength.
+export function courseOpponentRating(document) {
+  const value = document?.metadata?.opponentRating;
+  if (value == null || value === "") return 1500;
+  const rating = Number(value);
+  if (!Number.isInteger(rating) || rating < 400 || rating > 3000) throw new Error("Choose an opponent rating from 400 to 3000 in Course details.");
+  return rating;
+}
+
 export const MAX_COURSE_VIDEOS = 100;
 export const MAX_VIDEO_TITLE_LENGTH = 120;
 

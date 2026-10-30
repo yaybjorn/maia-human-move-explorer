@@ -15,9 +15,9 @@ import {
   addMove, chapterSlices, childrenOf, ensureChapters, importParsedPGN, movesToNode, pgnHasMoves,
   documentForStorage, evaluatePreviewMove, hydrateRestoredDocument, newCourseDocument, nodeByID,
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
-  normalizeCourseVideos, youtubeEmbedURL, commentWithHint,
+  normalizeCourseVideos, youtubeEmbedURL, commentWithHint, courseOpponentRating,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20261030-hint-studio";
+} from "./studio-document.mjs?v=20261030-course-rating";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
@@ -1052,7 +1052,8 @@ async function queueRecordingMaia() {
   const moves = movesToNode(state.document, state.currentNodeID), positionKey = moves.join(" ");
   $("recording-message").textContent = "Maia is considering likely human moves…";
   try {
-    const data = await analysisAPI.maia(moves, 1500, 1500, { signal: abort.signal });
+    const rating = courseOpponentRating(state.document);
+    const data = await analysisAPI.maia(moves, rating, rating, { signal: abort.signal });
     const current = !abort.signal.aborted && state.recordingMaiaEnabled && state.view === "recording" && token === state.recordingMaiaToken && movesToNode(state.document, state.currentNodeID).join(" ") === positionKey;
     if (!current) return;
     state.recordingSuggestions = [...(data?.suggestions || [])]
@@ -1126,16 +1127,15 @@ function renderHintStudio(node, hintInfo) {
   if (!panel) return;
   hintStudioRequest += 1; // A replacement panel must never receive an earlier panel's response.
   const group = hintInfo?.conflict || node.hintMode === "own" ? [hintInfo] : [...sharedHintIndex(state.document).values()].filter(item => item.key === hintInfo?.key && item.node.hintMode !== "own");
-  const affected = group.filter(Boolean).map(item => `${state.document.chapterSources?.find(chapter=>chapter.id===item.chapterID)?.title || "Course"}: ${item.path.join(" ")}`).join("; ");
-  const scope = node.hintMode === "own" || hintInfo?.conflict ? "This hint applies to this move only." : group.length > 1 ? `This hint is shared across ${group.length} matching moves in this course. Move-only exceptions stay unchanged.` : "This hint applies to this move. Matching moves may share it; move-only exceptions stay unchanged.";
-  panel.innerHTML = `<h2>Hint Studio</h2><p>Generate three suggestions for this saved learner move. Review and apply one to the draft; nothing is published automatically.</p><p>${escapeHTML(scope)}</p><details><summary>See affected moves</summary><p>${escapeHTML(affected || "This move")}</p></details><label>Opponent rating <input id="hint-rating" type="number" min="400" max="3000" step="100" value="1500"></label><div class="hint-actions"><button class="primary" type="button" id="hint-generate">Generate hints</button><button class="secondary" type="button" id="hint-load">Open saved review</button></div><p id="hint-status" role="status"></p><div id="hint-candidates"></div>`;
+  const scope = node.hintMode === "own" || hintInfo?.conflict ? "This hint applies to this move only." : group.length > 1 ? `This hint is shared across ${group.length} matching moves in this course.` : "This hint applies to this move. Matching moves may share it.";
+  panel.innerHTML = `<h2>Hint Studio</h2><p>${escapeHTML(scope)}</p><div class="hint-actions"><button class="primary" type="button" id="hint-generate">Generate hints</button></div><p id="hint-status" role="status"></p><div id="hint-candidates"></div>`;
   async function openHintReview(generate) {
     flushActiveEditor();
     if (dirty() || needsSharedHintSave()) return showStatus("Save the course draft before generating hints.", true);
     const context = diagnosticContext(), token = ++hintStudioRequest;
     const isCurrent = () => token === hintStudioRequest && state.currentNodeID === node.id && diagnosticIsCurrent(context);
-    const rating = Number($("hint-rating").value);
-    if (!Number.isInteger(rating) || rating < 400 || rating > 3000) return showStatus("Choose a rating from 400 to 3000.", true);
+    let rating;
+    try { rating = courseOpponentRating(state.document); } catch (error) { return showStatus(error.message, true); }
     const path = pathToNode(state.document, node.id);
     const snapshot = {courseID: state.courseID, revision: state.revision, chapterID: state.document.activeChapterID || null,
       moves: path.slice(0,-1).map(item => item.uci), answer: node.uci, rating};
@@ -1186,7 +1186,6 @@ function renderHintStudio(node, hintInfo) {
     finally { if (isCurrent() && $("hint-generate")) $("hint-generate").disabled = false; }
   }
   $("hint-generate").addEventListener("click", () => openHintReview(true));
-  $("hint-load").addEventListener("click", () => openHintReview(false));
   return () => openHintReview(true);
 }
 
@@ -1241,8 +1240,8 @@ async function queueEditorMaiaAnalysis() {
   $("maia-results").innerHTML='<div class="empty-state"><p>Maia is considering likely human choices…</p></div>';
   const isCurrent=()=>!abort.signal.aborted&&state.editorPanels.maia&&state.view==="editor"&&token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
   try {
-    const rating=Number($("maia-rating").value);
-    const data=await analysisAPI.maia(moves,rating,Number(state.document.metadata.opponentRating||rating),{signal:abort.signal});
+    const rating=courseOpponentRating(state.document);
+    const data=await analysisAPI.maia(moves,rating,rating,{signal:abort.signal});
     if(isCurrent())renderMaia(data.suggestions,token,positionKey);
   } catch(error) {
     if(isCurrent())$("maia-results").innerHTML=`<div class="empty-state"><p>${escapeHTML(error.message)}</p></div>`;
@@ -1299,7 +1298,7 @@ async function runGapCheck(){
   try {
     const pgn=await exportSource();
     if(!isCurrent())return;
-    const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,Number($("maia-rating").value),.15);
+    const data=await analysisAPI.repertoireGaps(pgn,state.document.metadata.side,courseOpponentRating(state.document),.15);
     if(!isCurrent())return;
     const findings=(data.findings||[]).map(finding=>({ ...finding, context, nodeID: nodeIDForHistory(finding.history) }));
     $("gap-results").innerHTML=findings.map((finding,index)=>{
@@ -1579,7 +1578,7 @@ $("dashboard-import").addEventListener("change",event=>{importPGN(event.target.f
 $("import-form").elements.title.addEventListener("input",event=>{const slug=$("import-form").elements.slug;if(!slug.dataset.edited)slug.value=slugify(event.target.value)});
 $("import-form").elements.slug.addEventListener("input",event=>{event.target.dataset.edited="true"});
 $("import-form").addEventListener("submit",async event=>{if(event.submitter?.value==="cancel")return;event.preventDefault();if(!state.pendingImport)return;const data=Object.fromEntries(new FormData(event.currentTarget));try{const parsed=await analysisAPI.parsePGN(state.pendingImport.pgn), document=addIndependentChapter(newChapterCourse(data),parsed,parsed.headers?.Event||'Chapter 1',`chapter-${crypto.randomUUID()}`), exported=await exportAllChapterSources(document);const payload=await api.createCourse({...data,document:documentForStorage(exported,'')});$("import-dialog").close();state.pendingImport=null;await loadCourses();await openCourse(payload.course?.id||payload.id)}catch(error){showStatus(error.message,true)}});
-$("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
+$("details-form").addEventListener("change",event=>{if(!event.target.name)return;const value=event.target.type==="number"?Number(event.target.value):event.target.type==="checkbox"?event.target.checked:event.target.value;if(event.target.name==="opponentRating"){try{courseOpponentRating({metadata:{opponentRating:value}})}catch(error){event.target.value=courseOpponentRating(state.document);showStatus(error.message,true);updateSaveState();return}}const metadata={...state.document.metadata,[event.target.name]:value};if(event.target.name==="priceTier"){const pricing={free:{access:"free"},"usd-4.99":{access:"subscriber",displayPrice:"$4.99"},"usd-9.99":{access:"subscriber",displayPrice:"$9.99"},"usd-19.99":{access:"subscriber",displayPrice:"$19.99"}}[value];Object.assign(metadata,pricing);delete metadata.purchaseProductID;}commit({...state.document,metadata})});
 $("details-form").addEventListener("input",()=>{$("save").disabled=false;$("save-state").textContent="Unsaved changes";$("save-state").className="save-state dirty"});
 $("add-course-video").addEventListener("click", () => {
   commit({ ...state.document, metadata: { ...state.document.metadata, courseVideo: { id: videoID(), title: "", youtubeURL: "" } } });
@@ -1594,7 +1593,7 @@ $("recording-go-start").addEventListener("click",()=>navigate(null));$("recordin
 $("effect-file").addEventListener("change", previewEffectFile);$("effect-name").addEventListener("input", previewEffectFile);$("effect-save").addEventListener("click", async () => { const file=$("effect-file").files[0], name=$("effect-name").value.trim(); if(!file||!name)return; $("effect-error").textContent=""; try { await api.uploadEffect(name,file); $("effect-file").value=""; $("effect-name").value=""; previewEffectFile(); await loadEffects(); } catch(error) { $("effect-error").textContent=error.message; } });
 $("toggle-editor-engine").addEventListener("click",toggleEditorEngine);
 $("export-pgn").addEventListener("click",async()=>{try{const pgn=await exportSource(),blob=new Blob([`${pgn}\n`],{type:"application/x-chess-pgn"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=`${state.document.activeChapterID||state.document.metadata.slug||"course"}.pgn`;link.click();URL.revokeObjectURL(link.href)}catch(error){showStatus(error.message,true)}});
-$("maia-rating").addEventListener("change",()=>{if(state.editorPanels.maia)queueEditorMaiaAnalysis()});$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
+$("run-gap-check").addEventListener("click",runGapCheck);$("run-spellcheck").addEventListener("click",runSpellcheck);$("refresh-quality").addEventListener("click",runQuality);
 $("add-chapter").addEventListener("click",()=>{if(Array.isArray(state.document.chapterSources))return createIndependentChapter();state.chapterAddMode=!state.chapterAddMode;$("add-chapter").textContent=state.chapterAddMode?"Cancel adding":"Add chapter";renderChapters()});
 $("restart-preview").addEventListener("click",restartPreviewChapter);$("close-publish").addEventListener("click",closePublishDialog);$("cancel-publish").addEventListener("click",closePublishDialog);$("confirm-publish").addEventListener("click",confirmPublish);
 $("publish-dialog").addEventListener("cancel",event=>{if(publishPending)event.preventDefault();else state.publishCandidate=null;});

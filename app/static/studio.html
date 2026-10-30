@@ -89,7 +89,7 @@
           <label>Play as<select name="side"><option value="white">White</option><option value="black">Black</option></select></label>
           <label>Price<select name="priceTier"><option value="free">Free</option><option value="usd-4.99">$4.99</option><option value="usd-9.99">$9.99</option><option value="usd-19.99">$19.99</option></select><small>Paid tiers use the course’s fixed App Store product identifier.</small></label>
           <label class="checkbox-label"><input name="catalogVisible" type="checkbox"> Show in app catalogue</label>
-          <label>Default opponent rating<input name="opponentRating" type="number" min="500" max="3000" step="50"></label>
+          <label>Opponent rating<input name="opponentRating" type="number" min="400" max="3000" step="1"></label>
           <label class="span-two">Description<textarea name="description" rows="5" maxlength="2000"></textarea></label>
         </form>
       </section>
@@ -150,7 +150,7 @@
             <article class="tool-card move-tree-card collapsible-card"><div class="card-heading"><div><h2>Variation tree</h2><p>The first move at each position is the main line.</p></div><button class="collapse-button" type="button" data-editor-panel-toggle="tree" aria-expanded="true" aria-controls="move-tree" aria-label="Collapse Variation tree" title="Collapse Variation tree"><span aria-hidden="true">⌃</span></button></div><div class="editor-tree-stage"><div id="move-tree" class="move-tree"></div><div id="editor-choice" class="editor-choice" role="dialog" aria-modal="false" aria-labelledby="editor-choice-title" hidden><p id="editor-choice-title">Choose a continuation</p><div id="editor-choice-options" class="editor-choice-options" role="listbox" aria-label="Possible next moves"></div></div></div></article>
             <article id="move-inspector" class="tool-card"><div class="empty-state"><strong>Select a move</strong><p>Its explanation and feedback will appear here.</p></div></article>
             <article id="hint-studio-panel" class="tool-card" tabindex="-1"><h2>Hint Studio</h2><p class="muted">Select a correct learner move to generate hints.</p></article>
-            <article id="editor-maia-card" class="tool-card accent-maia collapsible-card"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia moves</h2></div><div class="card-heading-actions"><label>Rating <select id="maia-rating"><option>1000</option><option>1500</option><option>2000</option><option>2500</option></select></label><button class="collapse-button" type="button" data-editor-panel-toggle="maia" aria-expanded="false" aria-controls="maia-results" aria-label="Expand Maia moves" title="Expand Maia moves"><span aria-hidden="true">⌄</span></button></div></div><div id="maia-results" class="suggestion-list" hidden><div class="empty-state"><p>Expand to see likely human moves.</p></div></div></article>
+            <article id="editor-maia-card" class="tool-card accent-maia collapsible-card"><div class="card-heading"><div><p class="eyebrow">Human play</p><h2>Maia moves</h2></div><div class="card-heading-actions"><button class="collapse-button" type="button" data-editor-panel-toggle="maia" aria-expanded="false" aria-controls="maia-results" aria-label="Expand Maia moves" title="Expand Maia moves"><span aria-hidden="true">⌄</span></button></div></div><div id="maia-results" class="suggestion-list" hidden><div class="empty-state"><p>Expand to see likely human moves.</p></div></div></article>
             <button id="raw-pgn" class="secondary" type="button">View or edit raw PGN</button>
           </section>
         </div>
@@ -252,7 +252,7 @@
 
   <!-- Revision the root module with its nested document dependency: a normal
        reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->
-  <script type="module" src="/static/studio.js?v=20261030-hint-studio"></script>
+  <script type="module" src="/static/studio.js?v=20261030-course-rating"></script>
 
 </body>
 </html>

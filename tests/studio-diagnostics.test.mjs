@@ -33,7 +33,7 @@ function harness() {
     ignoredWords:[],undo:[],redo:[],analysisToken:0,view:'editor',position:{fen:'start'},currentNodeID:null,
     recordingMaiaEnabled:false,recordingMaiaAbort:null,recordingMaiaToken:0,recordingSuggestions:[]};
   const noop = () => {};
-  const sandbox = {...doc,clearDetachedCommentFallbacks,state,$,structuredClone, console, wrongBranchDepth: () => -1, coalesceIdenticalHints: value => value, clearDetachedHintFallbacks: (_old, value) => value,
+  const sandbox = {...doc,clearDetachedCommentFallbacks,state,$,structuredClone, console, hintStudioRequest:0, wrongBranchDepth: () => -1, coalesceIdenticalHints: value => value, clearDetachedHintFallbacks: (_old, value) => value,
     setBusy:noop,flushActiveEditor:noop,showStatus:noop,renderAll:noop,refreshPosition:noop,switchView:noop,
     stopEditorMaia:noop,editorEngine:{cancel:noop},saveCrashRecovery:noop,updateSaveState:noop,closeRecordingChoice:noop,closeEditorChoice:noop,
     clearRecordingEffect:noop,renderMoveTree:noop,renderRecordingTree:noop,renderInspector:noop,renderRecording:noop,renderRecordingBoard:noop,
@@ -158,4 +158,19 @@ test('newer Writing request wins even when older response returns last for the s
   second.resolve([{sourceId:'comment:1',comment:'teh centre',start:0,end:3,marker:'new'}]);await b;
   first.resolve([{marker:'old'}]);await a;
   assert.equal(h.rendered[0].marker,'new');
+});
+
+
+test('recording and coverage requests use the current course rating', async () => {
+  const h = harness();
+  h.state.document.metadata.opponentRating = 2300;
+  let recording, coverage;
+  h.analysisAPI.maia = async (...args) => { recording = args; return {suggestions:[]}; };
+  h.analysisAPI.repertoireGaps = async (...args) => { coverage = args; return {findings:[]}; };
+  h.state.view = 'recording'; h.state.recordingMaiaEnabled = true;
+  await h.queueRecordingMaia();
+  assert.equal(recording[1], 2300); assert.equal(recording[2], 2300);
+  h.state.view = 'editor';
+  await h.runGapCheck();
+  assert.equal(coverage[2], 2300);
 });
