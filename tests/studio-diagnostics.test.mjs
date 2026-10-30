@@ -174,3 +174,40 @@ test('recording and coverage requests use the current course rating', async () =
   await h.runGapCheck();
   assert.equal(coverage[2], 2300);
 });
+
+
+test('late recording response cannot cross course or rating change with identical history', async () => {
+  for (const change of ['course', 'rating', 'revision']) {
+    const h = harness(), wait = deferred();
+    h.state.view='recording'; h.state.recordingMaiaEnabled=true;
+    h.state.document.metadata.opponentRating=2300;
+    h.analysisAPI.maia=()=>wait.promise;
+    const pending=h.queueRecordingMaia();
+    if (change === 'course') { const replacement=structuredClone(h.state.document); replacement.metadata.opponentRating=1000; h.state.courseID='other'; h.setEffectivePosition(replacement,null); }
+    else if (change === 'rating') h.state.document.metadata.opponentRating=1000;
+    else h.state.revision=99;
+    wait.resolve({suggestions:[{uci:'e2e4',probability:0.5}]});
+    await pending;
+    assert.equal(h.state.recordingSuggestions.length,0);
+  }
+});
+
+test('editing a rating clears visible recording and editor Maia suggestions', () => {
+  const h=harness();
+  h.state.recordingSuggestions=[{uci:'e2e4',probability:0.5}];
+  h.$('maia-results').innerHTML='old Maia move';
+  const updated=structuredClone(h.state.document); updated.metadata.opponentRating=1000;
+  h.commit(updated);
+  assert.equal(h.state.recordingSuggestions.length,0);
+  assert.doesNotMatch(h.$('maia-results').innerHTML,/old Maia move/);
+});
+
+
+test('current recording Maia response renders at unchanged course and rating', async () => {
+  const h=harness(); h.state.view='recording'; h.state.recordingMaiaEnabled=true;
+  h.state.document.metadata.opponentRating=2300;
+  h.analysisAPI.maia=async()=>({suggestions:[{uci:'e2e4',san:'e4',probability:0.7}]});
+  await h.queueRecordingMaia();
+  assert.equal(h.state.recordingSuggestions.length,1);
+  assert.equal(h.state.recordingSuggestions[0].uci,'e2e4');
+});

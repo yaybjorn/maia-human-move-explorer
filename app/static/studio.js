@@ -936,6 +936,7 @@ function setEffectivePosition(document, nodeID = state.currentNodeID) {
   // replacement. Invalidate before assignment so an already pending Maia reply
   // cannot paint arrows for the position we are leaving.
   if (recordingPositionKey(document, nodeID) !== recordingPositionKey()) disableRecordingMaiaForPositionChange();
+  else if (document?.metadata?.opponentRating !== state.document?.metadata?.opponentRating) clearRecordingMaia();
   if (nodeID !== state.currentNodeID) hintStudioRequest += 1;
   state.document = document; state.currentNodeID = nodeID;
 }
@@ -1049,12 +1050,12 @@ async function queueRecordingMaia() {
   clearRecordingMaia();
   const abort = new AbortController(), token = ++state.recordingMaiaToken;
   state.recordingMaiaAbort = abort;
-  const moves = movesToNode(state.document, state.currentNodeID), positionKey = moves.join(" ");
+  const moves = movesToNode(state.document, state.currentNodeID), positionKey = moves.join(" "), context = diagnosticContext();
   $("recording-message").textContent = "Maia is considering likely human moves…";
   try {
     const rating = courseOpponentRating(state.document);
     const data = await analysisAPI.maia(moves, rating, rating, { signal: abort.signal });
-    const current = !abort.signal.aborted && state.recordingMaiaEnabled && state.view === "recording" && token === state.recordingMaiaToken && movesToNode(state.document, state.currentNodeID).join(" ") === positionKey;
+    const current = !abort.signal.aborted && state.recordingMaiaEnabled && state.view === "recording" && token === state.recordingMaiaToken && diagnosticIsCurrent(context) && movesToNode(state.document, state.currentNodeID).join(" ") === positionKey;
     if (!current) return;
     state.recordingSuggestions = [...(data?.suggestions || [])]
       .filter(move => Number(move.probability) > 0.10)
@@ -1063,7 +1064,7 @@ async function queueRecordingMaia() {
     renderRecordingBoard();
     $("recording-message").textContent = state.recordingSuggestions.length ? `Showing ${state.recordingSuggestions.length} likely Maia move${state.recordingSuggestions.length === 1 ? "" : "s"}.` : "No Maia moves cleared the 10% threshold.";
   } catch (error) {
-    if (!abort.signal.aborted && token === state.recordingMaiaToken) $("recording-message").textContent = error.message;
+    if (!abort.signal.aborted && token === state.recordingMaiaToken && diagnosticIsCurrent(context)) $("recording-message").textContent = error.message;
   } finally {
     if (state.recordingMaiaAbort === abort) state.recordingMaiaAbort = null;
   }
@@ -1236,9 +1237,9 @@ async function queueEditorMaiaAnalysis() {
   if (!state.editorPanels.maia || state.view !== "editor" || !state.document) return;
   stopEditorMaia();
   const abort = new AbortController(); state.editorMaiaAbort = abort;
-  const token=++state.analysisToken, moves=movesToNode(state.document,state.currentNodeID), positionKey=moves.join(" ");
+  const token=++state.analysisToken, moves=movesToNode(state.document,state.currentNodeID), positionKey=moves.join(" "), context=diagnosticContext();
   $("maia-results").innerHTML='<div class="empty-state"><p>Maia is considering likely human choices…</p></div>';
-  const isCurrent=()=>!abort.signal.aborted&&state.editorPanels.maia&&state.view==="editor"&&token===state.analysisToken&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
+  const isCurrent=()=>!abort.signal.aborted&&state.editorPanels.maia&&state.view==="editor"&&token===state.analysisToken&&diagnosticIsCurrent(context)&&movesToNode(state.document,state.currentNodeID).join(" ")===positionKey;
   try {
     const rating=courseOpponentRating(state.document);
     const data=await analysisAPI.maia(moves,rating,rating,{signal:abort.signal});
@@ -1261,6 +1262,9 @@ function bindSuggestedMoves(token,positionKey){$("maia-results").querySelectorAl
 // Diagnostics are capabilities for one exact source, not reusable chapter-local node IDs.
 function invalidateDiagnostics() {
   state.diagnosticGeneration += 1;
+  state.analysisToken += 1; stopEditorMaia();
+  const maiaResults = $("maia-results"); if (maiaResults) maiaResults.innerHTML = '<div class="empty-state"><p>Expand to see likely human moves.</p></div>';
+  clearRecordingMaia();
   state.writingRequest += 1; state.coverageRequest += 1;
   for (const id of ["writing-results", "writing-summary", "gap-results"]) {
     const element = $(id); if (element) element.innerHTML = "";
@@ -1268,12 +1272,12 @@ function invalidateDiagnostics() {
   setBusy($("run-spellcheck"), false); setBusy($("run-gap-check"), false);
 }
 function diagnosticContext() {
-  return { courseID: state.courseID, chapterID: state.document?.activeChapterID,
+  return { courseID: state.courseID, revision: state.revision, chapterID: state.document?.activeChapterID,
     generation: state.diagnosticGeneration, source: JSON.stringify(state.document) };
 }
 function diagnosticIsCurrent(context) {
   return Boolean(context && state.document && context.courseID === state.courseID
-    && context.chapterID === state.document.activeChapterID
+    && context.chapterID === state.document.activeChapterID && context.revision === state.revision
     && context.generation === state.diagnosticGeneration
     && context.source === JSON.stringify(state.document));
 }
