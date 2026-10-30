@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import uuid
 from io import StringIO
 from pathlib import Path
@@ -155,6 +156,7 @@ async def dispatch(request, upstream_read, allowed_origins):
                 if not row:
                     raise HTTPException(503, "Saved generation receipt is unavailable")
                 return JSONResponse(json.loads(row[0]), headers={"Cache-Control": "private, no-store"})
+            reserve_generation(conn, request_id, user["id"])
             conn.execute("INSERT INTO hint_generation_requests(id,payload_hash,review_id) VALUES (?,?,NULL)", (request_id, fingerprint))
             conn.execute("COMMIT")
         try:
@@ -199,7 +201,22 @@ def review_db():
 def schema(conn):
     conn.execute("CREATE TABLE IF NOT EXISTS hint_reviews (id TEXT PRIMARY KEY, course_id TEXT NOT NULL, revision INTEGER NOT NULL, actor_id TEXT NOT NULL, record TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
     conn.execute("CREATE TABLE IF NOT EXISTS hint_generation_requests (id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, review_id TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS hint_generation_allowance (request_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, reserved_at INTEGER NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS hint_generation_allowance_time ON hint_generation_allowance(reserved_at)")
     conn.execute("CREATE TABLE IF NOT EXISTS hint_review_events (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, candidate_id TEXT NOT NULL, version INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+
+
+# Reserve before engine/model work, in the same BEGIN IMMEDIATE transaction as
+# the idempotency receipt. Uncertain/failed calls still consume allowance.
+def reserve_generation(conn, request_id, actor, now=None):
+    now = int(time.time()) if now is None else now
+    conn.execute("DELETE FROM hint_generation_allowance WHERE reserved_at <= ?", (now - 3600,))
+    total, actor_total = conn.execute(
+        "SELECT COUNT(*), COUNT(CASE WHEN actor_id=? THEN 1 END) FROM hint_generation_allowance", (actor,)
+    ).fetchone()
+    if total >= 20 or actor_total >= 10:
+        raise HTTPException(429, "Hint generation limit reached; try again later")
+    conn.execute("INSERT INTO hint_generation_allowance(request_id,actor_id,reserved_at) VALUES (?,?,?)", (request_id, actor, now))
 
 
 def update_review(db, data, actor, course, revision, revision_hash, chapter, moves, answer):

@@ -162,3 +162,49 @@ def test_review_storage_requires_private_permissions(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as denied:
         review_db()
     assert denied.value.status_code == 503
+
+
+def test_generation_allowance_enforces_actor_global_and_expiry(tmp_path):
+    import sqlite3
+
+    from app.hint_studio import reserve_generation, schema
+
+    with sqlite3.connect(tmp_path / 'allowance.sqlite', isolation_level=None) as conn:
+        schema(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        for n in range(10):
+            reserve_generation(conn, f'a{n}', 'a', now=3600)
+        with pytest.raises(HTTPException) as actor:
+            reserve_generation(conn, 'a-extra', 'a', now=3600)
+        assert actor.value.status_code == 429
+        for n in range(10):
+            reserve_generation(conn, f'b{n}', 'b', now=3600)
+        with pytest.raises(HTTPException) as total:
+            reserve_generation(conn, 'c-extra', 'c', now=3600)
+        assert total.value.status_code == 429
+        reserve_generation(conn, 'c-next-hour', 'c', now=7200)
+        conn.execute('COMMIT')
+
+
+def test_generation_allowance_serializes_concurrent_reservations(tmp_path):
+    import sqlite3
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.hint_studio import reserve_generation, schema
+
+    db = tmp_path / 'allowance.sqlite'
+    with sqlite3.connect(db) as conn:
+        schema(conn)
+    def attempt(n):
+        with sqlite3.connect(db, timeout=10, isolation_level=None) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            try:
+                reserve_generation(conn, str(n), 'same-author', now=3600)
+                conn.execute('COMMIT')
+                return True
+            except HTTPException:
+                conn.execute('ROLLBACK')
+                return False
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        outcomes = list(executor.map(attempt, range(20)))
+    assert sum(outcomes) == 10
