@@ -184,7 +184,7 @@ async def dispatch(request, upstream_read, allowed_origins):
 
 
 def review_db():
-    db = Path(os.getenv("HINT_REVIEW_DB", "/opt/maia-human-move-explorer/private/hint-studio/reviews.sqlite3"))
+    db = Path(os.getenv("HINT_REVIEW_DB", "/opt/maia-human-move-explorer/cache/hint-studio-private/reviews.sqlite3"))
     if not db.parent.is_dir() or db.parent.is_symlink() or db.is_symlink() or db.parent.stat().st_mode & 0o077:
         raise HTTPException(503, "Private hint storage unavailable")
     try:
