@@ -71,6 +71,7 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
     monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
     monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
     monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
+    monkeypatch.setenv('HOME', str(tmp_path))
     token = 'q' * 48
     monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', hashlib.sha256(token.encode()).hexdigest())
     monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_EXPIRES', str(int(time.time()) + 300))
@@ -93,6 +94,8 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
         if args[0] == '/usr/bin/security':
             return subprocess.CompletedProcess(args, 0, token, '')
         assert token not in kwargs['input']
+        assert 'smallest exact source substring' in kwargs['input']
+        assert 'the pieces is' in kwargs['input'] and 'the pieces are' in kwargs['input']
         assert set(kwargs['env']) <= {'HOME', 'USER', 'TMPDIR', 'LANG', 'PATH'}
         result = {'status': 'completed', 'message': 'Corrected', 'patches': [{'component': 0, 'field': 'body', 'old': 'teh', 'new': 'the'}]}
         return subprocess.CompletedProcess(args, 0, json.dumps({'outputs': [{'text': json.dumps(result)}]}), '')
@@ -181,3 +184,35 @@ def test_unverified_grammar_suggestion_is_visible_but_not_applied(tmp_path, monk
     page = client.get('/state').json()['pages']['p']
     assert page['body'] == saved['body'] and page['generation'] == 1
     assert page['action']['suggestions'] == [{'old': 'can', 'new': 'cannot'}]
+
+
+def test_saved_spelling_and_grammar_apply_with_protected_notation(tmp_path, monkeypatch):
+    """Exercise save -> claim -> guarded finish -> readback on an isolated database."""
+    from app.beyond_basics_review_state import review_state
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_LEGACY_CANARY', '1')
+    monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(tmp_path / 'review.db'))
+    token = 'q' * 48
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_SHA256', hashlib.sha256(token.encode()).hexdigest())
+    monkeypatch.setenv('BEYOND_BASICS_ACTION_TOKEN_EXPIRES', str(int(time.time()) + 300))
+    manifest = {'source_sha256': 's', 'page_ids': ['p']}
+    app = FastAPI()
+    @app.api_route('/state', methods=['GET', 'PUT'])
+    async def state(request: Request):
+        return await review_state(request, manifest)
+    @app.post('/{action}')
+    async def action(action: str, request: Request):
+        return await service(request, manifest, action)
+    client = TestClient(app)
+    saved = {'source': 's', 'page_id': 'p', 'generation': 0, 'operation': 'save',
+             'body': 'On this board the pieces is ready and you recieved Nf3 from Magnus.',
+             'notes': 'Correct spelling and grammar', 'decision': ''}
+    assert client.put('/state', json=saved, headers={'Origin': 'https://ggm.fablelabs.no'}).status_code == 200
+    job = signed(client, 'claim', {}, token).json()['job']
+    proposal = {'status': 'completed', 'message': 'Fixed', 'patches': [
+        {'component': 0, 'field': 'body', 'old': 'the pieces is', 'new': 'the pieces are'},
+        {'component': 0, 'field': 'body', 'old': 'recieved', 'new': 'received'}]}
+    assert signed(client, 'finish', {'id': job['id'], 'lease_token': job['lease_token'], 'proposal': proposal}, token).json()['status'] == 'completed'
+    page = client.get('/state').json()['pages']['p']
+    assert page['body'] == 'On this board the pieces are ready and you received Nf3 from Magnus.'
+    assert page['generation'] == 2 and page['action']['status'] == 'completed'
+    assert client.put('/state', json={**saved, 'generation': 1}, headers={'Origin': 'https://ggm.fablelabs.no'}).status_code == 409
