@@ -31,25 +31,36 @@ const REVIEW_EXERCISES={
  '610bfd39735b8353ba06f34b':{from:'e2',to:'e7',answer:'610bfd39735b8353ba06f359',result:'610bfd39735b8353ba06f34f'}
 };
 const reviewStyle=document.createElement('link');reviewStyle.rel='stylesheet';reviewStyle.href='/static/beyond-basics-exercises.css';document.head.append(reviewStyle);
+function solutionIds(config,components){
+ const start=components.findIndex(c=>c.id===config.answer);if(start<0)return [];
+ const ids=[];for(let i=start;i<components.length;i++){const c=components[i];if(i>start&&(c.title||['actionButton','links'].includes(c.type)))break;ids.push(c.id)}return ids;
+}
 function makeExercise(section,config,components,content){
  const rows=REVIEW_POSITIONS[section.dataset.componentId].split('/').map(r=>[...r].flatMap(c=>/^[1-8]$/.test(c)?Array(Number(c)).fill(''):c));const names={p:'pawn',r:'rook',n:'knight',b:'bishop',q:'queen',k:'king'};
  const img=section.querySelector('img');if(!img)return;
  const result=components.find(c=>c.id===config.result);if(config.result&&(!result||!GRAPHICS[result.url]))return;
- const board=text('div','','exercise-board');img.replaceWith(board);board.append(img);
- img.alt='Chess position. White is at the bottom.';
+ const original=img.src,board=text('div','','exercise-board');img.replaceWith(board);board.append(img);img.alt='Chess position. White is at the bottom.';
  const grid=text('div','','exercise-grid');grid.setAttribute('role','group');grid.setAttribute('aria-label','Interactive chess position. Select a piece square, then a destination square.');board.append(grid);
- const status=text('p','First-move practice: select a piece, then select its destination.','exercise-status');status.setAttribute('role','status');section.append(status);
+ const status=text('p','','exercise-status');status.setAttribute('role','status');section.append(status);
+ const setSolution=visible=>{for(const id of solutionIds(config,components)){const el=content.querySelector(`[data-component-id="${id}"]`);if(el)el.hidden=!visible}};
  let selected=null,solved=false;
- const reveal=()=>{for(const id of [config.answer,config.result].filter(Boolean)){const el=content.querySelector(`[data-component-id="${id}"]`);if(el)el.hidden=false}};
- for(let rank=8;rank>=1;rank--)for(const file of 'abcdefgh'){
-  const square=file+rank,b=text('button','');b.type='button';const piece=rows[8-rank]['abcdefgh'.indexOf(file)];b.setAttribute('aria-label',square+', '+(piece?((piece===piece.toUpperCase()?'white ':'black ')+names[piece.toLowerCase()]):'empty'));grid.append(b);
-  b.addEventListener('click',()=>{if(solved)return;if(!selected){selected=square;b.classList.add('selected');status.textContent=`${square} selected. Select a destination.`;return}
-   grid.querySelector('.selected')?.classList.remove('selected');const from=selected;selected=null;
-   const move=[config,...(config.alternatives||[])].find(m=>m.from===from&&m.to===square);if(move){solved=true;if(result){img.src=GRAPHICS[result.url];grid.remove()}else{grid.replaceChildren();for(const [sq,piece] of [[move.from,''],[move.to,move.piece]]){const col=sq.charCodeAt(0)-97,row=8-Number(sq[1]);const cell=text('div',piece,'exercise-moved');cell.style.gridColumn=String(col+1);cell.style.gridRow=String(row+1);cell.style.background=(col+row)%2?'#80645a':'#f4dfb3';grid.append(cell)}}status.textContent='Correct first move. Read the lesson’s explanation below.';reveal();show.remove()}
-   else status.textContent='Not quite. Try another move.';
-  });
+ const show=button('Show solution',()=>{setSolution(true);status.textContent='Solution shown below.';show.hidden=true});
+ const reset=button('Reset exercise',()=>draw());
+ section.append(show,reset);
+ function draw(){
+  selected=null;solved=false;img.src=original;grid.hidden=false;grid.replaceChildren();setSolution(false);show.hidden=false;status.textContent='First-move practice: select a piece, then select its destination.';
+  for(let rank=8;rank>=1;rank--)for(const file of 'abcdefgh'){
+   const square=file+rank,b=text('button','');b.type='button';const piece=rows[8-rank]['abcdefgh'.indexOf(file)];b.setAttribute('aria-label',square+', '+(piece?((piece===piece.toUpperCase()?'white ':'black ')+names[piece.toLowerCase()]):'empty'));grid.append(b);
+   b.addEventListener('click',()=>{if(solved)return;if(!selected){selected=square;b.classList.add('selected');status.textContent=`${square} selected. Select a destination.`;return}
+    grid.querySelector('.selected')?.classList.remove('selected');const from=selected;selected=null;
+    const move=[config,...(config.alternatives||[])].find(m=>m.from===from&&m.to===square);
+    if(!move){status.textContent='Not quite. Try another move.';return}
+    solved=true;if(result){img.src=GRAPHICS[result.url];grid.hidden=true}else{grid.replaceChildren();for(const [sq,piece] of [[move.from,''],[move.to,move.piece]]){const col=sq.charCodeAt(0)-97,row=8-Number(sq[1]);const cell=text('div',piece,'exercise-moved');cell.style.gridColumn=String(col+1);cell.style.gridRow=String(row+1);cell.style.background=(col+row)%2?'#80645a':'#f4dfb3';grid.append(cell)}}
+    status.textContent='Correct first move. Read the lesson’s explanation below.';setSolution(true);show.hidden=true;
+   });
+  }
  }
- const show=button('Show solution',()=>{reveal();status.textContent='Solution shown below.';show.remove()});section.append(show);
+ draw();
 }
 
 function text(tag,value,cls){const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e}
@@ -74,7 +85,7 @@ function showPage(ui,pi){
  function renderPreview(){
   content.replaceChildren();content.append(companion(p.title,LESSON_POSES[p.id]||'c01-thinking',boardPage?'64 squares arranged in an 8 × 8 square.':''));
   const components=p.components.map(c=>({...c}));
-  const hiddenSolutions=new Set(Object.values(REVIEW_EXERCISES).flatMap(e=>[e.answer,e.result].filter(Boolean)));
+  const hiddenSolutions=new Set(Object.values(REVIEW_EXERCISES).flatMap(e=>solutionIds(e,components)));
   components.forEach((c,i)=>{const section=component(c,content);section.dataset.componentId=c.id;if(CHARACTER_PORTRAITS[c.id]){const [name,pose]=CHARACTER_PORTRAITS[c.id];const img=document.createElement('img');img.src=pose+'.png';img.alt='Portrait of '+name;section.classList.add('character-card');section.prepend(img)}if(hiddenSolutions.has(c.id))section.hidden=true;if(boardPage&&c.type==='graphic'){section.classList.add('board-diagram',i===0?'board-empty':'board-start');const image=section.querySelector('img');image.alt=i===0?'Empty 8 × 8 chessboard with coordinates':'Starting chess position, White at the bottom'}if(boardPage&&i===1)section.append(companion('Remember','c02-happy','The bottom-right square should be light.',true));if(boardPage&&i===3)section.append(companion('Ready to play','c03-puzzled','Start with the pieces in these places.'))});
   components.forEach(c=>{if(REVIEW_EXERCISES[c.id])makeExercise(content.querySelector(`[data-component-id="${c.id}"]`),REVIEW_EXERCISES[c.id],components,content)});
  }
