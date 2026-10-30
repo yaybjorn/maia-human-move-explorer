@@ -936,6 +936,7 @@ function setEffectivePosition(document, nodeID = state.currentNodeID) {
   // replacement. Invalidate before assignment so an already pending Maia reply
   // cannot paint arrows for the position we are leaving.
   if (recordingPositionKey(document, nodeID) !== recordingPositionKey()) disableRecordingMaiaForPositionChange();
+  if (nodeID !== state.currentNodeID) hintStudioRequest += 1;
   state.document = document; state.currentNodeID = nodeID;
 }
 function disableRecordingMaiaForPositionChange() {
@@ -1116,6 +1117,7 @@ let hintStudioRequest = 0;
 function renderHintStudio(node, hintInfo) {
   const panel = $("hint-studio-panel");
   if (!panel) return;
+  hintStudioRequest += 1; // A replacement panel must never receive an earlier panel's response.
   const group = hintInfo?.conflict || node.hintMode === "own" ? [hintInfo] : [...sharedHintIndex(state.document).values()].filter(item => item.key === hintInfo?.key && item.node.hintMode !== "own");
   const affected = group.filter(Boolean).map(item => `${state.document.chapterSources?.find(chapter=>chapter.id===item.chapterID)?.title || "Course"}: ${item.path.join(" ")}`).join("; ");
   panel.innerHTML = `<details><summary>Hint Studio</summary><p>Generate three drafts for this saved learner move. Review and explicitly apply one; nothing is published.</p><label>Opponent rating <input id="hint-rating" type="number" min="400" max="3000" step="100" value="1500"></label><button type="button" id="hint-generate">Generate candidates</button> <button type="button" id="hint-load">Open saved review</button><p id="hint-status" role="status"></p><div id="hint-candidates"></div></details>`;
@@ -1123,6 +1125,7 @@ function renderHintStudio(node, hintInfo) {
     flushActiveEditor();
     if (dirty() || needsSharedHintSave()) return showStatus("Save the course draft before generating hints.", true);
     const context = diagnosticContext(), token = ++hintStudioRequest;
+    const isCurrent = () => token === hintStudioRequest && state.currentNodeID === node.id && diagnosticIsCurrent(context);
     const rating = Number($("hint-rating").value);
     if (!Number.isInteger(rating) || rating < 400 || rating > 3000) return showStatus("Choose a rating from 400 to 3000.", true);
     const path = pathToNode(state.document, node.id);
@@ -1131,12 +1134,12 @@ function renderHintStudio(node, hintInfo) {
     $("hint-generate").disabled = true; $("hint-status").textContent = "Analyzing and generating…";
     try {
       const course = await api.course(snapshot.courseID);
-      if (!diagnosticIsCurrent(context) || token !== hintStudioRequest || course.draft?.revision !== snapshot.revision) throw new Error("Draft changed; reopen Hint Studio.");
+      if (!isCurrent() || course.draft?.revision !== snapshot.revision) throw new Error("Draft changed; reopen Hint Studio.");
       snapshot.revisionHash = course.draft.revisionHash;
       const response = await api.request("/hint-studio", {method:"POST", body:{...snapshot, action:generate ? "generate" : "list", ...(generate ? {requestID:crypto.randomUUID()} : {})}});
       let review = generate ? response : response.reviews[0];
       if (!review) throw new Error("No saved review exists for this move and draft revision.");
-      if (!diagnosticIsCurrent(context) || token !== hintStudioRequest) throw new Error("Selection changed; generated candidates were not applied.");
+      if (!isCurrent()) throw new Error("Selection changed; generated candidates were not applied.");
       $("hint-status").textContent = `Review required. Maia is a model estimate. Affected: ${affected}. Move-only exceptions are preserved.`;
       const target = $("hint-candidates");
       function renderReview() {
@@ -1146,15 +1149,15 @@ function renderHintStudio(node, hintInfo) {
           section.querySelectorAll("button").forEach(button => button.addEventListener("click", async () => {
             const op = button.dataset.op;
             if (op === "apply") {
-              if (!diagnosticIsCurrent(context)) return showStatus("Draft changed; generate or reopen the review again.",true);
+              if (!isCurrent()) return showStatus("Draft changed; generate or reopen the review again.",true);
               try {
                 const latest = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"list"}});
                 const saved = latest.reviews.find(item=>item.id===review.id);
                 const candidate = saved?.candidates.find(item=>item.id===section.dataset.id);
-                if (!diagnosticIsCurrent(context) || saved?.version!==review.version || candidate?.status!=="approved") throw new Error("Approval or draft changed; reload the review.");
+                if (!isCurrent() || saved?.version!==review.version || candidate?.status!=="approved") throw new Error("Approval or draft changed; reload the review.");
                 if (section.querySelector("textarea").value.trim() !== candidate.text) throw new Error("Save and approve your edit before applying.");
                 review = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"review",reviewID:review.id,candidateID:section.dataset.id,version:review.version,operation:"apply"}});
-                if (!diagnosticIsCurrent(context)) throw new Error("Draft changed before application; no hint applied.");
+                if (!isCurrent()) throw new Error("Draft changed before application; no hint applied.");
                 commit(writeSharedHint(state.document,state.document.activeChapterID ?? null,node.id,candidate.text));
                 showStatus("Hint applied to the course draft. Save the draft to keep it.");
               } catch (error) { showStatus(error.message,true); }
@@ -1163,16 +1166,16 @@ function renderHintStudio(node, hintInfo) {
         });
       }
       async function update(section, operation, extra) {
-        if (!diagnosticIsCurrent(context)) return showStatus("Draft changed; reload the review.",true);
+        if (!isCurrent()) return showStatus("Draft changed; reload the review.",true);
         try {
           review = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"review",reviewID:review.id,candidateID:section.dataset.id,version:review.version,operation,...extra}});
-          if (!diagnosticIsCurrent(context)) throw new Error("Draft changed; review not applied.");
+          if (!isCurrent()) throw new Error("Draft changed; review not applied.");
           renderReview();
         } catch(error) { showStatus(error.message,true); }
       }
       renderReview();
-    } catch(error) { if (token === hintStudioRequest && $("hint-status")) $("hint-status").textContent = error.message; }
-    finally { if (token === hintStudioRequest && $("hint-generate")) $("hint-generate").disabled = false; }
+    } catch(error) { if (isCurrent() && $("hint-status")) $("hint-status").textContent = error.message; }
+    finally { if (isCurrent() && $("hint-generate")) $("hint-generate").disabled = false; }
   }
   $("hint-generate").addEventListener("click", () => openHintReview(true));
   $("hint-load").addEventListener("click", () => openHintReview(false));
