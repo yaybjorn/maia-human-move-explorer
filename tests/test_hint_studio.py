@@ -149,3 +149,16 @@ def test_generation_retry_returns_same_review_without_second_call(tmp_path, monk
     assert len(calls) == 1
     conflict = client.post("/hint", json={**payload, "rating": 1600}, headers=headers)
     assert conflict.status_code == 409
+
+
+def test_review_storage_requires_private_permissions(tmp_path, monkeypatch):
+    from app.hint_studio import review_db
+
+    db = tmp_path / "review.sqlite"
+    monkeypatch.setenv("HINT_REVIEW_DB", str(db))
+    assert review_db() == db
+    assert db.stat().st_mode & 0o077 == 0
+    db.chmod(0o644)
+    with pytest.raises(HTTPException) as denied:
+        review_db()
+    assert denied.value.status_code == 503
