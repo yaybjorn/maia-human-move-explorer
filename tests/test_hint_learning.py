@@ -116,3 +116,22 @@ def test_later_receipt_waits_for_earlier_commit_to_preserve_lineage(tmp_path):
     assert reconcile_stage(db, first, receipt(first, "author", 2, "Saved first"))
     assert reconcile_stage(db, second, receipt(second, "author", 3, "Saved first"))
     assert [(x["text"], x["kind"]) for x in examples(db)] == [("Saved first", "manual_hint")]
+
+
+def test_removed_ai_hint_reintroduced_later_retains_ai_provenance(tmp_path):
+    db = tmp_path / "review.sqlite"
+    token = stage_save(db, "course", "author", draft(1, ""))
+    review = {"id":"r", "revisionHash":"hash1", "chapterID":None, "moves":[], "answer":"e2e4",
+              "candidates":[{"id":"c", "text":"AI original", "status":"approved", "rating":4}]}
+    with sqlite3.connect(db) as conn:
+        learning_schema(conn)
+        conn.execute("INSERT INTO hint_reviews(id,course_id,revision,actor_id,record) VALUES (?,?,?,?,?)", ("r","course",1,"author",json.dumps(review)))
+        for version, action in enumerate(("approve", "apply_intent"), 1):
+            conn.execute("INSERT INTO hint_review_events(id,review_id,actor_id,action,candidate_id,version,payload) VALUES (?,?,?,?,?,?,?)", (str(version),"r","author",action,"c",version,"{}"))
+    assert reconcile_stage(db, token, receipt(token, "author", 2, "AI edited"))
+    token = stage_save(db, "course", "author", draft(2, "AI edited"))
+    assert reconcile_stage(db, token, receipt(token, "author", 3, ""))
+    assert examples(db) == []
+    token = stage_save(db, "course", "author", draft(3, ""))
+    assert reconcile_stage(db, token, receipt(token, "author", 4, "Restored edited hint"))
+    assert examples(db)[0]["kind"] == "ai_assisted_hint"

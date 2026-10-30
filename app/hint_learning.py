@@ -25,6 +25,7 @@ def learning_schema(conn):
         course_id TEXT NOT NULL, identity TEXT NOT NULL, revision INTEGER NOT NULL,
         revision_hash TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(course_id,identity))""")
     conn.execute("CREATE TABLE IF NOT EXISTS hint_learning_watermarks (course_id TEXT PRIMARY KEY, revision INTEGER NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS hint_learning_lineage (course_id TEXT NOT NULL, identity TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(course_id,identity))")
 
 
 def identity(item):
@@ -134,6 +135,7 @@ def reconcile_stage(db, token, receipt):
         after = {identity(x): x for x in saved_hint_occurrences(current)}
         prior_rows = conn.execute("SELECT identity,record FROM hint_learning_examples WHERE course_id=?", (course,)).fetchall()
         prior = {key: json.loads(raw) for key, raw in prior_rows}
+        lineage = {key: json.loads(raw) for key, raw in conn.execute("SELECT identity,record FROM hint_learning_lineage WHERE course_id=?", (course,))}
         reviews = conn.execute("SELECT record,revision FROM hint_reviews WHERE course_id=? ORDER BY revision DESC LIMIT 2001", (course,)).fetchall()
         # Fail closed rather than overlook older generated lineage if this
         # bounded review scan would be incomplete.
@@ -161,12 +163,17 @@ def reconcile_stage(db, token, receipt):
                 record = existing if existing and existing.get("text") == item["text"] else None
             elif applied:
                 record = {**item, "kind": "ai_assisted_hint", "provenance": applied}
-            elif existing and existing.get("kind") == "ai_assisted_hint" and old and existing.get("text") == old["text"]:
-                # Later editorial changes retain lineage; they do not become handwritten.
-                record = {**item, "kind": "ai_assisted_hint", "provenance": existing["provenance"]}
-            elif generated or item["positionKey"] in shared_ambiguous or item["text"].casefold() in generated_text or prior_review:
-                # Unapplied/draft/rejected and untracked historical suggestions
-                # make attribution ambiguous, including shared occurrences.
+            elif generated or item["positionKey"] in shared_ambiguous or item["text"].casefold() in generated_text:
+                # Unapplied/draft/rejected suggestions are never rehabilitated
+                # using older AI lineage or reclassified as manual.
+                record = None
+            elif (existing and existing.get("kind") == "ai_assisted_hint" and old and existing.get("text") == old["text"]) or key in lineage:
+                # Retain provenance across later corrections, removal and undo;
+                # lineage itself is a tombstone, not a selectable reference.
+                source = existing if existing and existing.get("kind") == "ai_assisted_hint" else lineage[key]
+                record = {**item, "kind": "ai_assisted_hint", "provenance": source["provenance"]}
+            elif prior_review:
+                # Older untracked suggestions make authorship ambiguous.
                 record = None
             else:
                 record = {**item, "kind": "manual_hint", "provenance": {"actorID": actor}}
@@ -174,6 +181,9 @@ def reconcile_stage(db, token, receipt):
                 record.update({"courseID": course, "actorID": actor, "revision": current["revision"], "revisionHash": current["revisionHash"]})
                 conn.execute("INSERT INTO hint_learning_examples(course_id,identity,revision,revision_hash,record) VALUES (?,?,?,?,?)",
                              (course, key, current["revision"], current["revisionHash"], json.dumps(record, ensure_ascii=False)))
+                if record["kind"] == "ai_assisted_hint":
+                    conn.execute("INSERT INTO hint_learning_lineage(course_id,identity,record) VALUES (?,?,?) ON CONFLICT(course_id,identity) DO UPDATE SET record=excluded.record",
+                                 (course, key, json.dumps(record, ensure_ascii=False)))
         conn.execute("INSERT INTO hint_learning_watermarks(course_id,revision) VALUES (?,?) ON CONFLICT(course_id) DO UPDATE SET revision=excluded.revision", (course, current["revision"]))
         conn.execute("UPDATE hint_learning_journal SET state='reconciled', before_json='{}' WHERE id=?", (token,))
         conn.execute("COMMIT")
