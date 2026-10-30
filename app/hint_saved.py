@@ -45,10 +45,9 @@ def saved_hint_occurrences(draft):
         while game := chess.pgn.read_game(stream):
             if game.errors or game.headers.get("FEN") or game.headers.get("SetUp") == "1":
                 raise ValueError("Invalid saved PGN")
-            pending = [(game, ())]
+            pending = [(game, (), game.board())]
             while pending:
-                node, path = pending.pop()
-                board = node.board()
+                node, path, board = pending.pop()
                 for index, child in enumerate(node.variations):
                     next_path = (*path, child.move.uci())
                     if len(next_path) > 500:
@@ -73,5 +72,7 @@ def saved_hint_occurrences(draft):
                                                 "text": text})
                                 if len(results) > 10000:
                                     raise ValueError("Too many hints")
-                    pending.append((child, next_path))
+                    next_board = board.copy(stack=False)
+                    next_board.push(child.move)
+                    pending.append((child, next_path, next_board))
     return results
