@@ -26,6 +26,7 @@ def learning_schema(conn):
         revision_hash TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(course_id,identity))""")
     conn.execute("CREATE TABLE IF NOT EXISTS hint_learning_watermarks (course_id TEXT PRIMARY KEY, revision INTEGER NOT NULL)")
     conn.execute("CREATE TABLE IF NOT EXISTS hint_learning_lineage (course_id TEXT NOT NULL, identity TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY(course_id,identity))")
+    conn.execute("CREATE TABLE IF NOT EXISTS hint_learning_suppressed (course_id TEXT NOT NULL, identity TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY(course_id,identity,text))")
 
 
 def identity(item):
@@ -50,10 +51,6 @@ def stage_save(db, course_id, actor_id, draft, actor_email=""):
     before = draft
     with sqlite3.connect(db, timeout=5) as conn:
         learning_schema(conn)
-        # Keep journal bounded and never replace an unresolved attempt.
-        count = conn.execute("SELECT COUNT(*) FROM hint_learning_journal WHERE state='pending'").fetchone()[0]
-        if count >= 100:
-            raise ValueError("Learning journal is full")
         token = str(uuid.uuid4())
         conn.execute("INSERT INTO hint_learning_journal(id,course_id,actor_id,base_revision,base_hash,before_json) VALUES (?,?,?,?,?,?)",
                      (token, course_id, actor_id, revision, digest, json.dumps(before, ensure_ascii=False)))
@@ -86,7 +83,7 @@ def _reviews(conn, course_id, revision, base_hash, item, actor, reviews):
             continue
         for candidate in review.get("candidates", []):
             generated.add(candidate.get("text", "").casefold())
-            if candidate.get("status") != "approved":
+            if candidate.get("status") != "approved" or candidate.get("text") != item["text"]:
                 continue
             events = conn.execute("SELECT action FROM hint_review_events WHERE review_id=? AND candidate_id=? AND actor_id=? ORDER BY version",
                                   (review["id"], candidate["id"], actor)).fetchall()
@@ -177,6 +174,9 @@ def reconcile_stage(db, token, receipt):
                 record = None
             else:
                 record = {**item, "kind": "manual_hint", "provenance": {"actorID": actor}}
+            if record is None and (generated or prior_review or item["positionKey"] in shared_ambiguous or item["text"].casefold() in generated_text):
+                conn.execute("INSERT OR IGNORE INTO hint_learning_suppressed(course_id,identity,text) VALUES (?,?,?)",
+                             (course, key, item["text"]))
             if record:
                 record.update({"courseID": course, "actorID": actor, "revision": current["revision"], "revisionHash": current["revisionHash"]})
                 conn.execute("INSERT INTO hint_learning_examples(course_id,identity,revision,revision_hash,record) VALUES (?,?,?,?,?)",
@@ -190,18 +190,18 @@ def reconcile_stage(db, token, receipt):
     return True
 
 
-def pending_stages(db, course_id=None):
+def pending_stages(db, course_id=None, priority_token=None):
     with sqlite3.connect(db, timeout=5) as conn:
         learning_schema(conn)
-        return conn.execute("SELECT id,course_id,base_revision FROM hint_learning_journal WHERE state='pending' AND (? IS NULL OR course_id=?) ORDER BY base_revision,created_at LIMIT 100", (course_id, course_id)).fetchall()
+        return conn.execute("SELECT id,course_id,base_revision FROM hint_learning_journal WHERE state='pending' AND (? IS NULL OR course_id=?) ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END,base_revision,created_at LIMIT 100", (course_id, course_id, priority_token)).fetchall()
 
 
-async def recover_stages(db, request, upstream_read, course_id=None):
+async def recover_stages(db, request, upstream_read, course_id=None, definitive_failure=None):
     """Reconcile recoverable exact receipts using the current superadmin session."""
     from fastapi import HTTPException
 
     blocked = set()
-    for token, course, base_revision in pending_stages(db, course_id):
+    for token, course, base_revision in pending_stages(db, course_id, definitive_failure):
         if course in blocked:
             continue
         try:
@@ -213,7 +213,7 @@ async def recover_stages(db, request, upstream_read, course_id=None):
             # If the authoritative draft has advanced, this CAS can no longer
             # commit; a missing immutable receipt means it was not this save.
             latest = await upstream_read(request, f"courses/{course}")
-            if (latest.get("draft") or {}).get("revision", -1) > base_revision:
+            if token == definitive_failure or (latest.get("draft") or {}).get("revision", -1) > base_revision:
                 discard_stage(db, token)
             else:
                 blocked.add(course)

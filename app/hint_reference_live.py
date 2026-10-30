@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from .hint_learning import excluded, learning_schema
+from .hint_learning import excluded, identity, learning_schema
 from .hint_saved import saved_hint_occurrences
 
 
@@ -35,6 +35,21 @@ def _learning_records(db):
         return records
 
 
+def _ai_sources(db):
+    """AI lineage is a permanent source tombstone for imported labels."""
+    with sqlite3.connect(db, timeout=5) as conn:
+        learning_schema(conn)
+        return {(record["courseID"], record["chapterID"], record["positionKey"])
+                for (raw,) in conn.execute("SELECT record FROM hint_learning_lineage")
+                for record in [json.loads(raw)]}
+
+
+def _suppressed_sources(db):
+    with sqlite3.connect(db, timeout=5) as conn:
+        learning_schema(conn)
+        return set(conn.execute("SELECT course_id,identity,text FROM hint_learning_suppressed"))
+
+
 async def eligible_references(request, upstream_read, evidence, imported, db):
     """Return bounded, deduplicated examples and independent imported prose.
 
@@ -43,6 +58,8 @@ async def eligible_references(request, upstream_read, evidence, imported, db):
     every call, including when an imported occurrence has since been removed.
     """
     prose = [r for r in imported if r.get("kind") == "style_prose"][:2]
+    ai_sources = _ai_sources(db)
+    suppressed = _suppressed_sources(db)
     candidates = [r for r in imported if r.get("kind") == "handwritten_hint"]
     for record in _learning_records(db):
         candidates.append({"kind": record["kind"], "text": record["text"],
@@ -84,7 +101,12 @@ async def eligible_references(request, upstream_read, evidence, imported, db):
     current = dict(await asyncio.gather(*(read(course) for course in course_ids)))
     selected, seen = [], set()
     for ref in candidates:
-        occurrences = [o for o in ref.get("occurrences", []) if any(
+        occurrences = [o for o in ref.get("occurrences", []) if not (
+            ref.get("kind") == "handwritten_hint" and
+            ((o.get("courseID"), o.get("chapterID"), o.get("positionKey")) in ai_sources or
+             any((o.get("courseID"), identity(item), ref["text"]) in suppressed
+                 for item in current.get(o.get("courseID"), [])
+                 if item["chapterID"] == o.get("chapterID") and item["positionKey"] == o.get("positionKey")))) and any(
             item["chapterID"] == o.get("chapterID") and item["positionKey"] == o.get("positionKey")
             and item["text"] == ref["text"] for item in current.get(o.get("courseID"), []))]
         normalized = " ".join(ref["text"].split()).casefold()

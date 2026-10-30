@@ -2,8 +2,9 @@
 
 Saving the course draft is required. A suggestion becomes eligible only after it
 is approved, applied and saved; applying alone does not save the course. Edit a
-suggestion in the review and approve it again before applying. Later editorial
-corrections to an applied hint retain its AI-assisted lineage. Newly written,
+suggestion in the review and approve it again before applying. The first saved
+text must exactly match the approved, applied candidate; later saved editorial
+corrections retain its AI-assisted lineage. Newly written,
 saved manual hints may also become examples. Unapproved or rejected generated
 suggestions and unresolved provenance are excluded. Ratings are recorded as
 editorial context; a rating alone neither approves nor admits a suggestion.
@@ -23,6 +24,6 @@ comma-separated IDs to `HINT_LEARNING_EXCLUDED_COURSES` and
 setting the latter). Set course exclusions before creating test content, and
 use isolated private databases for automated tests. Exclusions must remain set
 while test courses exist. Pending uncertain saves are reconciled only against an
-immutable backend receipt; without one they never qualify. If the private
-journal reaches its bounded limit, saving is stopped before a backend write and
-an operator must reconcile the pending entries.
+immutable backend receipt; without one they never qualify. Definitively rejected
+saves with no receipt are discarded; ambiguous attempts remain pending without a
+global journal limit that could stop unrelated course saves.

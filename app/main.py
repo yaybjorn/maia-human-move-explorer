@@ -329,7 +329,12 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
             before = saved.get("draft") or {}
             if submitted.get("revision") == before.get("revision"):
                 learning_db = review_db()
-                await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1])
+                try:
+                    await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1])
+                except HTTPException:
+                    # A transient receipt lookup must not prevent ordinary saves.
+                    # Pending attempts remain untrusted until exact reconciliation.
+                    pass
                 learning_token = stage_save(learning_db, draft_path[1], actor, before, (session.get("user") or {}).get("email") or "")
                 if learning_token:
                     submitted["hintLearningSaveID"] = learning_token
@@ -363,7 +368,8 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
         try:
             # Any status can be ambiguous if the backend failed after its
             # transaction committed. Only the immutable receipt decides.
-            await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1])
+            await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1],
+                                 learning_token if 400 <= status < 500 else None)
         except (HTTPException, ValueError, TypeError, sqlite3.Error):
             # Leave pending for later authenticated reconciliation. Never alter
             # the actual upstream save response or infer a commit from intent.
