@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createUploadPanel } from "../app/static/studio-upload-panel.mjs";
-import { StagedUpload } from "../app/static/studio-upload.mjs?v=20260923-chapters";
+import { StagedUpload } from "../app/static/studio-upload.mjs?v=20261030-revision-recovery";
 import fs from "node:fs";
 function dom() {
   const nodes = Object.fromEntries(["title", "video", "thumbnail", "start", "check", "pause", "status", "progress"].map(id => [id, { value: "", disabled: false, listeners: {}, addEventListener(event, fn) { this.listeners[event] = fn; } }]));
@@ -80,9 +80,9 @@ test("blocked saved upload exposes only the read-only progress check", () => {
 });
 test("Studio revisions the recovery-control module so a reload cannot retain its pre-control cache entry", () => {
   const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
-  assert.match(source, /studio-upload-panel\.mjs\?v=20261013-upload-validation-status/);
+  assert.match(source, /studio-upload-panel\.mjs\?v=20261030-revision-recovery/);
   const document = fs.readFileSync(new URL("../app/static/studio.html", import.meta.url), "utf8");
-  assert.match(document, /studio\.js\?v=20261030-hint-studio/);
+  assert.match(document, /studio\.js\?v=20261030-revision-recovery/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
@@ -107,4 +107,14 @@ test("clearing a staged chapter upload removes its local identity after a save a
   const panel = createUploadPanel({ root, api: {}, getContext: () => context, enabled: true, storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) } });
   panel.refresh(); context = { ...context, revision: 208 }; panel.refresh(); panel.startNew();
   assert.equal(storage.has(key), false);
+});
+
+test("checking a staged upload from an old draft never attaches it to the current chapter", async () => {
+  const { root, nodes } = dom(); let attaches = 0;
+  const record = { schema: 1, actorID: paid.actorID, courseID: paid.courseID, chapterID: "chapter-a", draftRevision: 207, uploadID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Lesson", state: "staged", files: { video: { byteLength: 1 }, thumbnail: { byteLength: 1 } } };
+  const original = StagedUpload.prototype.inspect; StagedUpload.prototype.inspect = async () => record;
+  try {
+    const panel = createUploadPanel({ root, api: {}, getContext: () => ({ ...paid, revision: 208, chapterID: "chapter-a" }), enabled: true, storage: { getItem: () => JSON.stringify(record) }, onStaged: () => { attaches++; } });
+    panel.refresh(); await nodes.check.listeners.click(); assert.equal(attaches, 0);
+  } finally { StagedUpload.prototype.inspect = original; }
 });

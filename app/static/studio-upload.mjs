@@ -37,6 +37,9 @@ export class StagedUpload {
     Object.assign(this, { api, storage, courseID, actorID, revision, metadata, chapterID, onProgress });
     requireValue(courseID && actorID, "Sign in and open a saved course first.");
     this.key = `gingergm-staged-upload-v1:${actorID}:${courseID}${chapterID ? `:chapter:${chapterID}` : ""}`;
+    this.baseKey = this.key;
+    this.revisionKey = `${this.baseKey}:revision:${revision}`;
+    if (this.storage.getItem(this.revisionKey)) this.key = this.revisionKey;
     this.path = `/courses/${encodeURIComponent(courseID)}/offline-video/uploads`;
     this.busy = false; this.paused = false;
   }
@@ -52,6 +55,11 @@ export class StagedUpload {
   pause() { this.paused = true; }
   request(path, options = {}) { return this.api.request(path, { ...options, signal: AbortSignal.timeout(110000), redirect: "error" }); }
   async inspect() {
+    if (!this.chapterID) return this.inspectLocked();
+    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
+    return navigator.locks.request(this.baseKey, () => this.inspectLocked());
+  }
+  async inspectLocked() {
     const record = this.load();
     if (!record) return null;
     if (!record.uploadID) return record; // Lost reservation ack: never create a replacement automatically.
@@ -79,7 +87,50 @@ export class StagedUpload {
       else requireValue(["create_multipart", "complete_multipart"].includes(intent.action), "Unknown prepared operation.");
     }
   }
-  async run({ video, thumbnail, title }) {
+  // Restart is an explicit new reservation, never a rebase or a retry of old effects.
+  // Keep every old slot intact, including records in other tabs.
+  async restartForRevision(inputs) {
+    requireValue(this.chapterID, "Revision restart is available for chapter videos only.");
+    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
+    this.paused = false;
+    return navigator.locks.request(this.baseKey, async () => {
+      requireValue(!this.paused, "Upload paused before a new reservation.");
+      const prefix = `${this.baseKey}:revision:`;
+      const keys = [];
+      for (let i = 0; i < this.storage.length; i++) {
+        const key = this.storage.key(i);
+        if (key === this.baseKey || key?.startsWith(prefix)) keys.push(key);
+      }
+      requireValue(keys.length > 0 && keys.length < 12, "Upload recovery limit reached. Existing progress has been kept.");
+      requireValue(!this.storage.getItem(this.revisionKey), "An upload already exists for this revision. Reopen the chapter to continue it.");
+      const originalKey = this.key;
+      try {
+        for (const key of keys) {
+          this.key = key;
+          const record = this.load();
+          requireValue(record?.uploadID && record.draftRevision !== this.revision, "An upload reservation is unconfirmed or already belongs to this revision; existing progress has been kept.");
+          const remote = await this.request(`${this.path}/${encodeURIComponent(record.uploadID)}/operations`);
+          this.validateRemote(record, remote);
+          requireValue(!remote.blocked && !remote.operation, "An earlier upload is uncertain or still active. Check progress; no new upload was started.");
+        }
+        requireValue(!this.paused, "Upload paused before a new reservation.");
+        // Reserve the new local slot before exposing it. A lost reservation ack stays here.
+        this.key = this.revisionKey;
+        return await this.runLocked(inputs);
+      } catch (error) { this.key = this.storage.getItem(this.revisionKey) ? this.revisionKey : originalKey; throw error; }
+    });
+  }
+  async run(inputs) {
+    if (!this.chapterID) return this.runLocked(inputs);
+    requireValue(globalThis.navigator?.locks, "This browser cannot safely coordinate upload recovery across tabs.");
+    this.paused = false;
+    return navigator.locks.request(this.baseKey, async () => {
+      requireValue(!this.paused, "Upload paused before a new operation.");
+      if (this.storage.getItem(this.revisionKey)) this.key = this.revisionKey;
+      return this.runLocked(inputs);
+    });
+  }
+  async runLocked({ video, thumbnail, title }) {
     requireValue(!this.busy, "An upload is already running in this tab.");
     requireValue(this.chapterID || paidUploadCourse(this.metadata), FREE_UPLOAD_EXPLANATION);
     this.busy = true; this.paused = false;

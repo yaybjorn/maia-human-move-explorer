@@ -5,7 +5,7 @@ import { StudioAPI } from "../app/static/studio-api.mjs";
 const courseID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", uploadID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const metadata = { slug: "cowboy-kilkenny", priceTier: "usd-4.99", courseVideo: { id: "keep" }, videos: [{ id: "keep-too" }] };
 function setup({ lostPrepare = false, lostExecute = false, uncertain = false, lostReserve = false } = {}) {
-  const stored = new Map(), storage = { getItem: k => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v), removeItem: k => stored.delete(k) };
+  const stored = new Map(), storage = { getItem: k => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v), removeItem: k => stored.delete(k), get length() { return stored.size; }, key: i => [...stored.keys()][i] ?? null };
   const inputs = { video: new Blob([new Uint8Array(CHUNK_BYTES + 3).fill(7)], { type: "video/mp4" }), thumbnail: new Blob([new Uint8Array(3).fill(8)], { type: "image/png" }), title: "Private lesson" };
   const remote = { uploadID, draftRevision: 207, title: inputs.title, revision: 0, blocked: false, operation: null, files: Object.fromEntries(["video", "thumbnail"].map(k => [k, { byteLength: inputs[k].size, offset: 0, stored: false, created: false, parts: [] }])) };
   const effects = [], prepares = [], requests = [];
@@ -172,4 +172,87 @@ test('chapter upload recovery is isolated from sibling chapters and legacy cours
   assert.notEqual(first.key, second.key);
   const legacy = new StagedUpload({ api: s.api, storage: s.storage, actorID: 'author', courseID, revision: 207, metadata });
   assert.equal(legacy.load(), null);
+});
+
+
+test("revision restart preserves known idle predecessor and uses a separate slot", async () => {
+  const s = setup({ lostExecute: true });
+  const old = s.make({ chapterID: "first" });
+  await assert.rejects(old.runLocked(s.inputs), /lost execute/);
+  const saved = s.storage.getItem(old.key), next = s.make({ chapterID: "first", revision: 208 });
+  const priorNavigator = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_key, fn) => fn() } } });
+  next.runLocked = async () => { next.save({ schema: 1, actorID: "author", courseID, chapterID: "first", draftRevision: 208, state: "reservation_unconfirmed" }); return "new"; };
+  try {
+    assert.equal(await next.restartForRevision(s.inputs), "new");
+    assert.equal(s.storage.getItem(old.key), saved);
+    assert.ok(s.storage.getItem(next.revisionKey));
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: priorNavigator }); }
+});
+test("revision restart refuses unknown and uncertain predecessors without reserving", async () => {
+  const s = setup({ lostReserve: true });
+  const old = s.make({ chapterID: "first" });
+  await assert.rejects(old.runLocked(s.inputs), /lost reserve/);
+  const before = s.storage.getItem(old.key), next = s.make({ chapterID: "first", revision: 208 });
+  const priorNavigator = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_key, fn) => fn() } } });
+  try {
+    await assert.rejects(next.restartForRevision(s.inputs), /unconfirmed/);
+    assert.equal(s.storage.getItem(old.key), before);
+    assert.equal(s.storage.getItem(next.revisionKey), null);
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: priorNavigator }); }
+});
+
+test("blocked predecessor fails closed without replacing saved progress", async () => {
+  const s = setup({ lostExecute: true });
+  const old = s.make({ chapterID: "first" }); await assert.rejects(old.runLocked(s.inputs));
+  s.remote.blocked = true;
+  const before = s.storage.getItem(old.key), next = s.make({ chapterID: "first", revision: 208 });
+  const prior = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_k, fn) => fn() } } });
+  try {
+    await assert.rejects(next.restartForRevision(s.inputs), /uncertain or still active/);
+    assert.equal(s.storage.getItem(old.key), before); assert.equal(s.storage.getItem(next.revisionKey), null);
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: prior }); }
+});
+test("chapter lock serializes attempts and second tab cannot replace new slot", async () => {
+  const s = setup({ lostExecute: true });
+  const old = s.make({ chapterID: "first" }); await assert.rejects(old.runLocked(s.inputs));
+  const one = s.make({ chapterID: "first", revision: 208 }), two = s.make({ chapterID: "first", revision: 208 });
+  const prior = globalThis.navigator; let tail = Promise.resolve(), release;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: (_key, fn) => { const next = tail.then(fn); tail = next.catch(() => {}); return next; } } } });
+  let started; const entered = new Promise(resolve => started = resolve);
+  one.runLocked = async () => { one.save({ schema: 1, actorID: "author", courseID, chapterID: "first", draftRevision: 208, state: "reservation_unconfirmed" }); started(); await new Promise(resolve => release = resolve); };
+  try {
+    const first = one.restartForRevision(s.inputs); await entered;
+    const second = two.restartForRevision(s.inputs); release(); await first;
+    await assert.rejects(second, /already exists/);
+    assert.ok(s.storage.getItem(old.key)); assert.ok(s.storage.getItem(one.revisionKey));
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: prior }); }
+});
+
+test("revision recovery rejects mismatched identity, prepared operations, and retained-record cap", async () => {
+  const s = setup({ lostExecute: true }), old = s.make({ chapterID: "first" }); await assert.rejects(old.runLocked(s.inputs));
+  const next = s.make({ chapterID: "first", revision: 208 }), before = s.storage.getItem(old.key), prior = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_key, fn) => fn() } } });
+  try {
+    s.remote.title = "other"; await assert.rejects(next.restartForRevision(s.inputs), /identity/); s.remote.title = s.inputs.title;
+    s.remote.operation = { token: { uploadID, fence: s.remote.revision }, intent: { kind: "video", action: "create_multipart" } };
+    await assert.rejects(next.restartForRevision(s.inputs), /still active/); s.remote.operation = null;
+    for (let i = 0; i < 11; i++) s.storage.setItem(`${old.baseKey}:revision:${100+i}`, before);
+    await assert.rejects(next.restartForRevision(s.inputs), /limit/);
+    assert.equal(s.storage.getItem(old.key), before); assert.equal(s.storage.getItem(next.revisionKey), null);
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: prior }); }
+});
+test("storage failure when starting a new revision preserves old slot without new reservation", async () => {
+  const s = setup({ lostExecute: true }), old = s.make({ chapterID: "first" }); await assert.rejects(old.runLocked(s.inputs));
+  const before = s.storage.getItem(old.key), next = s.make({ chapterID: "first", revision: 208 }), postCount = s.requests.filter(r => r[1] === "POST").length;
+  const prior = globalThis.navigator, set = s.storage.setItem;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (_key, fn) => fn() } } });
+  s.storage.setItem = (key, value) => { if (key === next.revisionKey) throw Error("quota"); set(key, value); };
+  try {
+    await assert.rejects(next.restartForRevision(s.inputs), /quota/);
+    assert.equal(s.storage.getItem(old.key), before); assert.equal(s.storage.getItem(next.revisionKey), null);
+    assert.equal(s.requests.filter(r => r[1] === "POST").length, postCount);
+  } finally { Object.defineProperty(globalThis, "navigator", { configurable: true, value: prior }); }
 });
