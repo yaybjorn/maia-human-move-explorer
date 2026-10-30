@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import sqlite3
 import subprocess
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -30,7 +31,9 @@ from .chess_state import (
 from .effects_library import dispatch as dispatch_effects
 from .effects_library import is_effect_path
 from .engine import engine
+from .hint_learning import recover_stages, stage_save
 from .hint_studio import dispatch as dispatch_hint_studio
+from .hint_studio import review_db
 from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire, writing_sources
@@ -307,6 +310,32 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
     body = await request.body()
     if len(body) > 2_000_000:
         raise HTTPException(413, "The Studio draft is too large")
+    learning_token = None
+    learning_db = None
+    draft_path = re.fullmatch(r"courses/([a-fA-F0-9-]{36})/draft", path)
+    if draft_path and request.method == "PUT":
+        # The browser cannot choose the provenance token. Journal first, then
+        # let the existing backend perform the actual CAS and authorization.
+        try:
+            submitted = json.loads(body)
+            if not isinstance(submitted, dict):
+                raise TypeError("Invalid save")
+            submitted.pop("hintLearningSaveID", None)
+            session = await studio_authenticated_read(request, "session")
+            actor = (session.get("user") or {}).get("id")
+            if not session.get("authenticated") or not isinstance(actor, str):
+                raise HTTPException(401, "Sign in to Course Studio")
+            saved = await studio_authenticated_read(request, f"courses/{draft_path[1]}")
+            before = saved.get("draft") or {}
+            if submitted.get("revision") == before.get("revision"):
+                learning_db = review_db()
+                await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1])
+                learning_token = stage_save(learning_db, draft_path[1], actor, before, (session.get("user") or {}).get("email") or "")
+                if learning_token:
+                    submitted["hintLearningSaveID"] = learning_token
+            body = json.dumps(submitted, ensure_ascii=False).encode("utf-8")
+        except (ValueError, TypeError, sqlite3.Error) as exc:
+            raise HTTPException(503, "Draft not saved: private hint learning is unavailable") from exc
     headers = {
         "Accept": "application/json",
         "Content-Type": request.headers.get("content-type", "application/json"),
@@ -330,6 +359,15 @@ async def studio_api_proxy(path: str, request: FastAPIRequest):
         method=request.method,
     )
     payload, status, response_headers = await run_in_threadpool(studio_upstream_request, upstream)
+    if learning_token and learning_db:
+        try:
+            # Any status can be ambiguous if the backend failed after its
+            # transaction committed. Only the immutable receipt decides.
+            await recover_stages(learning_db, request, studio_authenticated_read, draft_path[1])
+        except (HTTPException, ValueError, TypeError, sqlite3.Error):
+            # Leave pending for later authenticated reconciliation. Never alter
+            # the actual upstream save response or infer a commit from intent.
+            pass
     outgoing = {
         "Cache-Control": "no-store",
         "X-Robots-Tag": "noindex, nofollow, noarchive",

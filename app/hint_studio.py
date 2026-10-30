@@ -77,9 +77,9 @@ def private_references(evidence):
                  and isinstance(r.get("source"), str) and isinstance(r.get("text"), str)]
         hints = sorted((r for r in valid if r["kind"] == "handwritten_hint" and all(o.get("positionKey") != evidence["position_key"] for o in r.get("occurrences", []))),
                        key=lambda r: (r.get("san") == evidence["answer"]["san"],
-                                      r.get("piece") == evidence["answer"]["piece"]), reverse=True)[:3]
+                                      r.get("piece") == evidence["answer"]["piece"]), reverse=True)[:2000]
         prose = [r for r in valid if r["kind"] == "style_prose"][:2]
-        return [{"kind": r["kind"], "source": r["source"], "text": r["text"][:600], "occurrences": r.get("occurrences", [])[:25]}
+        return [{"kind": r["kind"], "source": r["source"], "text": r["text"][:600], "occurrences": r.get("occurrences", [])[:25], "san": r.get("san"), "piece": r.get("piece")}
                 for r in [*hints, *prose]]
     except (OSError, ValueError, TypeError):
         raise HTTPException(503, "Private hint references are unavailable") from None
@@ -161,8 +161,15 @@ async def dispatch(request, upstream_read, allowed_origins):
             conn.execute("COMMIT")
         try:
             evidence = await run_in_threadpool(analyze_hint, moves, answer, rating, engine, stockfish)
-            refs = private_references(evidence)
+            from .hint_learning import recover_stages
+            from .hint_reference_live import eligible_references
+            await recover_stages(db, request, upstream_read)
+            imported = private_references(evidence)
+            refs = await eligible_references(request, upstream_read, evidence, imported, db)
             result = await run_in_threadpool(generate_hints, evidence, refs)
+            refreshed = await eligible_references(request, upstream_read, evidence, imported, db)
+            if refreshed != refs:
+                raise HTTPException(409, "A reference changed during generation; result discarded")
         except PositionError as exc:
             raise HTTPException(400, str(exc)) from None
         except HintGenerationError as exc:

@@ -12,7 +12,7 @@ class HintGenerationError(Exception):
 
 
 def generate_hints(evidence: dict, references: list[dict], *, opener=urlopen) -> dict:
-    if not references or not any(r.get("kind") == "handwritten_hint" for r in references):
+    if not references or not any(r.get("kind") in {"handwritten_hint", "manual_hint"} for r in references):
         raise HintGenerationError("Authentic hint reference corpus is unavailable")
     key_path = Path(os.getenv("HINT_OPENAI_KEY_FILE", "/opt/maia-human-move-explorer/private/hint-studio/openai-api-key"))
     try:
