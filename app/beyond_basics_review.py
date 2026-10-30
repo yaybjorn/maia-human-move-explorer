@@ -19,6 +19,7 @@ FILES = {
     "download.mp4": ("video/mp4", True),
 }
 REVIEWER_IDS = {
+    "d10ceeba-1b99-4b64-8195-0567c892a98b",  # Oddbjørn
     "623cab89-7ab8-493e-9c2d-4ec6f58c4028",  # Simon
     "e4fcd230-aa60-47bf-8d20-30a413479be2",  # Existing Odin QA account
 }
