@@ -207,6 +207,7 @@ async function openCourse(id, { discardUnsaved = false, view = null } = {}) {
     const courseDocument = normalizeDocument(draft.document || draft || payload.document || {});
     courseDocument.metadata.slug = payload.course?.slug || courseDocument.metadata.slug;
     const hydrated = await hydrateSourceDocument(courseDocument, courseID, revision);
+    chapterVideoAutoResumed.clear();
     state.courseID = courseID;
     resetUserGames(courseID);
     state.currentCourse = currentCourse;
@@ -1806,22 +1807,22 @@ async function checkIndependentChapter(id) {
 }
 
 const chapterVideoPolls = new Set();
+const chapterVideoAutoResumed = new Set();
 function renderChapterVideoControls(chapter) {
   let box = $('chapter-video-actions');
   if (!box) { box = document.createElement('div'); box.id = 'chapter-video-actions'; document.querySelector('[data-panel="chapter-video"] .page-heading').after(box); }
   box.dataset.chapterId = chapter?.id || '';
   box.innerHTML = chapter?.video
     ? `<video class="chapter-video-player" controls preload="metadata" src="/studio/api/courses/${encodeURIComponent(state.courseID)}/chapter-media/${encodeURIComponent(chapter.video.id)}/play">Your browser cannot play this video.</video><button id="remove-chapter-video" class="secondary danger" type="button">Delete video</button>`
-    : chapter?.videoUploadID ? '<p>Checking video…</p><button id="retry-chapter-video" class="secondary" type="button">Retry validation</button>' : '';
-  if (chapter?.videoUploadID) {
-    const label = box.querySelector('p'), courseID = state.courseID, uploadID = chapter.videoUploadID;
-    api.request(`/courses/${encodeURIComponent(courseID)}/chapter-media/${encodeURIComponent(uploadID)}`)
-      .then(status => {
-        const current = syncActiveChapter(state.document).chapterSources.find(item => item.id === chapter.id);
-        if (state.courseID === courseID && current?.videoUploadID === uploadID && status.state === 'failed' && label?.isConnected) {
-          label.textContent = status.error || 'Video validation failed. Retry validation or upload a corrected file.';
-        }
-      }).catch(() => {});
+    : chapter?.videoUploadID ? '<p>Preparing video…</p>' : '';
+  if (chapter?.videoUploadID && !chapter.video) {
+    const courseID = state.courseID, key = `${courseID}/${chapter.videoUploadID}`;
+    if (!chapterVideoAutoResumed.has(key)) {
+      chapterVideoAutoResumed.add(key);
+      queueMicrotask(() => {
+        if (state.courseID === courseID && !chapterVideoPolls.has(key)) void startChapterVideoValidation(chapter.id);
+      });
+    }
   }
   $('remove-chapter-video')?.addEventListener('click', async () => {
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(item => item.id === chapter.id);
@@ -1833,25 +1834,24 @@ function renderChapterVideoControls(chapter) {
       showStatus('Video removed.');
     }
   });
-  $('retry-chapter-video')?.addEventListener('click', () => startChapterVideoValidation(chapter.id));
 }
 async function startChapterVideoValidation(chapterID) {
-  if (!await saveDraft({quiet:true})) return;
   const courseID = state.courseID, chapter = syncActiveChapter(state.document).chapterSources.find(c => c.id === chapterID);
-  if (!chapter?.videoUploadID) return;
+  if (!chapter?.videoUploadID || chapter.video) return;
   const uploadID = chapter.videoUploadID, key = `${courseID}/${uploadID}`;
-  if (chapterVideoPolls.has(key)) return showStatus('Video validation is running. You can keep editing.');
+  if (chapterVideoPolls.has(key)) return;
   chapterVideoPolls.add(key);
   try {
+    if (!await saveDraft({quiet:true}) || state.courseID !== courseID) return;
     const path = `/courses/${encodeURIComponent(courseID)}/chapter-media/${encodeURIComponent(uploadID)}`;
     let status = await api.request(`${path}/validate`, {method:'POST', body:{chapterID, revision:state.revision}});
-    showStatus('Checking video…');
+    showStatus('Preparing video…');
     while (status.state === 'validating') {
       await new Promise(resolve => setTimeout(resolve, 3000));
       if (state.courseID !== courseID) return;
       status = await api.request(path);
     }
-    if (status.state !== 'ready' || !status.video) throw new Error(status.error || 'Video is not ready. Retry validation.');
+    if (status.state !== 'ready' || !status.video) throw new Error(status.error || 'Video could not be prepared. Reopen the course to try again.');
     if (state.courseID !== courseID) return;
     const next = syncActiveChapter(state.document), current = next.chapterSources.find(c => c.id === chapterID);
     if (!current || current.videoUploadID !== uploadID) return;
@@ -1859,7 +1859,7 @@ async function startChapterVideoValidation(chapterID) {
     current.video = status.video; commit(next);
     if (await saveDraft({quiet:true})) showStatus('Video ready.');
   } catch (error) {
-    const message = String(error?.message || 'Video validation failed. Retry validation or upload a corrected file.').slice(0, 240);
+    const message = String(error?.message || 'Video could not be prepared. Reopen the course to try again.').slice(0, 240);
     showStatus(message, true);
     uploadPanel.validationFailed({ courseID, chapterID, uploadID, error: message });
     if (state.courseID === courseID) {

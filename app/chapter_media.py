@@ -177,13 +177,11 @@ async def validate_video(path, record, url, headers, secret):
     try:
         async with _capacity:
             try:
-                info, probe_hash, probe_bytes = await decode_stream(url, headers, probe=True)
-                decoder = decode_stream
+                info, digest, size = await decode_stream(url, headers, probe=True)
             except ValueError:
                 # A seek-dependent trailing-moov MP4 is retried privately from an
                 # anonymous, bounded fd; malformed/unsupported inputs still fail.
-                info, probe_hash, probe_bytes = await decode_seekable(url, headers, probe=True)
-                decoder = decode_seekable
+                info, digest, size = await decode_seekable(url, headers, probe=True)
             streams = info.get("streams", [])
             videos = [s for s in streams if s.get("codec_type") == "video"]
             audios = [s for s in streams if s.get("codec_type") == "audio"]
@@ -196,25 +194,16 @@ async def validate_video(path, record, url, headers, secret):
                     or not 0 < videos[0].get("width", 0) <= 4096
                     or not 0 < videos[0].get("height", 0) <= 4096):
                 raise ValueError("format")
-            try:
-                _, digest, size = await decoder(url, headers)
-            except ValueError:
-                if decoder is decode_seekable:
-                    raise
-                # ffprobe can read a trailing-moov index from a completed
-                # stream even though ffmpeg later needs to seek back to its
-                # media payload. Retry that full decode through the bounded
-                # anonymous fd before rejecting the immutable object.
-                _, digest, size = await decode_seekable(url, headers)
-            if digest != probe_hash or size != probe_bytes:
-                raise ValueError("object changed")
+            # The probe pass also hashes every byte of the immutable completed
+            # object and enforces its declared length. It checks metadata only;
+            # playback quality is intentionally left to the author.
             video = {"schemaVersion": 1, "id": record["id"], "courseID": record["courseID"],
                      "chapterID": record["chapterID"], "byteLength": size, "sha256": digest,
                      "durationMilliseconds": round(duration * 1000), "mimeType": "video/mp4"}
             record.update(state="ready", video=sign_video(video, secret))
             record.pop("error", None)
     except (OSError, ValueError, KeyError, IndexError, TypeError, httpx.HTTPError, TimeoutError):
-        record.update(state="failed", error="Validation could not finish. Use fast-start MP4 with H.264 video and optional AAC audio. Check your session, then retry validation or upload a corrected file.")
+        record.update(state="failed", error="Video could not be prepared. Use MP4 with H.264 video and optional AAC audio, then reopen the course or upload a corrected file.")
     finally:
         save(path, record)
 
@@ -293,7 +282,7 @@ async def dispatch(path, request, upstream_read, allowed_origins, secret, base):
         raise HTTPException(404, "Video validation has not started")
     if request.method == "GET" and action is None:
         if record["state"] == "validating" and (upload_id not in _tasks or _tasks[upload_id].done()):
-            record.update(state="failed", error="Validation was interrupted. Retry validation.")
+            record.update(state="failed", error="Video preparation was interrupted. Reopen the course to try again.")
         return JSONResponse(public(record), headers=HEADERS)
     if request.method == "GET" and action in {"download", "play"} and record["state"] == "ready":
         byte_range = request.headers.get("range", "")
