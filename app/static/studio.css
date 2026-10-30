@@ -153,3 +153,13 @@ button{min-height:44px}
 #hint-studio-panel button { margin: .3rem .3rem .3rem 0; }
 #hint-studio-panel .hint-candidate { border-top: 1px solid #ded8ca; margin-top: 1rem; padding-top: .5rem; }
 #hint-studio-panel pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+
+/* Keep the mobile authoring form and navigation within the viewport. */
+@media(max-width:760px){
+  #details-form{grid-template-columns:minmax(0,1fr)}
+  #details-form label{min-width:0}
+  .sidebar nav,.sidebar #course-navigation{flex:0 0 auto}
+  .sidebar .nav-item{flex:0 0 92px;width:92px}
+  .sidebar .nav-item>.nav-text{width:100%;text-align:center;white-space:normal;line-height:1.1;font-size:10px}
+  .sidebar #course-navigation[hidden]{display:none!important}
+}
