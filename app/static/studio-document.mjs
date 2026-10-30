@@ -95,7 +95,7 @@ export function youtubeEmbedURL(youtubeURL) {
 // Course Studio deliberately uses one system-owned fallback across every course.
 export const SYSTEM_FALLBACK_FEEDBACK = "The repertoire move is {san}.";
 
-export const MAX_POSITION_HINT_LENGTH = 240;
+export const MAX_POSITION_HINT_LENGTH = 600;
 
 export function splitHintDirective(rawComment = "") {
   const comment = String(rawComment);

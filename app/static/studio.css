@@ -142,3 +142,10 @@ button{min-height:44px}
 .editor-tree-stage{position:relative}.editor-choice{position:absolute;z-index:2;inset:0;display:grid;align-content:start;gap:12px;padding:18px;background:#fffdf8f2;backdrop-filter:blur(2px);overflow:auto}.editor-choice[hidden]{display:none}.editor-choice p{margin:0;font:700 18px Georgia,serif}.editor-choice-options{display:grid;gap:7px}.editor-choice-option[aria-selected="true"],.editor-choice-option:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px #b44f2d33;outline:none}
 
 .user-games-list{display:grid;gap:10px}.user-game-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px;padding:16px 18px;border:1px solid var(--line);border-radius:11px;background:var(--card)}.user-game-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.user-game-heading h2{margin:0;font:700 19px Georgia,serif}.user-game-message{margin:7px 0 0;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.user-game-link{color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px}.user-game-link.unavailable{color:var(--muted);font-weight:600;text-decoration:none}.user-games-actions{display:flex;justify-content:center;margin-top:16px}@media(max-width:760px){.user-game-row{grid-template-columns:1fr;gap:10px}.user-game-link{justify-self:start}}
+
+/* Hint Studio stays within the existing selected-move inspector. */
+#hint-studio-panel { margin-top: 1rem; }
+#hint-studio-panel details > summary { cursor: pointer; font-weight: 700; }
+#hint-studio-panel button { margin: .3rem .3rem .3rem 0; }
+#hint-studio-panel .hint-candidate { border-top: 1px solid #ded8ca; margin-top: 1rem; padding-top: .5rem; }
+#hint-studio-panel pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }

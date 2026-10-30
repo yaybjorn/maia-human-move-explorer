@@ -17,7 +17,7 @@ import {
   normalizeDocument, pathToNode, promoteVariation, removeBranch, reorderVariation,
   normalizeCourseVideos, youtubeEmbedURL, commentWithHint,
   serializeForPGN, structuralDocument, trainingPack, updateNode, validateDocument,
-} from "./studio-document.mjs?v=20261028-shared-comments";
+} from "./studio-document.mjs?v=20261030-hint-studio";
 import { checkWriting, groupWritingBulkFixes, writingSuggestionLabel } from "./writing-check.js";
 import { SaveQueue, SingleFlight } from "./studio-save.mjs?v=20260902-save-coordination";
 import { createStudioBoard } from "./studio-chessground.mjs?v=20260925-chessground";
@@ -1094,8 +1094,9 @@ function renderInspector() {
   inspector.className = "tool-card collapsible-card";
   inspector.innerHTML = `<div class="inspector-head"><div><p class="eyebrow">Selected move</p><h2>${escapeHTML(moveLabel(node))}</h2></div><div class="inspector-head-actions"><div class="inspector-actions"><button data-action="earlier" ${siblingIndex===0?"disabled":""} title="Move variation earlier">↑</button><button data-action="later" ${siblingIndex===siblings.length-1?"disabled":""} title="Move variation later">↓</button><button data-action="promote" ${siblingIndex===0?"disabled":""}>Make main</button><button data-action="delete" class="danger">Delete line</button></div>${editorPanelButton("inspector", "Selected move")}</div></div>
     <div id="move-inspector-content" class="collapsible-content" ${expanded?"":"hidden"}><label>Comment source<select id="node-comment-mode"><option value="shared" ${node.commentMode!=="own" && !(commentInfo?.conflict && commentParts(node.comment).prose)?"selected":""}>Use shared comment when available</option><option value="own" ${node.commentMode==="own" || (commentInfo?.conflict && commentParts(node.comment).prose)?"selected":""}>Use a comment for this move only</option></select></label><label>${commentLabel}<textarea id="node-comment" rows="5" placeholder="What should the learner understand or remember?">${escapeHTML(commentWithProse(node.comment,commentInfo?.prose ?? commentParts(node.comment).prose))}</textarea><small>${commentInfo?.conflict?"Different explanations exist for this position and move; none is shared automatically.":commentInfo?.inherited?"Shared from the same position and move.":variationHelp}</small></label>
-    ${learnerMove&&siblingIndex===0?`<label>Hint source<select id="node-hint-mode"><option value="shared" ${node.hintMode!=="own" && !(hintInfo?.conflict && node.hint)?"selected":""}>Use shared hint when available</option><option value="own" ${node.hintMode==="own" || (hintInfo?.conflict && node.hint)?"selected":""}>Use a hint for this move only</option></select></label><label>Hint<textarea id="node-hint" rows="2" maxlength="240" placeholder="Optional, e.g. Look for checks.">${escapeHTML(hintInfo?.hint||"")}</textarea><small>${node.hintMode==="own"?(!node.hint?"No hint for this move (exception).":"Hint for this move only."):hintInfo?.conflict?"Different hints exist for this position and answer. One is reused automatically; editing makes a move-only hint.":hintInfo?.inherited?"Shared from the same position and answer. Editing updates the shared hint.":"Shown after a mistake. Choose a move-only hint to make an exception."}</small></label>`:""}</div>`;
+    ${learnerMove&&siblingIndex===0?`<label>Hint source<select id="node-hint-mode"><option value="shared" ${node.hintMode!=="own" && !(hintInfo?.conflict && node.hint)?"selected":""}>Use shared hint when available</option><option value="own" ${node.hintMode==="own" || (hintInfo?.conflict && node.hint)?"selected":""}>Use a hint for this move only</option></select></label><label>Hint<textarea id="node-hint" rows="2" maxlength="600" placeholder="Optional, e.g. Look for checks.">${escapeHTML(hintInfo?.hint||"")}</textarea><small>${node.hintMode==="own"?(!node.hint?"No hint for this move (exception).":"Hint for this move only."):hintInfo?.conflict?"Different hints exist for this position and answer. One is reused automatically; editing makes a move-only hint.":hintInfo?.inherited?"Shared from the same position and answer. Editing updates the shared hint.":"Shown after a mistake. Choose a move-only hint to make an exception."}</small></label><div id="hint-studio-panel"></div>`:""}</div>`;
   bindEditorPanelButtons(inspector);
+  if (learnerMove && siblingIndex === 0) renderHintStudio(node, hintInfo);
   const update = patch => commit(updateNode(state.document, node.id, patch));
   $("node-comment").addEventListener("change", event => commit(writeSharedComment(state.document,state.document.activeChapterID ?? null,node.id,event.target.value)));
   $("node-comment-mode").addEventListener("change", event => update(event.target.value === "shared" ? {comment:commentWithProse(node.comment, ""), commentMode:"shared"} : {comment:commentWithProse(node.comment, commentInfo?.prose || ""), commentMode:"own"}));
@@ -1109,6 +1110,72 @@ function renderInspector() {
   inspector.querySelector('[data-action="earlier"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,-1)));
   inspector.querySelector('[data-action="later"]').addEventListener("click", () => commit(reorderVariation(state.document,node.id,1)));
   inspector.querySelector('[data-action="delete"]').addEventListener("click", () => { if(confirm(`Delete ${node.san} and every move after it in this branch?`)){const parent=node.parentId;commit(removeBranch(state.document,node.id),{navigateTo:parent});refreshPosition();} });
+}
+
+let hintStudioRequest = 0;
+function renderHintStudio(node, hintInfo) {
+  const panel = $("hint-studio-panel");
+  if (!panel) return;
+  const group = hintInfo?.conflict || node.hintMode === "own" ? [hintInfo] : [...sharedHintIndex(state.document).values()].filter(item => item.key === hintInfo?.key && item.node.hintMode !== "own");
+  const affected = group.filter(Boolean).map(item => `${state.document.chapterSources?.find(chapter=>chapter.id===item.chapterID)?.title || "Course"}: ${item.path.join(" ")}`).join("; ");
+  panel.innerHTML = `<details><summary>Hint Studio</summary><p>Generate three drafts for this saved learner move. Review and explicitly apply one; nothing is published.</p><label>Opponent rating <input id="hint-rating" type="number" min="400" max="3000" step="100" value="1500"></label><button type="button" id="hint-generate">Generate candidates</button> <button type="button" id="hint-load">Open saved review</button><p id="hint-status" role="status"></p><div id="hint-candidates"></div></details>`;
+  async function openHintReview(generate) {
+    flushActiveEditor();
+    if (dirty() || needsSharedHintSave()) return showStatus("Save the course draft before generating hints.", true);
+    const context = diagnosticContext(), token = ++hintStudioRequest;
+    const rating = Number($("hint-rating").value);
+    if (!Number.isInteger(rating) || rating < 400 || rating > 3000) return showStatus("Choose a rating from 400 to 3000.", true);
+    const path = pathToNode(state.document, node.id);
+    const snapshot = {courseID: state.courseID, revision: state.revision, chapterID: state.document.activeChapterID || null,
+      moves: path.slice(0,-1).map(item => item.uci), answer: node.uci, rating};
+    $("hint-generate").disabled = true; $("hint-status").textContent = "Analyzing and generating…";
+    try {
+      const course = await api.course(snapshot.courseID);
+      if (!diagnosticIsCurrent(context) || token !== hintStudioRequest || course.draft?.revision !== snapshot.revision) throw new Error("Draft changed; reopen Hint Studio.");
+      snapshot.revisionHash = course.draft.revisionHash;
+      const response = await api.request("/hint-studio", {method:"POST", body:{...snapshot, action:generate ? "generate" : "list", ...(generate ? {requestID:crypto.randomUUID()} : {})}});
+      let review = generate ? response : response.reviews[0];
+      if (!review) throw new Error("No saved review exists for this move and draft revision.");
+      if (!diagnosticIsCurrent(context) || token !== hintStudioRequest) throw new Error("Selection changed; generated candidates were not applied.");
+      $("hint-status").textContent = `Review required. Maia is a model estimate. Affected: ${affected}. Move-only exceptions are preserved.`;
+      const target = $("hint-candidates");
+      function renderReview() {
+        target.innerHTML = `<details><summary>Analysis and reference provenance</summary><pre>${escapeHTML(JSON.stringify({analysis:review.evidence, references:review.references.map(r=>({kind:r.kind,source:r.source})),model:review.model},null,2))}</pre></details>` + review.candidates.map((candidate,index) => `<section class="hint-candidate" data-id="${escapeHTML(candidate.id)}"><h4>Candidate ${index+1} · ${escapeHTML(candidate.status)}</h4><label>Hint<textarea maxlength="600" rows="4">${escapeHTML(candidate.text)}</textarea></label><label>Rating<select class="hint-score">${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${candidate.rating===n?"selected":""}>${n===0?"Unrated":n}</option>`).join("")}</select></label><button type="button" data-op="edit">Save edit</button><button type="button" data-op="approve">Approve</button><button type="button" data-op="reject">Reject</button><button type="button" data-op="apply" ${candidate.status!=="approved"?"disabled":""}>Apply to course draft</button></section>`).join("");
+        target.querySelectorAll(".hint-candidate").forEach(section => {
+          section.querySelector(".hint-score").addEventListener("change", event => update(section,"rate",{value:Number(event.target.value)}));
+          section.querySelectorAll("button").forEach(button => button.addEventListener("click", async () => {
+            const op = button.dataset.op;
+            if (op === "apply") {
+              if (!diagnosticIsCurrent(context)) return showStatus("Draft changed; generate or reopen the review again.",true);
+              try {
+                const latest = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"list"}});
+                const saved = latest.reviews.find(item=>item.id===review.id);
+                const candidate = saved?.candidates.find(item=>item.id===section.dataset.id);
+                if (!diagnosticIsCurrent(context) || saved?.version!==review.version || candidate?.status!=="approved") throw new Error("Approval or draft changed; reload the review.");
+                if (section.querySelector("textarea").value.trim() !== candidate.text) throw new Error("Save and approve your edit before applying.");
+                review = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"review",reviewID:review.id,candidateID:section.dataset.id,version:review.version,operation:"apply"}});
+                if (!diagnosticIsCurrent(context)) throw new Error("Draft changed before application; no hint applied.");
+                commit(writeSharedHint(state.document,state.document.activeChapterID ?? null,node.id,candidate.text));
+                showStatus("Hint applied to the course draft. Save the draft to keep it.");
+              } catch (error) { showStatus(error.message,true); }
+            } else update(section,op,op==="edit"?{text:section.querySelector("textarea").value}:{});
+          }));
+        });
+      }
+      async function update(section, operation, extra) {
+        if (!diagnosticIsCurrent(context)) return showStatus("Draft changed; reload the review.",true);
+        try {
+          review = await api.request("/hint-studio", {method:"POST",body:{...snapshot,action:"review",reviewID:review.id,candidateID:section.dataset.id,version:review.version,operation,...extra}});
+          if (!diagnosticIsCurrent(context)) throw new Error("Draft changed; review not applied.");
+          renderReview();
+        } catch(error) { showStatus(error.message,true); }
+      }
+      renderReview();
+    } catch(error) { if (token === hintStudioRequest && $("hint-status")) $("hint-status").textContent = error.message; }
+    finally { if (token === hintStudioRequest && $("hint-generate")) $("hint-generate").disabled = false; }
+  }
+  $("hint-generate").addEventListener("click", () => openHintReview(true));
+  $("hint-load").addEventListener("click", () => openHintReview(false));
 }
 
 function editorPanelButton(name, label) {

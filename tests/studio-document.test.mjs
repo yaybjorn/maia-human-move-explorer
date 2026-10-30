@@ -264,7 +264,8 @@ test("validates hint directive syntax, placement, length, and plain-text safety"
   });
   assert.equal(commentWithHint("Main.", "  Develop a piece. "), "Main. [%hint Develop a piece.]");
   assert.throws(() => splitHintDirective("Main. [%hint Look at [checks]]"), /Malformed/);
-  assert.throws(() => commentWithHint("Main.", "x".repeat(241)), /240/);
+  assert.equal(splitHintDirective(commentWithHint("Main.", "x".repeat(600))).hint.length, 600);
+  assert.throws(() => commentWithHint("Main.", "x".repeat(601)), /600/);
   assert.throws(() => commentWithHint("Main.", "Look [here]"), /PGN brackets/);
   assert.throws(() => commentWithHint("Main.", "Look {here}"), /comment braces/);
 

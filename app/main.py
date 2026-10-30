@@ -30,6 +30,7 @@ from .chess_state import (
 from .effects_library import dispatch as dispatch_effects
 from .effects_library import is_effect_path
 from .engine import engine
+from .hint_studio import dispatch as dispatch_hint_studio
 from .pgn_trainer import kilkenny
 from .portsmouth import portsmouth
 from .repertoire_check import check_repertoire, writing_sources
@@ -272,6 +273,8 @@ def studio_path_allowed(path: str, method: str) -> bool:
 
 @app.api_route("/studio/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def studio_api_proxy(path: str, request: FastAPIRequest):
+    if path == "hint-studio":
+        return await dispatch_hint_studio(request, studio_authenticated_read, STUDIO_ALLOWED_ORIGINS)
     if path.startswith("beyond-basics/"):
         return await dispatch_beyond_basics_review(path, request, studio_authenticated_read)
     if is_effect_path(path):
