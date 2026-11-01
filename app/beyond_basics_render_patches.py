@@ -31,6 +31,8 @@ def source_nodes(page_id, source_asset):
     def plain(value):
         # Only a well-formed, unambiguous HTML subset has matching XML/browser
         # text-node and whitespace semantics. Everything else fails closed.
+        if '<!' in value or '<?' in value:
+            raise ValueError('Unsupported source markup')
         try:
             normalized = re.sub(r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]+);', lambda m: html.escape(html.unescape(m.group()), quote=False), value)
             normalized = re.sub(r'<br\s*>', '<br/>', normalized, flags=re.IGNORECASE)

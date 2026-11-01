@@ -35,3 +35,10 @@ def test_hash_and_unsupported_browser_markup_fail_closed(tmp_path, monkeypatch):
         verify_renderable('p', [], [{'old':'teh','new':'the'}], asset, 'Move teh king.')
     with pytest.raises(ValueError):
         verify_renderable('p', [], [{'old':'teh','new':'the'}], {'bytes':1,'sha256':'0'*64}, 'Move teh king.')
+
+
+def test_comments_and_processing_nodes_cannot_merge_browser_text(tmp_path, monkeypatch):
+    for value in ('<p>Move the<!--gap--> king.</p>', '<p>Move the<![CDATA[ king.]]></p>', '<p>Move the<?gap x?> king.</p>'):
+        asset = course(tmp_path, monkeypatch, [{'body': value}])
+        with pytest.raises(ValueError):
+            verify_renderable('p', [], [{'old':'the king','new':'a rook'}], asset, 'Move the king.')
