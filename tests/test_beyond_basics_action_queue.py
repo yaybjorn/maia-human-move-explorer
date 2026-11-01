@@ -117,7 +117,7 @@ def test_unsupported_action_is_durable_and_not_lease_reclaimed():
     assert conn.execute('SELECT status FROM review_actions WHERE id=?', (action,)).fetchone()[0] == 'needs-clarification'
 
 
-def test_design_change_is_revision_bound_and_noop_is_not_completed():
+def test_design_change_is_revision_bound_and_noop_is_completed():
     conn = db()
     page = '610bd633a68d2d0c3e06e5bc'
     conn.execute('UPDATE revisions SET page_id=? WHERE page_id=?', (page, 'p'))
@@ -131,8 +131,8 @@ def test_design_change_is_revision_bound_and_noop_is_not_completed():
     conn.execute('INSERT INTO review_design SELECT source,page_id,3,settings FROM review_design WHERE generation=2')
     action = enqueue(conn, 's', page, 3, instruction)
     job = claim(conn, 's', now=102)
-    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=103) == 'needs-clarification'
-    assert conn.execute('SELECT max(generation) FROM revisions').fetchone()[0] == 3
+    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=103) == 'completed'
+    assert conn.execute('SELECT max(generation) FROM revisions').fetchone()[0] == 4
 
 
 def test_design_does_not_override_newer_edits():
@@ -145,3 +145,39 @@ def test_design_does_not_override_newer_edits():
     proposal = {'status':'completed','message':'Apply supported design','patches':[]}
     assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=101) == 'needs-clarification'
     assert conn.execute('SELECT count(*) FROM review_design').fetchone()[0] == 0
+
+
+def test_natural_composite_design_is_atomic_and_rejects_extra_instruction():
+    from app.beyond_basics_page_design import requested_design
+    page = '610bd633a68d2d0c3e06e5bc'
+    assert requested_design('Could you make the board a bit smaller and show Steve looking happy?', page) == {'board_size':'small', 'character':'c01-happy'}
+    assert requested_design('Make the board smaller and publish it', page) is None
+    assert requested_design('Make the board smaller and show Steve happy and delete the page', page) is None
+    assert requested_design('Make the board smaller and make the board larger', page) is None
+    assert requested_design('Make the board smaller', 'another-page') is None
+
+
+def test_composite_design_latest_revision_and_lease_fence():
+    conn = db()
+    page = '610bd633a68d2d0c3e06e5bc'
+    conn.execute('UPDATE revisions SET page_id=? WHERE page_id=?', (page, 'p'))
+    instruction = 'Could you make the board a bit smaller and show Steve looking happy?'
+    action = enqueue(conn, 's', page, 1, instruction)
+    first = claim(conn, 's', now=100)
+    second = claim(conn, 's', now=221)
+    proposal = {'status':'completed', 'message':'Apply supported design', 'patches':[]}
+    with pytest.raises(ValueError):
+        finish(conn, 's', action, first['lease_token'], proposal, [{'body':'Move teh king safely'}], now=222)
+    assert finish(conn, 's', action, second['lease_token'], proposal, [{'body':'Move teh king safely'}], now=222) == 'completed'
+    assert json.loads(conn.execute('SELECT settings FROM review_design WHERE generation=2').fetchone()[0]) == {'board_size':'small','character':'c01-happy'}
+    with pytest.raises(ValueError):
+        finish(conn, 's', action, second['lease_token'], proposal, [{'body':'Move teh king safely'}], now=223)
+
+
+def test_natural_paraphrases_enable_supported_review_features():
+    from app.beyond_basics_page_design import requested_design
+    assert requested_design('Please show a variety of poses for each character.', '610bd633a68d2d0c3e06e5ac') == {'pose_gallery': True}
+    assert requested_design('Make h1 flash red for ten seconds', '610bd633a68d2d0c3e06e5bc') == {'highlight_h1': True}
+    assert requested_design('Add visuals for the opening, middlegame and endgame', '610bd634a68d2d0c3e06e5f0') == {'stage_visuals': True}
+    assert requested_design('Use the Studio board for the exercises with drag and click', '610bd634a68d2d0c3e06e5ce') == {'shared_exercises': True}
+    assert requested_design('Use the Studio board for the exercises with drag and click and publish them', '610bd634a68d2d0c3e06e5ce') is None

@@ -4,7 +4,7 @@ import json
 import secrets
 import time
 
-from app.beyond_basics_action_patches import InvalidProposal, apply_proposal
+from app.beyond_basics_action_patches import InvalidProposal, apply_proposal, is_copy_edit_request
 from app.beyond_basics_page_design import current_design, requested_design
 
 MAX_ATTEMPTS = 3
@@ -105,12 +105,10 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None,
                 if proposal == {'status': 'specialist', 'message': 'Request specialist follow-up', 'patches': []}:
                     status, message, patches = 'needs-clarification', 'Instruction saved but not applied; this request is not supported yet.', []
                 elif change and proposal == {'status': 'completed', 'message': 'Apply supported design', 'patches': []}:
-                    if all(current_design(page_id, design).get(k) == v for k, v in change.items()):
-                        status, message, patches = 'needs-clarification', 'This presentation is already in place.', []
-                    else:
-                        design.update(change)
-                        patches = [{'component': 0, 'field': 'body', 'value': row[0]}]
-                        status, message = 'completed', 'Page presentation updated.'
+                    already = all(current_design(page_id, design).get(k) == v for k, v in change.items())
+                    design.update(change)
+                    patches = [{'component': 0, 'field': 'body', 'value': row[0]}]
+                    status, message = 'completed', ('Requested changes already in place.' if already else 'Requested changes applied to the private review.')
                 else:
                     patches = apply_proposal(components, proposal, action[5])
                     status, message = proposal['status'], proposal['message']
@@ -118,7 +116,7 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None,
                         status, message, patches = 'needs-clarification', 'Instruction saved but not applied; this request is not supported yet.', []
                     elif status == 'completed':
                         render_patches.extend({'old': p['old'], 'new': p['new']} for p in proposal['patches'])
-                        message = 'Verified edits applied; other issues may remain.'
+                        message = 'Text edit applied; please review its meaning.' if is_copy_edit_request(action[5]) else 'Verified edits applied; other issues may remain.'
             except (InvalidProposal, TypeError, KeyError, ValueError, OSError):
                 status, message, patches = 'needs-clarification', 'Review the suggested edits manually; they were not applied.', []
                 # Only structurally safe, source-bound suggestions are retained.

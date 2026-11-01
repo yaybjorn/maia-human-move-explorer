@@ -53,3 +53,30 @@ def test_ordinary_proofreading_and_protected_content():
             {'component': 0, 'field': 'body', 'old': old, 'new': new}]}
         with pytest.raises(InvalidProposal):
             apply_proposal(source, dangerous, 'Correct the grammar')
+
+
+def test_composite_literal_edits_cover_whole_instruction():
+    from app.beyond_basics_action_patches import explicit_replacements
+    request = 'Please replace "old" with "new" and change "weak" to "strong".'
+    assert explicit_replacements(request) == [('old', 'new'), ('weak', 'strong')]
+    proposal = {'status':'completed','message':'done','patches':[
+        {'component':0,'field':'body','old':'old','new':'new'},
+        {'component':0,'field':'body','old':'weak','new':'strong'}]}
+    assert apply_proposal([{'body':'old and weak'}],proposal,request) == [{'component':0,'field':'body','value':'new and strong'}]
+    assert explicit_replacements(request + ' and publish it') is None
+    with pytest.raises(InvalidProposal):
+        apply_proposal([{'body':'old and weak'}],proposal,request + ' and publish it')
+
+
+def test_bounded_copy_edit_preserves_protected_tokens():
+    from app.beyond_basics_action_patches import is_copy_edit_request
+    request = 'Could you simplify this explanation for beginners?'
+    assert is_copy_edit_request(request)
+    assert not is_copy_edit_request(request + ' and publish it')
+    valid = {'status':'completed','message':'done','patches':[{'component':0,'field':'body',
+        'old':'The white king is in danger.', 'new':'The white king is threatened.'}]}
+    assert apply_proposal([{'body':'The white king is in danger.'}],valid,request)[0]['value'] == 'The white king is threatened.'
+    changed_fact = {'status':'completed','message':'done','patches':[{'component':0,'field':'body',
+        'old':'The white king is not in danger.', 'new':'The white king is in danger.'}]}
+    with pytest.raises(InvalidProposal):
+        apply_proposal([{'body':'The white king is not in danger.'}],changed_fact,request)
