@@ -29,6 +29,18 @@ async def review_state(request, manifest):
         if request.method == "GET":
             rows = conn.execute("SELECT r.page_id,r.generation,r.body,r.notes,r.decision,r.ready FROM revisions r WHERE r.source=? AND r.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=r.source AND x.page_id=r.page_id)", (source,)).fetchall()
             pages = {r[0]:{"generation":r[1],"body":renamed_text(r[2]),"notes":r[3],"decision":r[4],"ready":bool(r[5])} for r in rows}
+            unsynced = conn.execute('SELECT d.page_id FROM review_preview_unsynced d WHERE d.source=? AND d.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=d.source AND x.page_id=d.page_id)', (source,)).fetchall()
+            for (page_id,) in unsynced:
+                if page_id in pages:
+                    pages[page_id]['preview_unsynced'] = True
+            renders = conn.execute('SELECT d.page_id,d.patches FROM review_render_patches d WHERE d.source=? AND d.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=d.source AND x.page_id=d.page_id)', (source,)).fetchall()
+            for page_id, patches in renders:
+                if page_id in pages:
+                    pages[page_id]['render_patches'] = json.loads(patches)
+            designs = conn.execute('SELECT d.page_id,d.settings FROM review_design d WHERE d.source=? AND d.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=d.source AND x.page_id=d.page_id)', (source,)).fetchall()
+            for page_id, settings in designs:
+                if page_id in pages:
+                    pages[page_id]['design'] = json.loads(settings)
             actions = conn.execute("SELECT a.page_id,a.status,a.message,a.suggestions FROM review_actions a WHERE a.source=? AND a.generation=(SELECT max(x.generation) FROM revisions x WHERE x.source=a.source AND x.page_id=a.page_id)", (source,)).fetchall()
             for page_id, status, message, suggestions in actions:
                 if page_id in pages:
@@ -73,6 +85,9 @@ async def review_state(request, manifest):
             conn.execute("ROLLBACK")
             raise HTTPException(409, "Page changed elsewhere; reload before saving")
         if operation == "ready":
+            if conn.execute("SELECT 1 FROM review_preview_unsynced WHERE source=? AND page_id=? AND generation=?",(source,page_id,current)).fetchone():
+                conn.execute("ROLLBACK")
+                raise HTTPException(409, "Saved text differs from lesson preview; review before marking ready")
             if not row:
                 conn.execute("ROLLBACK")
                 raise HTTPException(400, "Save this page before marking ready")
@@ -92,6 +107,15 @@ async def review_state(request, manifest):
             ready=0
         generation=current+1
         conn.execute("INSERT INTO revisions(source,page_id,generation,body,notes,decision,ready) VALUES (?,?,?,?,?,?,?)",(source,page_id,generation,body,notes,decision,ready))
+        render_row = conn.execute('SELECT patches FROM review_render_patches WHERE source=? AND page_id=? AND generation=?', (source,page_id,current)).fetchone()
+        prior_unsynced = conn.execute('SELECT 1 FROM review_preview_unsynced WHERE source=? AND page_id=? AND generation=?',(source,page_id,current)).fetchone()
+        if prior_unsynced or (operation == 'save' and ((row and body != row[1]) or (not row and data.get('body_edited') is True))):
+            conn.execute('INSERT INTO review_preview_unsynced VALUES (?,?,?)',(source,page_id,generation))
+        if render_row:
+            conn.execute('INSERT INTO review_render_patches VALUES (?,?,?,?)', (source,page_id,generation,render_row[0]))
+        design = conn.execute('SELECT settings FROM review_design WHERE source=? AND page_id=? AND generation=?', (source,page_id,current)).fetchone()
+        if design:
+            conn.execute('INSERT INTO review_design VALUES (?,?,?,?)', (source,page_id,generation,design[0]))
         if operation == "save":
             try:
                 enqueue(conn, source, page_id, generation, notes)

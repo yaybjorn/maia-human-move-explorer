@@ -12,6 +12,13 @@ from app.beyond_basics_action_queue import enqueue, ensure_schema
 from app.beyond_basics_action_service import service
 
 
+def fixture_asset(tmp_path, monkeypatch, body):
+    monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
+    raw = ('const COURSE=' + json.dumps([{'pages':[{'id':'p','components':[{'body':body}]}]}]) + ';').encode()
+    (tmp_path / 'course.js').write_bytes(raw)
+    return {'course.js': {'bytes':len(raw), 'sha256':hashlib.sha256(raw).hexdigest()}}
+
+
 def signed(client, action, body, token, *, origin=None, nonce=None):
     payload = json.dumps(body, ensure_ascii=True, separators=(',', ':')).encode()
     timestamp, nonce = str(int(time.time())), nonce or secrets.token_hex(16)
@@ -39,7 +46,7 @@ def test_scoped_token_and_page_bound_proposal(tmp_path, monkeypatch):
     app = FastAPI()
     @app.post('/{action}')
     async def route(action: str, request: Request):
-        return await service(request, {'source_sha256': 's', 'page_ids': ['p']}, action)
+        return await service(request, {'source_sha256': 's', 'page_ids': ['p'], 'files': {'course.js': {'bytes': (tmp_path / 'course.js').stat().st_size, 'sha256': hashlib.sha256((tmp_path / 'course.js').read_bytes()).hexdigest()}}}, action)
     client = TestClient(app)
     assert client.post('/claim', json={}).status_code == 403
     assert signed(client, 'claim', {}, token, origin='https://attacker.invalid').status_code == 403
@@ -84,7 +91,7 @@ def test_worker_end_to_end_scoped_correction_and_unsupported(tmp_path, monkeypat
     app = FastAPI()
     @app.post('/{action}')
     async def route(action: str, request: Request):
-        return await service(request, {'source_sha256': 's', 'page_ids': ['p']}, action)
+        return await service(request, {'source_sha256': 's', 'page_ids': ['p'], 'files': {'course.js': {'bytes': (tmp_path / 'course.js').stat().st_size, 'sha256': hashlib.sha256((tmp_path / 'course.js').read_bytes()).hexdigest()}}}, action)
     client = TestClient(app)
     def service_request(action, body, credential):
         response = signed(client, action, body, credential)
@@ -140,6 +147,7 @@ def test_saved_manual_revision_is_source_and_authority(tmp_path, monkeypatch):
     headers = {'Origin': 'https://ggm.fablelabs.no'}
     saved = {'source': 's', 'page_id': 'p', 'generation': 0, 'operation': 'save',
              'body': 'Move teh queen adn king safely', 'notes': 'Correct the spelling', 'decision': ''}
+    manifest['files'] = fixture_asset(tmp_path, monkeypatch, saved['body'])
     assert client.put('/state', json=saved, headers=headers).json()['generation'] == 1
     job = signed(client, 'claim', {}, token).json()['job']
     assert job['components'] == [{'body': saved['body']}]
@@ -206,6 +214,7 @@ def test_saved_spelling_and_grammar_apply_with_protected_notation(tmp_path, monk
     saved = {'source': 's', 'page_id': 'p', 'generation': 0, 'operation': 'save',
              'body': 'On this board the pieces is ready and you recieved Nf3 from Magnus.',
              'notes': 'Correct spelling and grammar', 'decision': ''}
+    manifest['files'] = fixture_asset(tmp_path, monkeypatch, saved['body'])
     assert client.put('/state', json=saved, headers={'Origin': 'https://ggm.fablelabs.no'}).status_code == 200
     job = signed(client, 'claim', {}, token).json()['job']
     proposal = {'status': 'completed', 'message': 'Fixed', 'patches': [

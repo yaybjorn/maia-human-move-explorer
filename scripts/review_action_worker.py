@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 BASE = 'https://ggm.fablelabs.no/studio/api/beyond-basics/course-review-v2/'
 SERVICE = 'no.fablelabs.beyond-basics-review-action'
 UNSUPPORTED = re.compile(r'\b(ignore (?:all |previous|prior)|system prompt|tool|shell|terminal|command|script|javascript|html|url|link|publish|deploy|delete|layout|theme|colou?r|button|navigation|animation|image|video|design|font|style|background)\b', re.IGNORECASE)
+DANGEROUS = re.compile(r'\b(ignore (?:all |previous|prior)|system prompt|shell|terminal|command|script|javascript|publish|deploy|delete)\b', re.IGNORECASE)
 PROOFREAD = re.compile(r"\s*(?:please\s+)?(?:fix|correct|check|improve|proofread|review)\s+(?:(?:the|any|all|this|page|text|its|and|grammar|spelling|punctuation|typos?|language|british|english|for|errors?|mistakes?|wording|copy|capitalisation|capitalization|on|of)\s*)+[.!]?\s*", re.IGNORECASE)
 EXPLICIT_REPLACEMENT = re.compile(r"\s*(?:please\s+)?(?:replace|change)\s+(['\"]).+?\1\s+(?:with|to)\s+(['\"]).+?\2[.!]?\s*", re.IGNORECASE)
 QUEUE_AGE = None
@@ -44,7 +45,7 @@ def request(action, body, token):
     return json.loads(data)
 
 
-def run():
+def credential():
     key_file = Path.home() / '.openclaw' / 'review-action' / 'active-key-id'
     key_id = None
     if key_file.exists() or key_file.is_symlink():
@@ -53,13 +54,17 @@ def run():
         key_id = key_file.read_text().strip()
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,31}', key_id): raise ValueError('Invalid active key identity')
     account = 'token-' + key_id if key_id else 'token'
-    if not os.access('/opt/homebrew/bin/node', os.X_OK): raise ValueError('Inference runtime unavailable')
     secret = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s', SERVICE, '-a', account, '-w'], capture_output=True, text=True, timeout=5, check=True).stdout.strip()
     if not 32 <= len(secret) <= 128:
         raise ValueError('Scoped credential unavailable')
-    credential = (key_id, secret) if key_id else secret
+    return (key_id, secret) if key_id else secret
+
+
+def run():
+    if not os.access('/opt/homebrew/bin/node', os.X_OK): raise ValueError('Inference runtime unavailable')
+    active_credential = credential()
     global QUEUE_AGE
-    claimed = request('claim', {}, credential)
+    claimed = request('claim', {}, active_credential)
     age = claimed.get('queue_age_seconds')
     if age is not None and (type(age) is not int or not 0 <= age <= 31 * 86400): raise ValueError('Invalid queue metadata')
     QUEUE_AGE = age
@@ -67,8 +72,12 @@ def run():
     if not job:
         return 'No pending action'
     instruction = job['instruction']
-    if UNSUPPORTED.search(instruction) or not ((PROOFREAD.fullmatch(instruction) and PROOFREAD_TARGET.search(instruction)) or EXPLICIT_REPLACEMENT.fullmatch(instruction)):
-        proposal = {'status': 'needs-clarification', 'message': 'This request may involve an unsupported action; please clarify a text-only change.', 'patches': []}
+    if (re.fullmatch(r'(?:please\s+)?(?:make|show)\s+(?:the\s+)?(?:chess\s*)?board\s+(?:smaller|larger|bigger)[.!]?', instruction.strip(), re.IGNORECASE) and job['page_id'] == '610bd633a68d2d0c3e06e5bc') or re.fullmatch(r'(?:please\s+)?(?:show|use)\s+(?:steve|mark|max|beth|hal|magnus)(?:\s+(?:as\s+the\s+)?(?:page\s+)?character)?(?:\s+(?:looking\s+)?(?:happy|thinking|puzzled))?[.!]?', instruction.strip(), re.IGNORECASE):
+        proposal = {'status': 'completed', 'message': 'Apply supported design', 'patches': []}
+    elif DANGEROUS.search(instruction):
+        proposal = {'status': 'needs-clarification', 'message': 'This request cannot be executed by the private review worker.', 'patches': []}
+    elif UNSUPPORTED.search(instruction) or not ((PROOFREAD.fullmatch(instruction) and PROOFREAD_TARGET.search(instruction)) or EXPLICIT_REPLACEMENT.fullmatch(instruction)):
+        proposal = {'status': 'needs-clarification', 'message': 'Instruction saved but not applied; this request is not supported yet.', 'patches': []}
     elif EXPLICIT_REPLACEMENT.fullmatch(instruction):
         match = re.fullmatch(r"\s*(?:please\s+)?(?:replace|change)\s+([\"'])(.*?)\1\s+(?:with|to)\s+([\"'])(.*?)\3[.!]?\s*", instruction, re.IGNORECASE)
         old, new = match.group(2), match.group(4)
@@ -96,7 +105,8 @@ def run():
             raise ValueError('Inference output too large')
         envelope = json.loads(result.stdout)
         proposal = json.loads(envelope['outputs'][0]['text'])
-    return request('finish', {'id': job['id'], 'lease_token': job['lease_token'], 'proposal': proposal}, credential)['status']
+    return request('finish', {'id': job['id'], 'lease_token': job['lease_token'], 'proposal': proposal}, active_credential)['status']
+
 
 
 if __name__ == '__main__':

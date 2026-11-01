@@ -11,8 +11,9 @@ from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.beyond_basics_action_queue import claim, ensure_schema, finish
 from app.beyond_basics_action_keyring import lookup
+from app.beyond_basics_action_queue import claim, ensure_schema, finish
+from app.beyond_basics_render_patches import verify_renderable
 
 
 def page_components(manifest, page_id, conn, generation):
@@ -112,7 +113,18 @@ async def service(request, manifest, action):
                 if not row:
                     raise ValueError('Invalid action')
                 components = page_components(manifest, row[0], conn, row[1])
-                status = finish(conn, source, action_id, token, data['proposal'], components)
+                renderable = True
+                proposal = data['proposal']
+                if isinstance(proposal, dict) and proposal.get('status') == 'completed' and proposal.get('patches'):
+                    try:
+                        prior_row = conn.execute('SELECT patches FROM review_render_patches WHERE source=? AND page_id=? AND generation=?',(source,row[0],row[1])).fetchone()
+                        prior = json.loads(prior_row[0]) if prior_row else []
+                        if conn.execute('SELECT 1 FROM review_preview_unsynced WHERE source=? AND page_id=? AND generation=?',(source,row[0],row[1])).fetchone():
+                            raise ValueError('Saved text is not synced')
+                        verify_renderable(row[0], prior, proposal['patches'], manifest.get('files', {}).get('course.js'), components[0]['body'])
+                    except (ValueError, KeyError, TypeError, OSError):
+                        renderable = False
+                status = finish(conn, source, action_id, token, proposal, components, renderable=renderable)
                 return JSONResponse({'status': status}, headers={'Cache-Control': 'private, no-store'})
     except (ValueError, KeyError, OSError, sqlite3.Error):
         raise HTTPException(400, 'Request could not be completed') from None

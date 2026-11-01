@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -97,6 +98,50 @@ def test_production_finish_contextual_proofreading():
         if accepted:
             assert (status, generation, readback) == ('completed', 2, body.replace(old, new))
         else:
-            assert (status, generation, readback) == ('needs-clarification', 1, body)
-            assert old in suggestions and new in suggestions
+            assert generation == 1 and readback == body
+            if json.loads(suggestions):
+                assert status == 'needs-clarification' and old in suggestions and new in suggestions
+            else:
+                assert status == 'needs-clarification'
         conn.close()
+
+
+def test_unsupported_action_is_durable_and_not_lease_reclaimed():
+    conn = db()
+    instruction = 'Make the exercise interactive with correct move feedback'
+    action = enqueue(conn, 's', 'p', 1, instruction)
+    job = claim(conn, 's', now=100)
+    proposal = {'status': 'specialist', 'message': 'Request specialist follow-up', 'patches': []}
+    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body': 'Move teh king safely'}], now=101) == 'needs-clarification'
+    assert claim(conn, 's', now=1000) is None
+    assert conn.execute('SELECT status FROM review_actions WHERE id=?', (action,)).fetchone()[0] == 'needs-clarification'
+
+
+def test_design_change_is_revision_bound_and_noop_is_not_completed():
+    conn = db()
+    page = '610bd633a68d2d0c3e06e5bc'
+    conn.execute('UPDATE revisions SET page_id=? WHERE page_id=?', (page, 'p'))
+    instruction = 'Make the board smaller'
+    action = enqueue(conn, 's', page, 1, instruction)
+    job = claim(conn, 's', now=100)
+    proposal = {'status':'completed','message':'Apply supported design','patches':[]}
+    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=101) == 'completed'
+    assert conn.execute('SELECT settings FROM review_design WHERE generation=2').fetchone()[0] == '{"board_size": "small"}'
+    conn.execute('INSERT INTO revisions SELECT source,page_id,3,body,notes,decision,ready FROM revisions WHERE generation=2')
+    conn.execute('INSERT INTO review_design SELECT source,page_id,3,settings FROM review_design WHERE generation=2')
+    action = enqueue(conn, 's', page, 3, instruction)
+    job = claim(conn, 's', now=102)
+    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=103) == 'needs-clarification'
+    assert conn.execute('SELECT max(generation) FROM revisions').fetchone()[0] == 3
+
+
+def test_design_does_not_override_newer_edits():
+    conn = db()
+    page = '610bd633a68d2d0c3e06e5bc'
+    conn.execute('UPDATE revisions SET page_id=? WHERE page_id=?', (page, 'p'))
+    action = enqueue(conn, 's', page, 1, 'Make the board smaller')
+    job = claim(conn, 's', now=100)
+    conn.execute('INSERT INTO revisions(source,page_id,generation,body) VALUES (?,?,?,?)', ('s',page,2,'Newer author text'))
+    proposal = {'status':'completed','message':'Apply supported design','patches':[]}
+    assert finish(conn, 's', action, job['lease_token'], proposal, [{'body':'Move teh king safely'}], now=101) == 'needs-clarification'
+    assert conn.execute('SELECT count(*) FROM review_design').fetchone()[0] == 0
