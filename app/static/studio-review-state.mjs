@@ -3,6 +3,13 @@ export function reviewButtonVisible(priceTier) { return priceTier !== 'free'; }
 export function firstPaidNeedsReview(priceTier, hasPublishedVersion) {
   return reviewButtonVisible(priceTier) && !hasPublishedVersion;
 }
+export function publicationAccessPolicy(priceTier, hasPublishedVersion, publishedAccess) {
+  if (!hasPublishedVersion) return firstPaidNeedsReview(priceTier, false) ? 'review' : 'normal';
+  if (!['free', 'subscriber'].includes(publishedAccess)) return 'unknown';
+  if (publishedAccess === 'free' && priceTier !== 'free') return 'protect-free';
+  if (publishedAccess === 'subscriber' && priceTier === 'free') return 'protect-paid';
+  return 'normal';
+}
 export function reviewPresentation(snapshot) {
   const op=snapshot.latestOperation,result=op?.result||{},queued=op?.state==='queued',apple=result.appleState;
   const needsAccess=snapshot.accessState==='revoked'||(snapshot.accessState==='active'&&!snapshot.activeCapability);

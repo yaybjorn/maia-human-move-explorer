@@ -1,4 +1,4 @@
-import { firstPaidNeedsReview, reviewButtonVisible, reviewPresentation } from "./studio-review-state.mjs?v=20261103-course-review2";
+import { publicationAccessPolicy, reviewButtonVisible, reviewPresentation } from "./studio-review-state.mjs?v=20261103-course-review3";
 import { sharedCommentIndex, sharedCommentFor, commentParts, commentWithProse, commentOriginRecords, restoreCommentOrigins, headersWithCommentOrigins, writeSharedComment, clearDetachedCommentFallbacks } from './studio-shared-comments.mjs?v=20261028-shared-comments';
 import { wrongBranchDepth, visibleTrainingChildren } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
 import { sharedHintIndex, sharedHintFor, hintOriginRecords, restoreHintOrigins, headersWithHintOrigins, coalesceIdenticalHints, writeSharedHint, clearDetachedHintFallbacks } from "./studio-shared-hints.mjs?v=20261027-shared-hint-selection";
@@ -1498,12 +1498,18 @@ async function preparePublish(){
   if(!resolveCompiledChapters(validation)) return showStatus("The compiled chapter positions could not be matched safely. Publishing is blocked.",true);
   if(dirty()){if(!await saveDraft({quiet:true}))return;validation=await runQuality({forPublish:true});if(!validation)return;}
   const warnings=combinedValidation(validation).warnings;
-  let history={versions:[]};try{history=await api.versions(state.courseID)}catch(error){
-    if(reviewButtonVisible(priceTierFor(state.document.metadata)))return showStatus("Could not check this paid course's publication history. No publication request was sent. Try again.",true);
+  let history;try{history=await api.versions(state.courseID)}catch(error){
+    return showStatus("Could not check this course's publication history. No publication request was sent. Try again.",true);
   }
   if(dirty())return showStatus("The course changed while preparing. Press Publish again when you have finished editing.",true);
   const latest=(history.versions||[])[0],liveSummary=latest?.validation?.summary||{},positions=trainingPack(state.document,state.document.metadata.slug).positions.length,chapters=ensureChapters(state.document,state.document.metadata.slug).length;
-  if(firstPaidNeedsReview(priceTierFor(state.document.metadata),Boolean(latest))){
+  const currentVersion=history.currentPublishedVersion;
+  const published=(history.versions||[]).find(version=>version.version===currentVersion);
+  const accessPolicy=publicationAccessPolicy(priceTierFor(state.document.metadata),Boolean(currentVersion),published?.access);
+  if(accessPolicy==='unknown')return showStatus("Could not verify the live course's access. No publication request was sent. Try again.",true);
+  if(accessPolicy==='protect-free')return showStatus("This course is already free for learners. Create a separate paid course; existing free access cannot be removed.",true);
+  if(accessPolicy==='protect-paid')return showStatus("This course already has buyers. Its paid access cannot be removed or reassigned.",true);
+  if(accessPolicy==='review'){
     await openAppleReview();
     $("apple-review-feedback").textContent="A new paid course needs Apple product approval before you can publish its reviewed version. Prepare review to begin; nothing is sent or published automatically.";
     return;

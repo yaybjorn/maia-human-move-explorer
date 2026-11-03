@@ -1,11 +1,18 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { firstPaidNeedsReview, reviewButtonVisible, reviewPresentation } from '../app/static/studio-review-state.mjs';
+import { firstPaidNeedsReview, publicationAccessPolicy, reviewButtonVisible, reviewPresentation } from '../app/static/studio-review-state.mjs';
 test('free courses do not show Apple review',()=>{assert.equal(reviewButtonVisible('free'),false);assert.equal(reviewButtonVisible('usd-9.99'),true);});
 test('only first paid publication is directed to Apple review',()=>{
  assert.equal(firstPaidNeedsReview('usd-19.99',false),true);
  assert.equal(firstPaidNeedsReview('usd-19.99',true),false);
  assert.equal(firstPaidNeedsReview('free',false),false);
+});
+test('published access and buyer promises stay protected',()=>{
+ assert.equal(publicationAccessPolicy('usd-19.99',true,'free'),'protect-free');
+ assert.equal(publicationAccessPolicy('free',true,'subscriber'),'protect-paid');
+ assert.equal(publicationAccessPolicy('usd-19.99',true,'subscriber'),'normal');
+ assert.equal(publicationAccessPolicy('free',true,'free'),'normal');
+ assert.equal(publicationAccessPolicy('usd-19.99',true,undefined),'unknown');
 });
 test('draft, preparing and submitted expose only the valid next action',()=>{
  assert.deepEqual(reviewPresentation({}).actions,['prepare']);
