@@ -1,5 +1,8 @@
 /** Pure presentation policy; backend remains authoritative for all mutations. */
 export function reviewButtonVisible(priceTier) { return priceTier !== 'free'; }
+export function firstPaidNeedsReview(priceTier, hasPublishedVersion) {
+  return reviewButtonVisible(priceTier) && !hasPublishedVersion;
+}
 export function reviewPresentation(snapshot) {
   const op=snapshot.latestOperation,result=op?.result||{},queued=op?.state==='queued',apple=result.appleState;
   const needsAccess=snapshot.accessState==='revoked'||(snapshot.accessState==='active'&&!snapshot.activeCapability);
