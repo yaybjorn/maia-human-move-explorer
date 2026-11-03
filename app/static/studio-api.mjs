@@ -149,6 +149,7 @@ export class StudioAPI {
     } finally { clearTimeout(timer); }
   }
 
+  priceCheck(id, revision, revisionHash) { return this.request(`${ROUTES.course(id)}/price-check`, { method: "POST", body: { revision, revisionHash } }); }
   reviewSnapshots(id) { return this.request(`${ROUTES.course(id)}/review-snapshots`); }
   freezeReview(id, revision, revisionHash) { return this.request(`${ROUTES.course(id)}/review-snapshots`, { method: "POST", body: { revision, revisionHash } }); }
   reviewAction(id, snapshotID, action, body = {}) {

@@ -298,6 +298,8 @@ def test_review_proxy_allows_only_named_operations():
         assert not studio_path_allowed(f"{base}/{snapshot}/{action}", "GET")
     assert not studio_path_allowed(f"{base}/{snapshot}/arbitrary", "POST")
     assert not studio_path_allowed(f"{base}/{snapshot}/publish", "DELETE")
+    assert studio_path_allowed(f"courses/{course}/price-check", "POST")
+    assert not studio_path_allowed(f"courses/{course}/price-check", "GET")
 
 
 def test_course_studio_dedicated_host_and_legacy_redirect_config():

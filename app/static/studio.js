@@ -1,3 +1,4 @@
+import { reviewButtonVisible, reviewPresentation } from "./studio-review-state.mjs?v=20261103-course-review";
 import { sharedCommentIndex, sharedCommentFor, commentParts, commentWithProse, commentOriginRecords, restoreCommentOrigins, headersWithCommentOrigins, writeSharedComment, clearDetachedCommentFallbacks } from './studio-shared-comments.mjs?v=20261028-shared-comments';
 import { wrongBranchDepth, visibleTrainingChildren } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
 import { sharedHintIndex, sharedHintFor, hintOriginRecords, restoreHintOrigins, headersWithHintOrigins, coalesceIdenticalHints, writeSharedHint, clearDetachedHintFallbacks } from "./studio-shared-hints.mjs?v=20261027-shared-hint-selection";
@@ -518,6 +519,7 @@ function renderAll() {
   if (state.view === "chapters") renderChapters();
   if (state.view === "preview") renderPreview();
   $("course-title").textContent = state.document.metadata.title || "Untitled course";
+  $("apple-review").hidden=!reviewButtonVisible(priceTierFor(state.document.metadata));
   updateSaveState();
 }
 
@@ -1514,6 +1516,7 @@ async function preparePublish(){
 }
 let appleReviewBusy=false, appleReviewCourseID=null, appleReviewCode=null;
 async function openAppleReview(){
+  if(!reviewButtonVisible(priceTierFor(state.document.metadata)))return showStatus("Free courses do not need Apple review.");
   appleReviewCourseID=state.courseID;appleReviewCode=null;$("apple-review-feedback").textContent="";
   $("apple-review-dialog").showModal();await refreshAppleReview();
 }
@@ -1523,25 +1526,13 @@ async function refreshAppleReview(){
     const data=await api.reviewSnapshots(courseID);if(courseID!==appleReviewCourseID)return;
     const snapshots=Array.isArray(data.snapshots)?data.snapshots:[];
     content.innerHTML=snapshots.map(s=>{
-      const op=s.latestOperation,result=op?.result||{},queued=op?.state==="queued";
-      const appleState=result.appleState,needsAccessRepair=s.accessState==="revoked"||(s.accessState==="active"&&!s.activeCapability);
-      const description=needsAccessRepair ? "Action needed — reviewer access is revoked. Restore access before continuing."
-        : s.accessState==="repairing" ? "Restoring reviewer access."
-        : queued ? (op.action==="status"?"Checking Apple status.":op.action==="submit"?"Preparing review — waiting for the review screenshot and submission approval. Not sent to Apple yet.":op.action==="repair"?"Restoring reviewer access.":"Preparing review — checking the App Store product.")
-        : result.priceMatches===false ? "Action needed — the App Store price does not match this review copy."
-        : ["WAITING_FOR_REVIEW","IN_REVIEW"].includes(appleState) ? "Awaiting Apple review."
-        : appleState==="APPROVED" ? "Approved by Apple. Publish this reviewed version when ready."
-        : ["REJECTED","DEVELOPER_REJECTED","DEVELOPER_ACTION_NEEDED"].includes(appleState) ? "Rejected or action needed — check Apple’s review feedback."
-        : appleState ? "Preparing review — a review screenshot and submission approval may still be needed."
-        : "Draft review copy prepared. Not sent to Apple.";
-      const approved=!needsAccessRepair&&s.accessState!=="repairing"&&op?.action==="status"&&result.appleState==="APPROVED"&&result.priceMatches===true&&result.receiptID;
-      return `<section class="tool-card"><h3>Revision ${Number(s.revision)} · ${escapeHTML(s.version)}</h3><p>${escapeHTML(description)}</p>
+      const presentation=reviewPresentation(s),result=s.latestOperation?.result||{},id=escapeHTML(s.id);
+      const labels={prepare:"Check preparation",submit:"Request Apple submission",status:"Check Apple status",publish:"Publish reviewed version",repair:"Restore reviewer access",resume:"Restore reviewer access"};
+      const actions=presentation.actions.map(action=>`<button type="button" class="${action==="publish"?"primary":"secondary"}" data-review-action="${action}" data-snapshot="${id}" ${action==="publish"?`data-receipt="${escapeHTML(result.receiptID)}" data-revision="${Number(s.revision)}"`:""}>${labels[action]}</button>`).join("");
+      const controls=presentation.reviewerControls?`<details><summary>Reviewer access</summary><button type="button" class="secondary" data-review-action="rotate" data-snapshot="${id}" ${s.accessState?"disabled":""}>Replace reviewer code</button> <button type="button" class="secondary" data-review-action="revoke" data-snapshot="${id}">Revoke reviewer access</button></details>`:"";
+      return `<section class="tool-card"><h3>Revision ${Number(s.revision)}</h3><p>${escapeHTML(presentation.description)}</p>
         <p class="muted">This frozen copy is separate from your current draft (revision ${Number(state.revision)}). Publishing it never discards newer draft edits.</p>
-        <div class="dialog-actions"><button type="button" class="secondary" data-review-action="prepare" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Check preparation</button>
-        <button type="button" class="secondary" data-review-action="submit" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Send for Apple review</button>
-        <button type="button" class="secondary" data-review-action="status" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Check Apple status</button>
-        ${approved?`<button type="button" class="primary" data-review-action="publish" data-snapshot="${escapeHTML(s.id)}" data-receipt="${escapeHTML(result.receiptID)}" data-revision="${Number(s.revision)}">Publish reviewed version</button>`:""}</div>
-        <details><summary>Reviewer access</summary><button type="button" class="secondary" data-review-action="rotate" data-snapshot="${escapeHTML(s.id)}" ${s.accessState?"disabled":""}>Replace reviewer code</button> <button type="button" class="secondary" data-review-action="revoke" data-snapshot="${escapeHTML(s.id)}">Revoke reviewer access</button> ${needsAccessRepair?`<button type="button" class="secondary" data-review-action="${queued?"resume":"repair"}" data-snapshot="${escapeHTML(s.id)}">Restore reviewer access</button>`:""}</details></section>`;
+        <div class="dialog-actions">${actions}</div>${controls}</section>`;
     }).join("") || '<p class="muted">Draft — prepare a private review copy when ready. Free courses can be published without Apple review.</p>';
     const codePanel=$("apple-review-code");codePanel.hidden=!appleReviewCode;codePanel.textContent=appleReviewCode?`Reviewer code (shown once): ${appleReviewCode}`:"";
     content.querySelectorAll("[data-review-action]").forEach(button=>button.addEventListener("click",()=>performAppleReviewAction(button)));
@@ -1584,7 +1575,7 @@ $("apple-review-dialog").addEventListener("cancel",event=>{if(appleReviewBusy)ev
 
 function resetPublishFeedback(){
   $("publish-feedback").hidden=true;$("publish-feedback").textContent="";
-  $("publish-history").hidden=true;$("confirm-publish").hidden=false;
+  $("publish-history").hidden=true;$("check-store-price").hidden=true;$("confirm-publish").hidden=false;
   $("confirm-publish").disabled=false;$("cancel-publish").textContent="Cancel";
 }
 function publishFeedback(message,kind){
@@ -1617,7 +1608,14 @@ async function submitReviewedPublication(){
     catch{publishFeedback(`Published ${confirmedVersion}. The course or history display could not refresh. Close this dialog and reload to see the published version; do not publish again.`,"success");}
   }catch(error){
     // A failed/lost response may follow a committed transaction. Never retry it.
-    publishFeedback(`Publication could not be confirmed. Check Version history before trying again. ${error.message}`,"error");
+    if(error.code==="price_reconciliation_required"){
+      $("check-store-price").hidden=false;
+      const d=error.details||{};
+      const message=d.state==="queued"?"App Store price check is still pending. The course has not been published.":
+        d.priceMatches===false&&d.usaPrice?`App Store reports $${d.usaPrice}; this draft’s reference price is ${d.referencePrice||"different"}. Reconcile the prices before publishing.`:
+        "The App Store price needs to be checked before this change can be published. No publication request was completed.";
+      publishFeedback(message,"error");
+    } else publishFeedback(`Publication could not be confirmed. Check Version history before trying again. ${error.message}`,"error");
   }finally{
     publishPending=false;setBusy(button,false);button.hidden=true;button.disabled=true;
     $("close-publish").disabled=false;$("cancel-publish").disabled=false;
@@ -1625,6 +1623,18 @@ async function submitReviewedPublication(){
     $("publish-history").hidden=false;$("publish-dialog").setAttribute("aria-busy","false");
   }
 }
+async function requestStorePriceCheck(){
+  const candidate=state.publishCandidate,button=$("check-store-price");
+  if(!candidate||candidate.courseID!==state.courseID||candidate.revision!==state.revision||dirty())return publishFeedback("The draft changed. Close this dialog and review it again.","error");
+  setBusy(button,true,"Checking…");
+  try{
+    const snapshot=await api.priceCheck(candidate.courseID,candidate.revision,candidate.revisionHash);
+    await api.reviewAction(candidate.courseID,snapshot.snapshotID,"operations",{action:"price"});
+    button.hidden=true;publishFeedback("App Store price check requested. This has not published the course. When the check completes, review and publish again.","pending");
+  }catch(error){publishFeedback(`Price check could not be requested: ${error.message}`,"error");}
+  finally{setBusy(button,false);}
+}
+$("check-store-price").addEventListener("click",requestStorePriceCheck);
 function closePublishDialog(){if(publishPending)return;state.publishCandidate=null;$("publish-dialog").close();}
 function showPublicationHistory(){
   if(publishPending)return;closePublishDialog();switchView("history");
