@@ -87,7 +87,7 @@
           <label class="span-two">Subtitle<input name="subtitle" maxlength="160"></label>
           <label>Course ID<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" aria-describedby="slug-help" required readonly><small id="slug-help">Fixed after course creation so app links and learner progress remain stable.</small></label>
           <label>Play as<select name="side"><option value="white">White</option><option value="black">Black</option></select></label>
-          <label>Price<select name="priceTier"><option value="free">Free</option><option value="usd-4.99">$4.99</option><option value="usd-9.99">$9.99</option><option value="usd-19.99">$19.99</option></select><small>Paid tiers use the course’s fixed App Store product identifier.</small></label>
+          <label>Reference price (USD)<select name="priceTier" aria-describedby="price-tier-help"><option value="free">Free</option><option value="usd-4.99">$4.99</option><option value="usd-9.99">$9.99</option><option value="usd-19.99">$19.99</option></select><small id="price-tier-help">For paid courses, this does not change or verify the App Store price. Check the course’s fixed product in App Store Connect; learners pay Apple’s local price.</small></label>
           <label class="checkbox-label"><input name="catalogVisible" type="checkbox"> Show in app catalogue</label>
           <label>Opponent rating<input name="opponentRating" type="number" min="400" max="3000" step="1"></label>
           <label class="span-two">Description<textarea name="description" rows="5" maxlength="2000"></textarea></label>
