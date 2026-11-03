@@ -36,6 +36,7 @@
         <button id="undo" class="icon-button" type="button" title="Undo (⌘Z)" aria-label="Undo" disabled>↶</button>
         <button id="redo" class="icon-button" type="button" title="Redo (⇧⌘Z)" aria-label="Redo" disabled>↷</button>
         <button id="save" class="secondary" type="button" hidden disabled>Save draft</button>
+        <button id="apple-review" class="secondary" type="button" hidden>Apple review</button>
         <button id="publish" class="primary" type="button" hidden>Publish</button>
         <button id="account-button" class="account-button" type="button" aria-haspopup="menu" aria-controls="account-menu" aria-expanded="false"><span id="avatar">O</span><span id="account-name">Author</span></button>
       </div>
@@ -232,6 +233,15 @@
     <div class="dialog-card"><div class="dialog-heading"><div><p class="eyebrow">Newer saved version found</p><h2 id="conflict-title">This course was saved in another tab or browser</h2></div></div><p>Your unsaved work is safe unless you choose to replace it with the latest saved version.</p><div class="dialog-actions"><button id="conflict-keep" class="secondary">Keep this version</button><button id="conflict-reload" class="primary">Replace with latest saved version</button></div></div>
   </dialog>
 
+  <dialog id="apple-review-dialog" aria-labelledby="apple-review-title">
+    <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Paid course</p><h2 id="apple-review-title">Apple review</h2></div><button id="close-apple-review" class="icon-button" type="button" aria-label="Close">×</button></div>
+      <p>Prepare a private, frozen copy for Apple. Your draft stays editable. Apple approval does not publish the course.</p>
+      <div id="apple-review-code" hidden></div>
+      <div id="apple-review-content" aria-live="polite"></div>
+      <p id="apple-review-feedback" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="prepare-apple-review" class="secondary" type="button">Prepare review</button><button id="done-apple-review" class="secondary" type="button">Close</button></div>
+    </div>
+  </dialog>
   <dialog id="publish-dialog" aria-labelledby="publish-title">
     <div class="dialog-card publish-dialog"><div class="dialog-heading"><div><p class="eyebrow">Publish course</p><h2 id="publish-title">Review before going live</h2></div><button id="close-publish" class="icon-button" aria-label="Close">×</button></div><div id="publish-review"></div><p id="publish-feedback" class="publish-feedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></p><div class="dialog-actions"><button id="publish-history" class="secondary" hidden>Check Version history</button><button id="cancel-publish" class="secondary">Cancel</button><button id="confirm-publish" class="primary">Publish to app</button></div></div>
   </dialog>
@@ -252,7 +262,7 @@
 
   <!-- Revision the root module with its nested document dependency: a normal
        reload must not retain an entrypoint that imports the pre-repair hint normaliser. -->
-  <script type="module" src="/static/studio.js?v=20261030-lock-contention"></script>
+  <script type="module" src="/static/studio.js?v=20261103-course-review"></script>
 
 </body>
 </html>

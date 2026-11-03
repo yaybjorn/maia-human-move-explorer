@@ -7,7 +7,7 @@ import { createExtractionPanel } from "./studio-extraction.mjs?v=20260926-writin
 // kept open through a failed upload; a normal reload must not retain the
 // pre-control module from its HTTP cache.
 import { createUploadPanel } from "./studio-upload-panel.mjs?v=20261030-lock-contention";
-import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20260923-chapters";
+import { StudioAPI, analysisAPI, importedCoursePayload } from "./studio-api.mjs?v=20261103-course-review";
 
 import { EngineAnalysisController, engineEvaluationText, whiteEvaluationPercent } from "./studio-engine.mjs?v=20260902-progressive-engine";
 import {
@@ -223,7 +223,7 @@ async function openCourse(id, { discardUnsaved = false, view = null } = {}) {
     if (discardUnsaved) clearCrashRecovery(); else restoreCrashRecovery();
     $("course-title").textContent = state.document.metadata.title;
     $("course-identity").hidden = false; $("course-navigation").hidden = false;
-    $("save").hidden = false; $("publish").hidden = false;
+    $("save").hidden = false; $("publish").hidden = false; $("apple-review").hidden = false;
     renderAll(); await refreshPosition();
     const requestedView = view || location.hash.slice(1);
     switchView(requestedView === "videos" ? "game-videos" : document.querySelector(`[data-panel="${CSS.escape(requestedView)}"]`) ? requestedView : "editor");
@@ -1512,6 +1512,76 @@ async function preparePublish(){
   $("publish-dialog").showModal();
   }catch(error){showStatus(`Publish preparation stopped. No publication request was sent. ${error.message}`,true);}finally{setBusy(button,false)}
 }
+let appleReviewBusy=false, appleReviewCourseID=null, appleReviewCode=null;
+async function openAppleReview(){
+  appleReviewCourseID=state.courseID;appleReviewCode=null;$("apple-review-feedback").textContent="";
+  $("apple-review-dialog").showModal();await refreshAppleReview();
+}
+async function refreshAppleReview(){
+  const courseID=appleReviewCourseID,content=$("apple-review-content");
+  try{
+    const data=await api.reviewSnapshots(courseID);if(courseID!==appleReviewCourseID)return;
+    const snapshots=Array.isArray(data.snapshots)?data.snapshots:[];
+    content.innerHTML=snapshots.map(s=>{
+      const op=s.latestOperation,result=op?.result||{},queued=op?.state==="queued";
+      const appleState=result.appleState,needsAccessRepair=s.accessState==="revoked"||(s.accessState==="active"&&!s.activeCapability);
+      const description=needsAccessRepair ? "Action needed — reviewer access is revoked. Restore access before continuing."
+        : s.accessState==="repairing" ? "Restoring reviewer access."
+        : queued ? (op.action==="status"?"Checking Apple status.":op.action==="submit"?"Preparing review — waiting for the review screenshot and submission approval. Not sent to Apple yet.":op.action==="repair"?"Restoring reviewer access.":"Preparing review — checking the App Store product.")
+        : result.priceMatches===false ? "Action needed — the App Store price does not match this review copy."
+        : ["WAITING_FOR_REVIEW","IN_REVIEW"].includes(appleState) ? "Awaiting Apple review."
+        : appleState==="APPROVED" ? "Approved by Apple. Publish this reviewed version when ready."
+        : ["REJECTED","DEVELOPER_REJECTED","DEVELOPER_ACTION_NEEDED"].includes(appleState) ? "Rejected or action needed — check Apple’s review feedback."
+        : appleState ? "Preparing review — a review screenshot and submission approval may still be needed."
+        : "Draft review copy prepared. Not sent to Apple.";
+      const approved=!needsAccessRepair&&s.accessState!=="repairing"&&op?.action==="status"&&result.appleState==="APPROVED"&&result.priceMatches===true&&result.receiptID;
+      return `<section class="tool-card"><h3>Revision ${Number(s.revision)} · ${escapeHTML(s.version)}</h3><p>${escapeHTML(description)}</p>
+        <p class="muted">This frozen copy is separate from your current draft (revision ${Number(state.revision)}). Publishing it never discards newer draft edits.</p>
+        <div class="dialog-actions"><button type="button" class="secondary" data-review-action="prepare" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Check preparation</button>
+        <button type="button" class="secondary" data-review-action="submit" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Send for Apple review</button>
+        <button type="button" class="secondary" data-review-action="status" data-snapshot="${escapeHTML(s.id)}" ${queued?"disabled":""}>Check Apple status</button>
+        ${approved?`<button type="button" class="primary" data-review-action="publish" data-snapshot="${escapeHTML(s.id)}" data-receipt="${escapeHTML(result.receiptID)}" data-revision="${Number(s.revision)}">Publish reviewed version</button>`:""}</div>
+        <details><summary>Reviewer access</summary><button type="button" class="secondary" data-review-action="rotate" data-snapshot="${escapeHTML(s.id)}" ${s.accessState?"disabled":""}>Replace reviewer code</button> <button type="button" class="secondary" data-review-action="revoke" data-snapshot="${escapeHTML(s.id)}">Revoke reviewer access</button> ${needsAccessRepair?`<button type="button" class="secondary" data-review-action="${queued?"resume":"repair"}" data-snapshot="${escapeHTML(s.id)}">Restore reviewer access</button>`:""}</details></section>`;
+    }).join("") || '<p class="muted">Draft — prepare a private review copy when ready. Free courses can be published without Apple review.</p>';
+    const codePanel=$("apple-review-code");codePanel.hidden=!appleReviewCode;codePanel.textContent=appleReviewCode?`Reviewer code (shown once): ${appleReviewCode}`:"";
+    content.querySelectorAll("[data-review-action]").forEach(button=>button.addEventListener("click",()=>performAppleReviewAction(button)));
+  }catch(error){content.textContent=`Review status could not be loaded: ${error.message}`;}
+}
+async function prepareAppleReview(){
+  if(appleReviewBusy)return;appleReviewBusy=true;const button=$("prepare-apple-review");setBusy(button,true,"Preparing…");
+  try{
+    if(!await saveDraft({quiet:true}))return;
+    const validation=await runQuality({forPublish:true});if(!validation||validation.valid!==true||combinedValidation(validation).blockers.length||validation.revision!==state.revision||!validation.revisionHash)throw new Error("Save and pass the course checks first.");
+    const result=await api.freezeReview(appleReviewCourseID,state.revision,validation.revisionHash);
+    appleReviewCode=null;
+    try { await api.reviewAction(appleReviewCourseID,result.snapshotID,"operations",{action:"prepare"});
+      $("apple-review-feedback").textContent="Preparing review. The course has not been sent to Apple or published.";
+    } catch(error) { $("apple-review-feedback").textContent=`Private review copy saved, but preparation could not start: ${error.message}`; }
+    await refreshAppleReview();
+  }catch(error){$("apple-review-feedback").textContent=`Review preparation stopped: ${error.message}`;}
+  finally{appleReviewBusy=false;setBusy(button,false);}
+}
+async function performAppleReviewAction(button){
+  if(appleReviewBusy)return;const action=button.dataset.reviewAction,snapshot=button.dataset.snapshot;
+  if(action==="publish"&&!confirm(`Publish reviewed revision ${button.dataset.revision}? Newer draft edits will remain unpublished.`))return;
+  if(action==="revoke"&&!confirm("Revoke all reviewer access to this frozen copy?"))return;
+  appleReviewBusy=true;setBusy(button,true,"Working…");
+  try{
+    const path=["prepare","submit","status","repair"].includes(action)?"operations":action;
+    const body=path==="operations"?{action}:action==="publish"?{receiptID:button.dataset.receipt}:{};
+    const result=await api.reviewAction(appleReviewCourseID,snapshot,path,body);
+    if(action==="repair")await api.reviewAction(appleReviewCourseID,snapshot,"resume",{});
+    if(action==="rotate")appleReviewCode=result.code;else if(action==="revoke" || action==="submit")appleReviewCode=null;
+    $("apple-review-feedback").textContent=path==="operations"?(action==="submit"?"Preparing review — awaiting the screenshot and submission approval. Not sent to Apple yet.":action==="status"?"Checking Apple status.":action==="repair"?"Restoring reviewer access.":"Preparing review."):action==="publish"?`Published reviewed revision ${button.dataset.revision}. Newer draft edits remain unpublished.`:action==="rotate"?"Previous reviewer codes were revoked; the new code is shown once.":action==="resume"?"Restoring reviewer access.":"Reviewer access revoked.";
+    if(action==="publish")await loadCourses();await refreshAppleReview();
+  }catch(error){$("apple-review-feedback").textContent=`Action could not be confirmed: ${error.message}`;}
+  finally{appleReviewBusy=false;setBusy(button,false);}
+}
+function closeAppleReview(){if(appleReviewBusy)return;appleReviewCode=null;appleReviewCourseID=null;$("apple-review-code").textContent="";$("apple-review-code").hidden=true;$("apple-review-dialog").close();}
+$("apple-review").addEventListener("click",openAppleReview);$("prepare-apple-review").addEventListener("click",prepareAppleReview);
+$("close-apple-review").addEventListener("click",closeAppleReview);$("done-apple-review").addEventListener("click",closeAppleReview);
+$("apple-review-dialog").addEventListener("cancel",event=>{if(appleReviewBusy)event.preventDefault();else {appleReviewCode=null;appleReviewCourseID=null;}});
+
 function resetPublishFeedback(){
   $("publish-feedback").hidden=true;$("publish-feedback").textContent="";
   $("publish-history").hidden=true;$("confirm-publish").hidden=false;
