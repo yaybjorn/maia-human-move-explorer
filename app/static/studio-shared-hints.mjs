@@ -1,4 +1,4 @@
-import { Chess } from './vendor/chessjs/chess.mjs';
+import { initialPosition, advancePosition } from './studio-position-cache.mjs';
 
 // Hints describe the position *before* a learner's main answer. FEN's default
 // en-passant field is emitted only when a legal capture exists; clocks are not
@@ -15,15 +15,14 @@ export function sharedHintIndex(document) {
   for (const chapter of chapters) {
     const nodes = chapter.nodes || [], children = new Map();
     for (const node of nodes) { const key=node.parentId ?? null; const list=children.get(key)||[]; list.push(node); children.set(key,list); }
-    const visit = (parent, board, path) => {
+    const visit = (parent, position, path) => {
       const siblings=children.get(parent)||[];
       for (const [i,node] of siblings.entries()) {
         const learner = node.ply % 2 === (document.metadata.side === 'black' ? 0 : 1);
-        let next;
-        try { next=new Chess(board.fen()); next.move({from:node.uci.slice(0,2),to:node.uci.slice(2,4),promotion:node.uci[4]}); } catch { continue; }
+        const next=advancePosition(position,node.uci); if (!next) continue;
         const nodePath=[...path,node.uci];
         if (learner && i===0) {
-          const key=hintPositionKey(board,node.uci);
+          const key=next.key;
           const occurrence={chapterID:chapter.id,nodeID:node.id,path:nodePath,key,node};
           occurrences.push(occurrence);const group=groups.get(key)||[];group.push(occurrence);groups.set(key,group);
         }
@@ -32,7 +31,7 @@ export function sharedHintIndex(document) {
         if (!(learner && i>0)) visit(node.id,next,nodePath);
       }
     };
-    visit(null,new Chess(),[]);
+    visit(null,initialPosition,[]);
   }
   const result=new Map();
   for (const group of groups.values()) {

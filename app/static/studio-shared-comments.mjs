@@ -1,5 +1,4 @@
-import { Chess } from './vendor/chessjs/chess.mjs';
-import { hintPositionKey } from './studio-shared-hints.mjs?v=20261027-shared-hints';
+import { initialPosition, advancePosition } from './studio-position-cache.mjs';
 
 // Directives belong to their original move; only the prose is shared.
 export function commentParts(value='') {
@@ -18,13 +17,13 @@ export function sharedCommentIndex(document) {
   const groups=new Map(), result=new Map();
   for(const chapter of chapters){
     const children=new Map();for(const node of chapter.nodes||[]){const key=node.parentId??null;const list=children.get(key)||[];list.push(node);children.set(key,list)}
-    const visit=(parent,board,path,wrong=false)=>{for(const [i,node] of (children.get(parent)||[]).entries()){
-      let next;try{next=new Chess(board.fen());next.move({from:node.uci.slice(0,2),to:node.uci.slice(2,4),promotion:node.uci[4]})}catch{continue}
+    const visit=(parent,position,path,wrong=false)=>{for(const [i,node] of (children.get(parent)||[]).entries()){
+      const next=advancePosition(position,node.uci);if(!next)continue;
       const learner=node.ply%2===(document.metadata.side==='black'?0:1), category=wrong?'wrong-line':learner?(i?'wrong':'correct'):'opponent';
-      const occurrence={chapterID:chapter.id,nodeID:node.id,node,path:[...path,node.uci],key:`${category}|${hintPositionKey(board,node.uci)}`};
+      const occurrence={chapterID:chapter.id,nodeID:node.id,node,path:[...path,node.uci],key:`${category}|${next.key}`};
       const group=groups.get(occurrence.key)||[];group.push(occurrence);groups.set(occurrence.key,group);
       visit(node.id,next,occurrence.path,wrong||category==='wrong');
-    }};visit(null,new Chess(),[]);
+    }};visit(null,initialPosition,[]);
   }
   for(const group of groups.values()){
     const values=[...new Set(group.filter(o=>!['own','inherited'].includes(o.node.commentMode)).map(o=>commentParts(o.node.comment).prose).filter(Boolean))];
