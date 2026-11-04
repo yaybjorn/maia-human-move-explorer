@@ -82,7 +82,7 @@ test("Studio revisions the recovery-control module so a reload cannot retain its
   const source = fs.readFileSync(new URL("../app/static/studio.js", import.meta.url), "utf8");
   assert.match(source, /studio-upload-panel\.mjs\?v=20261030-lock-contention/);
   const document = fs.readFileSync(new URL("../app/static/studio.html", import.meta.url), "utf8");
-  assert.match(document, /studio\.js\?v=20261030-lock-contention/);
+  assert.match(document, /studio\.js\?v=20261104-position-cache/);
 });
 test("cancelling the chooser leaves the next file selection usable", async () => {
   const { root, nodes } = dom(); let runs = 0;
