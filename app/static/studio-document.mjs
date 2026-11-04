@@ -1,6 +1,6 @@
-import { sharedCommentIndex, sharedCommentFor, restoreCommentHeader, commentWithProse } from './studio-shared-comments.mjs?v=20261028-shared-comments';
+import { sharedCommentIndex, sharedCommentFor, restoreCommentHeader, commentWithProse } from './studio-shared-comments.mjs?v=20261104-position-cache';
 import { wrongBranchDepth } from "./studio-training-branch.mjs?v=20261027-wrong-feedback";
-import { sharedHintIndex, sharedHintFor, restoreHintHeader } from "./studio-shared-hints.mjs?v=20261027-shared-hints";
+import { sharedHintIndex, sharedHintFor, restoreHintHeader } from "./studio-shared-hints.mjs?v=20261104-position-cache";
 const DEFAULT_METADATA = Object.freeze({
   title: "Untitled course",
   subtitle: "",

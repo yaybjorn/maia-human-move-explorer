@@ -264,6 +264,15 @@ def studio_path_allowed(path: str, method: str) -> bool:
         return method == "GET"
     if len(parts) == 3 and parts[0] == "courses" and parts[2] == "user-games":
         return method == "GET"
+    if (len(parts) == 3 and parts[0] == "courses" and parts[2] == "price-check"
+            and re.fullmatch(r"[0-9a-fA-F-]{36}", parts[1])):
+        return method == "POST"
+    if (len(parts) in {3, 5} and parts[0] == "courses" and parts[2] == "review-snapshots"
+            and re.fullmatch(r"[0-9a-fA-F-]{36}", parts[1])):
+        if len(parts) == 3:
+            return method in {"GET", "POST"}
+        return bool(re.fullmatch(r"[0-9a-fA-F-]{36}", parts[3])
+                    and parts[4] in {"operations", "revoke", "rotate", "publish", "resume"} and method == "POST")
     if len(parts) == 3 and parts[0] == "courses" and parts[2] in {
         "draft", "validate", "publish", "versions"
     }:

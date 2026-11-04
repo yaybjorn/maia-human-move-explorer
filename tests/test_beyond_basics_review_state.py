@@ -106,3 +106,46 @@ def test_effective_names_do_not_rewrite_history_or_drop_action(tmp_path, monkeyp
         assert conn.execute('select body from revisions').fetchone()[0] == payload['body']
     assert client.put(base, json={**payload, 'body': 'stale newer edit'}, headers=headers).status_code == 409
     assert client.get(base).json()['pages'][payload['page_id']]['body'] == page['body']
+
+
+def test_natural_composite_save_runs_worker_and_returns_private_result(tmp_path, monkeypatch):
+    import sqlite3
+    from pathlib import Path
+
+    from app.beyond_basics_action_queue import claim, finish
+    from scripts import review_action_worker as worker
+
+    database = tmp_path / 'review.db'
+    monkeypatch.setenv('BEYOND_BASICS_REVIEW_STATE_DB', str(database))
+    app = FastAPI()
+    async def upstream(_request, _path):
+        return {'authenticated': True, 'user': {'id': next(iter(REVIEWER_IDS)), 'roles': ['superadmin']}}
+    @app.api_route('/studio/api/{path:path}', methods=['GET', 'PUT'])
+    async def route(path: str, request: Request):
+        return await dispatch(path, request, upstream)
+    client = TestClient(app)
+    manifest = json.loads((Path(__file__).parents[1] / 'app/beyond_basics_course_review_manifest.json').read_text())
+    source = manifest['source_sha256']
+    page = '610bd633a68d2d0c3e06e5bc'
+    base = '/studio/api/beyond-basics/course-review-v2/review-state'
+    data = {'source':source,'page_id':page,'generation':0,'operation':'save','body':'Lesson text',
+            'notes':'Could you make the board a bit smaller and show Steve looking happy?', 'decision':'',
+            'request_id':'12345678-1234-1234-1234-123456789abc'}
+    headers = {'Origin':'https://ggm.fablelabs.no'}
+    assert client.put(base,json=data,headers=headers).status_code == 200
+    assert client.put(base,json=data,headers=headers).json()['generation'] == 1
+    monkeypatch.setattr(worker,'credential',lambda:'fixture')
+    def request(action, payload, _credential):
+        with sqlite3.connect(database, isolation_level=None) as conn:
+            if action == 'claim':
+                job = claim(conn,source,now=100)
+                job['components'] = [{'body':'Lesson text'}]
+                return {'job':job}
+            return {'status':finish(conn,source,payload['id'],payload['lease_token'],payload['proposal'],[{'body':'Lesson text'}],now=101)}
+    monkeypatch.setattr(worker,'request',request)
+    assert worker.run() == 'completed'
+    result = client.get(base).json()['pages'][page]
+    assert result['generation'] == 2 and result['body'] == 'Lesson text'
+    assert result['design'] == {'board_size':'small','character':'c01-happy'}
+    assert result['action']['status'] == 'completed'
+    assert client.put(base,json={**data,'generation':1,'request_id':'22345678-1234-1234-1234-123456789abc'},headers=headers).status_code == 409

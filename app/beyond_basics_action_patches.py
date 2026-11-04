@@ -6,6 +6,32 @@ class InvalidProposal(ValueError):
     """Proposal cannot be safely applied in the private review."""
 
 
+def explicit_replacements(instruction):
+    """Parse the whole instruction into bounded literal edits, never free-form commands."""
+    pattern = re.compile(r"\s*(?:please\s+)?(?:replace|change)\s+([\"'])(.*?)\1\s+(?:with|to)\s+([\"'])(.*?)\3", re.IGNORECASE)
+    separator = re.compile(r"\s*(?:,?\s+and\s+|;\s*)", re.IGNORECASE)
+    source = (instruction or '').strip()
+    edits, pos = [], 0
+    while len(edits) < 5:
+        match = pattern.match(source, pos)
+        if not match or not match[2] or not match[4]:
+            return None
+        edits.append((match[2], match[4]))
+        pos = match.end()
+        if re.fullmatch(r'\s*[.!]?\s*', source[pos:]):
+            return edits
+        connector = separator.match(source, pos)
+        if not connector:
+            return None
+        pos = connector.end()
+    return None
+
+
+def is_copy_edit_request(instruction):
+    """Only whole, bounded requests for a meaning-preserving prose edit."""
+    return bool(re.fullmatch(r"\s*(?:(?:please|could you|can you)\s+)?(?:simplify|shorten|rephrase|rewrite|clarify)\s+(?:(?:this|the)\s+)?(?:text|paragraph|explanation|lesson|page|wording)(?:\s+(?:for beginners|in simpler language|without changing (?:the )?meaning))?[.!?]?\s*", instruction or '', re.IGNORECASE))
+
+
 def _protected_regions(source):
     """Return half-open Python string offsets for quoted/code spans.
 
@@ -101,11 +127,12 @@ def apply_proposal(components, proposal, instruction=None):
         return []
     if not patches:
         raise InvalidProposal("Completed result contains no patches")
-    replacement = re.fullmatch(r"\s*(?:please\s+)?(?:replace|change)\s+([\"'])(.*?)\1\s+(?:with|to)\s+([\"'])(.*?)\3[.!]?\s*", instruction or "", re.IGNORECASE)
+    replacement = explicit_replacements(instruction)
     proofreading = re.fullmatch(r"\s*(?:please\s+)?(?:fix|correct|check|proofread)\s+(?:(?:the|any|all|this|page|text|its|and|spelling|grammar|punctuation|typos?|errors?|mistakes?|on|of)\s*)+[.!]?\s*", instruction or "", re.IGNORECASE)
-    if instruction is not None and not replacement and not proofreading:
+    copy_edit = is_copy_edit_request(instruction)
+    if instruction is not None and not replacement and not proofreading and not copy_edit:
         raise InvalidProposal("Unsupported instruction")
-    if replacement and (len(patches) != 1 or not isinstance(patches[0], dict) or (patches[0].get('old'), patches[0].get('new')) != (replacement.group(2), replacement.group(4))):
+    if replacement and (len(patches) != len(replacement) or any(not isinstance(p, dict) or (p.get('old'), p.get('new')) != pair for p, pair in zip(patches, replacement))):
         raise InvalidProposal("Patch exceeds instruction")
     # Each rule is a conservative literal correction, not a semantic model verdict.
     # Context checks below limit auto-application; ambiguous cases remain manual.
@@ -121,6 +148,9 @@ def apply_proposal(components, proposal, instruction=None):
         ('there is many', 'there are many'), ('you was', 'you were'),
         (' ,', ','), (' .', '.'), (' !', '!'), (' ?', '?'),
     }
+    if copy_edit and (len(patches) > 5 or sum(len(p.get('old', '')) + len(p.get('new', '')) for p in patches if isinstance(p, dict) and isinstance(p.get('old'), str) and isinstance(p.get('new'), str)) > 1200):
+        raise InvalidProposal("Copy edit budget exceeded")
+    protected = re.compile(r"\b(?:white|black|king|queen|rook|bishop|knight|pawn|pawns|pieces|piece|chess|checkmate|check|capture|captures|captured|attack|attacks|attacked|defend|defends|defended|not|no|never|only|must|cannot|can|all|every|some|none|steve|mark|max|beth|hal|magnus|[a-h][1-8]|[0-9]+)\b", re.IGNORECASE)
     if proofreading and (len(patches) > 12 or sum(len(p.get('old', '')) + len(p.get('new', ''))
             for p in patches if isinstance(p, dict) and isinstance(p.get('old'), str) and isinstance(p.get('new'), str)) > 240):
         raise InvalidProposal("Proofreading edit budget exceeded")
@@ -133,6 +163,8 @@ def apply_proposal(components, proposal, instruction=None):
             raise InvalidProposal("Invalid target")
         if not isinstance(old, str) or not isinstance(new, str) or not old or old == new or len(old) > 10000 or len(new) > 10000:
             raise InvalidProposal("Invalid text")
+        if copy_edit and (len(old) > 500 or len(new) > 500 or sorted(x.casefold() for x in protected.findall(old)) != sorted(x.casefold() for x in protected.findall(new))):
+            raise InvalidProposal("Copy edit changes protected chess or factual tokens")
         if proofreading and (old, new) not in safe_typos:
             raise InvalidProposal("Proofreading change requires clarification")
         # Exact literal text, never markup, entities, paths or link creation.

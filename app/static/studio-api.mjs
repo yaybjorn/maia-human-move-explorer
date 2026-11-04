@@ -149,6 +149,13 @@ export class StudioAPI {
     } finally { clearTimeout(timer); }
   }
 
+  priceCheck(id, revision, revisionHash) { return this.request(`${ROUTES.course(id)}/price-check`, { method: "POST", body: { revision, revisionHash } }); }
+  reviewSnapshots(id) { return this.request(`${ROUTES.course(id)}/review-snapshots`); }
+  freezeReview(id, revision, revisionHash) { return this.request(`${ROUTES.course(id)}/review-snapshots`, { method: "POST", body: { revision, revisionHash } }); }
+  reviewAction(id, snapshotID, action, body = {}) {
+    return this.request(`${ROUTES.course(id)}/review-snapshots/${encodeURIComponent(snapshotID)}/${action}`, { method: "POST", body });
+  }
+
   versions(id) { return this.request(ROUTES.versions(id)); }
   restoreVersion(id, versionID, revision) {
     return this.request(ROUTES.restore(id, versionID), { method: "POST", body: { revision } });

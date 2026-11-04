@@ -4,7 +4,8 @@ import json
 import secrets
 import time
 
-from app.beyond_basics_action_patches import InvalidProposal, apply_proposal
+from app.beyond_basics_action_patches import InvalidProposal, apply_proposal, is_copy_edit_request
+from app.beyond_basics_page_design import current_design, requested_design
 
 MAX_ATTEMPTS = 3
 MAX_ACTIVE_ACTIONS = 100
@@ -20,6 +21,9 @@ def ensure_schema(conn):
         attempts INTEGER NOT NULL DEFAULT 0, lease_token TEXT,
         lease_until REAL, updated_at REAL NOT NULL,
         UNIQUE(source,page_id,generation))""")
+    conn.execute('CREATE TABLE IF NOT EXISTS review_preview_unsynced (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,PRIMARY KEY(source,page_id,generation))')
+    conn.execute('CREATE TABLE IF NOT EXISTS review_render_patches (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,patches TEXT NOT NULL,PRIMARY KEY(source,page_id,generation))')
+    conn.execute('CREATE TABLE IF NOT EXISTS review_design (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,settings TEXT NOT NULL,PRIMARY KEY(source,page_id,generation))')
     if 'suggestions' not in {row[1] for row in conn.execute('PRAGMA table_info(review_actions)')}:
         conn.execute("ALTER TABLE review_actions ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]'")
     conn.execute('CREATE TABLE IF NOT EXISTS review_overlays (source TEXT NOT NULL,page_id TEXT NOT NULL,generation INTEGER NOT NULL,patches TEXT NOT NULL,PRIMARY KEY(source,page_id,generation))')
@@ -36,7 +40,7 @@ def enqueue(conn, source, page_id, generation, instruction):
         if existing[1] != instruction:
             raise ValueError('Action already exists with different instruction')
         return existing[0]
-    active = conn.execute("SELECT count(*) FROM review_actions WHERE source=? AND status IN ('queued','running')", (source,)).fetchone()[0]
+    active = conn.execute("SELECT count(*) FROM review_actions WHERE source=? AND status IN ('queued','running','specialist','specialist-dispatched')", (source,)).fetchone()[0]
     if active >= MAX_ACTIVE_ACTIONS:
         raise ValueError('Review queue is full')
     action_id = hashlib.sha256(f'{source}\0{page_id}\0{generation}'.encode()).hexdigest()
@@ -70,7 +74,7 @@ def claim(conn, source, now=None):
         raise
 
 
-def finish(conn, source, action_id, lease_token, proposal, components, now=None):
+def finish(conn, source, action_id, lease_token, proposal, components, now=None, renderable=True):
     """Validate and commit the page overlay and action outcome atomically.
 
     Caller supplies components from a trusted source, never from the worker.
@@ -84,6 +88,10 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None)
         page_id, generation = action[:2]
         latest = conn.execute('SELECT generation FROM revisions WHERE source=? AND page_id=? ORDER BY generation DESC LIMIT 1', (source, page_id)).fetchone()
         suggestions = []
+        render_row = conn.execute('SELECT patches FROM review_render_patches WHERE source=? AND page_id=? AND generation=?', (source,page_id,generation)).fetchone()
+        render_patches = json.loads(render_row[0]) if render_row else []
+        design_row = conn.execute('SELECT settings FROM review_design WHERE source=? AND page_id=? AND generation=?', (source, page_id, generation)).fetchone()
+        design = json.loads(design_row[0]) if design_row else {}
         if not latest or latest[0] != generation:
             status, message, patches = 'needs-clarification', 'A newer page revision exists', []
         else:
@@ -91,11 +99,25 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None)
                 row = conn.execute('SELECT body FROM revisions WHERE source=? AND page_id=? AND generation=?', (source,page_id,generation)).fetchone()
                 if not row or components != [{'body': row[0]}]:
                     raise InvalidProposal('Saved source changed')
-                patches = apply_proposal(components, proposal, action[5])
-                status, message = proposal['status'], proposal['message']
-                if status == 'completed':
-                    message = 'Verified edits applied; other issues may remain.'
-            except (InvalidProposal, TypeError, KeyError):
+                change = requested_design(action[5], page_id)
+                if conn.execute('SELECT 1 FROM review_preview_unsynced WHERE source=? AND page_id=? AND generation=?', (source,page_id,generation)).fetchone():
+                    raise InvalidProposal('Saved text does not match the lesson preview')
+                if proposal == {'status': 'specialist', 'message': 'Request specialist follow-up', 'patches': []}:
+                    status, message, patches = 'needs-clarification', 'Instruction saved but not applied; this request is not supported yet.', []
+                elif change and proposal == {'status': 'completed', 'message': 'Apply supported design', 'patches': []}:
+                    already = all(current_design(page_id, design).get(k) == v for k, v in change.items())
+                    design.update(change)
+                    patches = [{'component': 0, 'field': 'body', 'value': row[0]}]
+                    status, message = 'completed', ('Requested changes already in place.' if already else 'Requested changes applied to the private review.')
+                else:
+                    patches = apply_proposal(components, proposal, action[5])
+                    status, message = proposal['status'], proposal['message']
+                    if status == 'completed' and not renderable:
+                        status, message, patches = 'needs-clarification', 'Instruction saved but not applied; this request is not supported yet.', []
+                    elif status == 'completed':
+                        render_patches.extend({'old': p['old'], 'new': p['new']} for p in proposal['patches'])
+                        message = 'Text edit applied; please review its meaning.' if is_copy_edit_request(action[5]) else 'Verified edits applied; other issues may remain.'
+            except (InvalidProposal, TypeError, KeyError, ValueError, OSError):
                 status, message, patches = 'needs-clarification', 'Review the suggested edits manually; they were not applied.', []
                 # Only structurally safe, source-bound suggestions are retained.
                 # They grant no mutation authority; the author edits and saves.
@@ -104,6 +126,8 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None)
                         apply_proposal(components, proposal)
                         suggestions = [{'old': p['old'], 'new': p['new']} for p in proposal['patches']
                                        if p['component'] == 0 and p['field'] == 'body']
+                        if suggestions:
+                            status, message = 'needs-clarification', 'Instruction saved but not applied; review suggested edits manually.'
                 except (InvalidProposal, TypeError, KeyError):
                     pass
         if status == 'completed':
@@ -117,6 +141,12 @@ def finish(conn, source, action_id, lease_token, proposal, components, now=None)
                 (new_generation,patches[0]['value'],source,page_id,generation,row[0]))
             if inserted.rowcount != 1:
                 raise ValueError('Saved-body compare-and-swap failed')
+            if conn.execute('SELECT 1 FROM review_preview_unsynced WHERE source=? AND page_id=? AND generation=?',(source,page_id,generation)).fetchone():
+                conn.execute('INSERT INTO review_preview_unsynced VALUES (?,?,?)',(source,page_id,new_generation))
+            if render_patches:
+                conn.execute('INSERT INTO review_render_patches VALUES (?,?,?,?)', (source,page_id,new_generation,json.dumps(render_patches,ensure_ascii=True)))
+            if design:
+                conn.execute('INSERT INTO review_design VALUES (?,?,?,?)', (source, page_id, new_generation, json.dumps(design, sort_keys=True)))
             new_id = hashlib.sha256(f'{source}\0{page_id}\0{new_generation}'.encode()).hexdigest()
             conn.execute("INSERT INTO review_actions(id,source,page_id,generation,instruction,status,message,updated_at) VALUES (?,?,?,?,?,'completed',?,?)",
                          (new_id,source,page_id,new_generation,action[5],message,now))

@@ -96,9 +96,13 @@ def test_hmac2_scoped_claim_finish_applies_cas(tmp_path,monkeypatch):
     with sqlite3.connect(tmp_path/'db') as db:
         db.execute('CREATE TABLE revisions(source TEXT,page_id TEXT,generation INTEGER,body TEXT,notes TEXT DEFAULT "",decision TEXT DEFAULT "",ready INTEGER DEFAULT 0,PRIMARY KEY(source,page_id,generation))')
         ensure_schema(db); db.execute('INSERT INTO revisions(source,page_id,generation,body) VALUES (?,?,?,?)',(source,'p',1,'Move teh king safely')); enqueue(db,source,'p',1,'Correct spelling')
+    raw = b'const COURSE=[{"pages":[{"id":"p","components":[{"body":"Move teh king safely"}]}]}];'
+    (tmp_path / 'course.js').write_bytes(raw)
+    monkeypatch.setenv('BEYOND_BASICS_COURSE_REVIEW_DIR', str(tmp_path))
+    manifest = {'source_sha256':source, 'page_ids':['p'], 'files':{'course.js':{'bytes':len(raw), 'sha256':hashlib.sha256(raw).hexdigest()}}}
     app=FastAPI()
     @app.post('/{action}')
-    async def endpoint(action:str,request:Request): return await service(request,{'source_sha256':source,'page_ids':['p']},action)
+    async def endpoint(action:str,request:Request): return await service(request,manifest,action)
     client=TestClient(app)
     def call(action,body,nonce):
         payload=json.dumps(body,separators=(',',':')).encode(); ts=str(int(time.time()))

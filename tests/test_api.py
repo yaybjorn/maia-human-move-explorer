@@ -234,12 +234,12 @@ def test_course_studio_page_and_mobile_safe_board_grid():
     assert page.status_code == 200
     assert "GingerGM Course Studio" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert '/static/studio.js?v=20261030-course-rating' in page.text
+    assert '/static/studio.js?v=20261103-course-review' in page.text
     assert '/static/studio.css?v=20261030-hint-studio' in page.text
     assert "This course was saved in another tab or browser" in page.text
     assert "server draft" not in page.text.lower()
     studio_source = (ROOT / "app" / "static" / "studio.js").read_text()
-    assert './studio-api.mjs?v=20260923-chapters' in studio_source
+    assert './studio-api.mjs?v=20261103-course-review' in studio_source
     assert './studio-document.mjs?v=20261030-course-rating' in studio_source
     extraction_source = (ROOT / "app" / "static" / "studio-extraction.mjs").read_text()
     assert './studio-document.mjs?v=20260926-writing-ellipsis' in extraction_source
@@ -285,6 +285,21 @@ def test_user_games_proxy_is_a_read_only_allowlisted_studio_operation():
     assert studio_path_allowed(f"courses/{course_id}/user-games", "GET") is True
     assert studio_path_allowed(f"courses/{course_id}/user-games", "POST") is False
     assert studio_path_allowed(f"courses/{course_id}/user-games", "DELETE") is False
+
+
+def test_review_proxy_allows_only_named_operations():
+    course = "10000000-0000-4000-8000-000000000001"
+    snapshot = "20000000-0000-4000-8000-000000000002"
+    base = f"courses/{course}/review-snapshots"
+    assert studio_path_allowed(base, "GET")
+    assert studio_path_allowed(base, "POST")
+    for action in ("operations", "revoke", "rotate", "publish", "resume"):
+        assert studio_path_allowed(f"{base}/{snapshot}/{action}", "POST")
+        assert not studio_path_allowed(f"{base}/{snapshot}/{action}", "GET")
+    assert not studio_path_allowed(f"{base}/{snapshot}/arbitrary", "POST")
+    assert not studio_path_allowed(f"{base}/{snapshot}/publish", "DELETE")
+    assert studio_path_allowed(f"courses/{course}/price-check", "POST")
+    assert not studio_path_allowed(f"courses/{course}/price-check", "GET")
 
 
 def test_course_studio_dedicated_host_and_legacy_redirect_config():

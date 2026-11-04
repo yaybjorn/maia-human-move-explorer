@@ -1,8 +1,8 @@
-import { sharedCommentIndex, sharedCommentFor } from './studio-shared-comments.mjs?v=20261028-shared-comments';
+import { sharedCommentIndex, sharedCommentFor } from './studio-shared-comments.mjs?v=20261104-position-cache';
 import { wrongBranchDepth } from './studio-training-branch.mjs?v=20261027-wrong-feedback';
-import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261028-shared-comments';
+import { syncActiveChapter, chapterDocument, pathToNode, childrenOf } from './studio-document.mjs?v=20261104-position-cache';
 
-import { sharedHintIndex, sharedHintFor } from './studio-shared-hints.mjs?v=20261027-shared-hints';
+import { sharedHintIndex, sharedHintFor } from './studio-shared-hints.mjs?v=20261104-position-cache';
 
 // Chess directives (including hint, arrows and clock tags) are not explanations.
 export function hasProseComment(value) {
